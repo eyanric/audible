@@ -6,12 +6,11 @@ gates promotion of any method from tilt/flag -> projection-of-record.
 """
 
 from .harness import FoldResult, run_fold
-from .idp import idp_season, stickiness
+from .idp import stickiness
 from .metrics import mae, rmse, spearman, top_n_hit_rate, value_test
 
 __all__ = [
     "FoldResult",
-    "idp_season",
     "mae",
     "rmse",
     "run_fold",

@@ -58,11 +58,13 @@ def run_fold(
 ) -> FoldResult:
     from ..adapters.sleeper import SleeperAdapter
     from ..draft.board import build_board
+    from ..idp import IDP_POSITIONS, idp_projection, idp_season
 
     board = build_board(config, prior_season, cur_season)
     with SleeperAdapter() as adapter:
         prior: dict[str, PlayerSeason] = season_actuals(adapter, prior_season, config)
         cur: dict[str, PlayerSeason] = season_actuals(adapter, cur_season, config)
+        idp_model = idp_projection(idp_season(adapter, prior_season, config), config)
     baseline = regressed_ppg_baseline(prior)
 
     rows: list[dict[str, float | str | int | None]] = []
@@ -78,20 +80,24 @@ def run_fold(
             "actual": act.points, "pid": e.player_id, "adp_rank": e.adp_rank,
             "scarcity_value": sc_value, "vorp_value": vorp_value,
             "prior_rush": ps.stats.get("rush_yd", 0.0),
+            "model": idp_model.get(e.player_id),  # IDP tackle model (None for offense)
         })
 
-    # per-position metrics for each method
+    # per-position metrics; IDP positions add the tackle model as a third method, scored
+    # on the model's covered population so all methods compare on the same players.
     per_position: dict[str, list[MethodMetrics]] = {}
-    for pos in [p for p in OFFENSE + ("K", "DEF", "DL", "LB", "DB") if p in config.positions]:
-        group = [r for r in rows if r["pos"] == pos]
+    for pos in [p for p in OFFENSE + ("K", "DEF", *IDP_POSITIONS) if p in config.positions]:
+        use_model = pos in IDP_POSITIONS
+        group = [r for r in rows if r["pos"] == pos and (not use_model or r["model"] is not None)]
         if len(group) < 5:
             continue
+        methods = ["baseline", "consensus", "model"] if use_model else ["baseline", "consensus"]
         ids = [str(r["pid"]) for r in group]
         actual = [float(r["actual"]) for r in group]  # type: ignore[arg-type]
         n = _hit_n(pos, len(group))
         per_position[pos] = [
             _metrics(m, ids, [float(r[m]) for r in group], actual, n)  # type: ignore[arg-type]
-            for m in ("baseline", "consensus")
+            for m in methods
         ]
 
     # pooled offense metrics (the headline: does board beat baseline/consensus overall?)

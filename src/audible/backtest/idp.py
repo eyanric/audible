@@ -1,80 +1,40 @@
-"""IDP thesis validation (IDP build prompt, §1) -- run BEFORE any tackle model.
+"""IDP thesis validation (IDP build prompt, §1) -- the stickiness analysis.
 
-The entire IDP edge rests on one assumption: tackle volume is sticky and role-predictable
-year over year, while big plays (sacks/INT/passes-defended) are noise. This measures it
-directly -- prior-season rate vs next-season rate, per IDP position, pooled over folds --
-the IDP equivalent of the mobile-QB diagnostic. If tackles aren't sticky, the thesis is
-dead and we don't build the model.
+Run BEFORE any tackle model: is prior-season tackle rate predictive of next season, per
+IDP position, and are big plays noise? Data + model live in ``audible.idp``; this is the
+year-over-year diagnostic that shaped the model's stickiness weights.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from ..config.schema import LeagueConfig
+from ..idp import IDP_POSITIONS, PlayerIdp, idp_season
 from .metrics import spearman
 
-IDP_POSITIONS = ("DL", "LB", "DB")
+
+def _rate(stat: str) -> Callable[[PlayerIdp], float | None]:
+    return lambda p: p.stats.get(stat, 0.0) / p.gp if p.gp else None
 
 
-@dataclass(frozen=True, slots=True)
-class PlayerIdp:
-    player_id: str
-    position: str
-    gp: int
-    snaps: float
-    solo: float
-    assist: float
-    sack: float
-    intc: float
-    pd: float
+def _tkl_rate(p: PlayerIdp) -> float | None:
+    if not p.gp:
+        return None
+    return (p.stats.get("idp_tkl_solo", 0.0) + p.stats.get("idp_tkl_ast", 0.0)) / p.gp
 
 
-# metric name -> per-player rate (None when undefined).
+# metric name -> per-player per-game rate (None when undefined).
 METRICS: dict[str, Callable[[PlayerIdp], float | None]] = {
-    "solo/gm": lambda p: p.solo / p.gp if p.gp else None,
-    "solo/snap": lambda p: p.solo / p.snaps if p.snaps else None,
-    "tkl/gm": lambda p: (p.solo + p.assist) / p.gp if p.gp else None,
-    "sack/gm": lambda p: p.sack / p.gp if p.gp else None,
-    "int/gm": lambda p: p.intc / p.gp if p.gp else None,
-    "pd/gm": lambda p: p.pd / p.gp if p.gp else None,
+    "solo/gm": _rate("idp_tkl_solo"),
+    "solo/snap": lambda p: p.stats.get("idp_tkl_solo", 0.0) / p.snaps if p.snaps else None,
+    "tkl/gm": _tkl_rate,
+    "sack/gm": _rate("idp_sack"),
+    "int/gm": _rate("idp_int"),
+    "pd/gm": _rate("idp_pass_def"),
 }
 STICKY_METRICS = ("solo/gm", "solo/snap", "tkl/gm")
 NOISE_METRICS = ("sack/gm", "int/gm", "pd/gm")
-
-
-def idp_season(adapter: object, season: int, config: LeagueConfig) -> dict[str, PlayerIdp]:
-    """Per-player IDP actuals for one season (tackles, big plays, snaps), from Sleeper."""
-    from ..adapters.sleeper import SleeperAdapter
-
-    assert isinstance(adapter, SleeperAdapter)
-    catalog = adapter.get_players_catalog()
-    out: dict[str, PlayerIdp] = {}
-    for pos in IDP_POSITIONS:
-        if pos not in config.positions:
-            continue
-        for row in adapter.get_stats(season, pos):
-            stats = row.get("stats")
-            player_id = str(row.get("player_id"))
-            if not stats or player_id in out:
-                continue
-            entry = catalog.get(player_id)
-            if entry is None:
-                continue
-            primary, _ = adapter.classify(entry, config.positions)
-            if primary not in IDP_POSITIONS:
-                continue
-            out[player_id] = PlayerIdp(
-                player_id=player_id, position=primary,
-                gp=int(stats.get("gp", 0)), snaps=float(stats.get("def_snp", 0) or 0),
-                solo=float(stats.get("idp_tkl_solo", 0) or 0),
-                assist=float(stats.get("idp_tkl_ast", 0) or 0),
-                sack=float(stats.get("idp_sack", 0) or 0),
-                intc=float(stats.get("idp_int", 0) or 0),
-                pd=float(stats.get("idp_pass_def", 0) or 0),
-            )
-    return out
 
 
 def stickiness(

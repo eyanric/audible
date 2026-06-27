@@ -234,12 +234,24 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     fr = run_fold(cfg, args.prior, args.cur, market=args.market)
 
     print(f"\nPopulation: {fr.population} veterans (>= 6 prior games)")
-    print(f"\nProjection of record vs actual {args.cur}  (naive baseline | consensus):")
+    print(f"\nProjection vs actual {args.cur}  (baseline | consensus | [IDP model]):")
     for pos, mms in fr.per_position.items():
-        print(f"  {pos:<4} n={mms[0].n:<4} {_mm(mms[0])} | {_mm(mms[1])}")
+        print(f"  {pos:<4} n={mms[0].n:<4} " + " | ".join(_mm(m) for m in mms))
     if fr.overall_offense:
         o = fr.overall_offense
         print(f"  OFF  n={o[0].n:<4} {_mm(o[0])} | {_mm(o[1])}")
+
+    idp = [p for p in ("DL", "LB", "DB") if p in fr.per_position]
+    if idp:
+        print("\nIDP gate (tackle model must beat BOTH baseline + consensus OOS to rank on it):")
+        for pos in idp:
+            by = {m.method: m for m in fr.per_position[pos]}
+            if "model" not in by:
+                continue
+            mdl, base, cons = by["model"], by["baseline"], by["consensus"]
+            clears = mdl.spearman > cons.spearman and mdl.spearman > base.spearman
+            print(f"  {pos}: model {mdl.spearman:+.3f}  consensus {cons.spearman:+.3f}  "
+                  f"baseline {base.spearman:+.3f}  -> {'MODEL' if clears else 'stay consensus'}")
 
     mt, mf, edge, nt, nf = fr.value_edge_scarcity
     vmt, vmf, vedge, vnt, vnf = fr.value_edge_vorp
