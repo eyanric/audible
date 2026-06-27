@@ -50,4 +50,5 @@ strict = [
     "src/audible/scoring",
     "src/audible/value",
     "src/audible/providers",
+    "src/audible/crosswalk.py",
 ]

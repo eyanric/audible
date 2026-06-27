@@ -37,6 +37,15 @@ def load_weekly_stats(seasons: list[int]) -> list[dict[str, Any]]:
     return nfl.load_player_stats(seasons, summary_level="week").to_dicts()
 
 
+def load_rankings(rank_type: str = "draft") -> list[dict[str, Any]]:
+    """FantasyPros consensus rankings (rank_type: 'draft' | 'week' | 'all').
+
+    Current-only (no historical archive), so we snapshot it weekly -- see audible.snapshot.
+    """
+    nfl = _require_nflreadpy()
+    return nfl.load_ff_rankings(rank_type).to_dicts()
+
+
 def load_snap_counts(seasons: list[int]) -> list[dict[str, Any]]:
     """Per-game snap counts incl. offense_pct / defense_pct (opportunity signal)."""
     nfl = _require_nflreadpy()

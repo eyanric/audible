@@ -1,0 +1,222 @@
+[
+  {
+    "sleeper_id": "12530",
+    "gsis_id": "00-0040718",
+    "espn_id": 4685415,
+    "mfl_id": 17074,
+    "name": "Travis Hunter",
+    "merge_name": "travis hunter",
+    "position": "WR",
+    "team": "JAC"
+  },
+  {
+    "sleeper_id": "11564",
+    "gsis_id": "00-0039851",
+    "espn_id": 4431452,
+    "mfl_id": 16580,
+    "name": "Drake Maye",
+    "merge_name": "drake maye",
+    "position": "QB",
+    "team": "NEP"
+  },
+  {
+    "sleeper_id": "11604",
+    "gsis_id": "00-0039338",
+    "espn_id": 4432665,
+    "mfl_id": 16641,
+    "name": "Brock Bowers",
+    "merge_name": "brock bowers",
+    "position": "TE",
+    "team": "LVR"
+  },
+  {
+    "sleeper_id": "11710",
+    "gsis_id": "00-0039838",
+    "espn_id": 4431517,
+    "mfl_id": 16705,
+    "name": "Calen Bullock",
+    "merge_name": "calen bullock",
+    "position": "S",
+    "team": "HOU"
+  },
+  {
+    "sleeper_id": "9509",
+    "gsis_id": "00-0038542",
+    "espn_id": 4430807,
+    "mfl_id": 16161,
+    "name": "Bijan Robinson",
+    "merge_name": "bijan robinson",
+    "position": "RB",
+    "team": "ATL"
+  },
+  {
+    "sleeper_id": "9221",
+    "gsis_id": "00-0039139",
+    "espn_id": 4429795,
+    "mfl_id": 16162,
+    "name": "Jahmyr Gibbs",
+    "merge_name": "jahmyr gibbs",
+    "position": "RB",
+    "team": "DET"
+  },
+  {
+    "sleeper_id": "9488",
+    "gsis_id": "00-0038543",
+    "espn_id": 4430878,
+    "mfl_id": 16185,
+    "name": "Jaxon Smith-Njigba",
+    "merge_name": "jaxon smith-njigba",
+    "position": "WR",
+    "team": "SEA"
+  },
+  {
+    "sleeper_id": "9493",
+    "gsis_id": "00-0039075",
+    "espn_id": 4426515,
+    "mfl_id": 16211,
+    "name": "Puka Nacua",
+    "merge_name": "puka nacua",
+    "position": "WR",
+    "team": "LAR"
+  },
+  {
+    "sleeper_id": "10898",
+    "gsis_id": "00-0039111",
+    "espn_id": 4431442,
+    "mfl_id": 16266,
+    "name": "Tuli Tuipulotu",
+    "merge_name": "tuli tuipulotu",
+    "position": "DE",
+    "team": "LAC"
+  },
+  {
+    "sleeper_id": "11533",
+    "gsis_id": "00-0037692",
+    "espn_id": 3953687,
+    "mfl_id": 16414,
+    "name": "Brandon Aubrey",
+    "merge_name": "brandon aubrey",
+    "position": "PK",
+    "team": "DAL"
+  },
+  {
+    "sleeper_id": "8130",
+    "gsis_id": "00-0037744",
+    "espn_id": 4361307,
+    "mfl_id": 15794,
+    "name": "Trey McBride",
+    "merge_name": "trey mcbride",
+    "position": "TE",
+    "team": "ARI"
+  },
+  {
+    "sleeper_id": "8289",
+    "gsis_id": "00-0037236",
+    "espn_id": 4372099,
+    "mfl_id": 15805,
+    "name": "Aidan Hutchinson",
+    "merge_name": "aidan hutchinson",
+    "position": "DE",
+    "team": "DET"
+  },
+  {
+    "sleeper_id": "8280",
+    "gsis_id": "00-0037249",
+    "espn_id": 4360259,
+    "mfl_id": 15861,
+    "name": "Nik Bonitto",
+    "merge_name": "nik bonitto",
+    "position": "DE",
+    "team": "DEN"
+  },
+  {
+    "sleeper_id": "8359",
+    "gsis_id": "00-0037253",
+    "espn_id": 4241720,
+    "mfl_id": 15868,
+    "name": "Marcus Jones",
+    "merge_name": "marcus jones",
+    "position": "CB",
+    "team": "NEP"
+  },
+  {
+    "sleeper_id": "7564",
+    "gsis_id": "00-0036900",
+    "espn_id": 4362628,
+    "mfl_id": 15281,
+    "name": "Ja'Marr Chase",
+    "merge_name": "jamarr chase",
+    "position": "WR",
+    "team": "CIN"
+  },
+  {
+    "sleeper_id": "4984",
+    "gsis_id": "00-0034857",
+    "espn_id": 3918298,
+    "mfl_id": 13589,
+    "name": "Josh Allen",
+    "merge_name": "josh allen",
+    "position": "QB",
+    "team": "BUF"
+  },
+  {
+    "sleeper_id": "4881",
+    "gsis_id": "00-0034796",
+    "espn_id": 3916387,
+    "mfl_id": 13593,
+    "name": "Lamar Jackson",
+    "merge_name": "lamar jackson",
+    "position": "QB",
+    "team": "BAL"
+  },
+  {
+    "sleeper_id": "5226",
+    "gsis_id": "00-0034234",
+    "espn_id": 3125114,
+    "mfl_id": 13933,
+    "name": "Poona Ford",
+    "merge_name": "poona ford",
+    "position": "DT",
+    "team": "LAR"
+  },
+  {
+    "sleeper_id": "4034",
+    "gsis_id": "00-0033280",
+    "espn_id": 3117251,
+    "mfl_id": 13130,
+    "name": "Christian McCaffrey",
+    "merge_name": "christian mccaffrey",
+    "position": "RB",
+    "team": "SFO"
+  },
+  {
+    "sleeper_id": "3973",
+    "gsis_id": "00-0033868",
+    "espn_id": 3122132,
+    "mfl_id": 13198,
+    "name": "Myles Garrett",
+    "merge_name": "myles garrett",
+    "position": "DE",
+    "team": "LAR"
+  },
+  {
+    "sleeper_id": "4070",
+    "gsis_id": "00-0033886",
+    "espn_id": 3045282,
+    "mfl_id": 13214,
+    "name": "T.J. Watt",
+    "merge_name": "tj watt",
+    "position": "DE",
+    "team": "PIT"
+  },
+  {
+    "sleeper_id": "3451",
+    "gsis_id": "00-0032726",
+    "espn_id": 2971573,
+    "mfl_id": 12860,
+    "name": "Ka'imi Fairbairn",
+    "merge_name": "kaimi fairbairn",
+    "position": "PK",
+    "team": "HOU"
+  }
+]

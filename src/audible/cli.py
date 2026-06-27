@@ -116,6 +116,59 @@ def cmd_vorp(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_crosswalk(args: argparse.Namespace) -> int:
+    from .adapters.sleeper import SleeperAdapter
+    from .crosswalk import Crosswalk
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "sleeper":
+        raise SystemExit("crosswalk currently supports Sleeper leagues only")
+
+    print(f"Resolving [{cfg.key}] players to nflverse gsis_id...")
+    with SleeperAdapter() as sleeper:
+        lines = sleeper.raw_player_lines(cfg)
+    report = Crosswalk.from_nflverse().resolve_all(lines)
+
+    counts = report.source_counts()
+    print(f"\n{len(report.resolved)} players  |  match rate {report.match_rate:.1%}")
+    for src in ("catalog", "ff_playerids", "unmatched"):
+        print(f"  {src:<13} {counts.get(src, 0)}")
+
+    if report.unmatched:
+        print(f"\nUnmatched ({len(report.unmatched)}) -- rookies / D-ST / id churn (sample):")
+        for player in report.unmatched[: args.show_unmatched]:
+            print(f"  {player.sleeper_id:<8} {player.primary_position:<4} {player.name}")
+    return 0
+
+
+def cmd_snapshot(args: argparse.Namespace) -> int:
+    from .snapshot import (
+        SNAPSHOTS_DIR,
+        FantasyProsRankingsSource,
+        SleeperProjectionsSource,
+        SnapshotSource,
+        run,
+    )
+
+    leagues = load_all_leagues()
+    season = args.season or max(cfg.season for cfg in leagues.values())
+    positions = sorted({p for cfg in leagues.values() for p in cfg.positions})
+
+    sources: list[SnapshotSource] = []
+    if "sleeper" in args.sources:
+        sources.append(SleeperProjectionsSource(season, positions))
+    if "rankings" in args.sources:
+        sources.append(FantasyProsRankingsSource())
+
+    print(f"Snapshotting {[s.name for s in sources]} (season {season}) ...")
+    results = run(sources, date=args.date, force=args.force)
+    for r in results:
+        status = "skipped (exists)" if r.skipped else f"{r.rows} rows -> {r.path}"
+        print(f"  {r.source:<22} {status}")
+    print(f"\nArchive root: {SNAPSHOTS_DIR}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="audible", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -133,6 +186,27 @@ def build_parser() -> argparse.ArgumentParser:
     vp.add_argument("--top", type=int, default=25, help="top-N overall (default 25)")
     vp.add_argument("--per-pos", type=int, default=5, help="top-N per position (default 5)")
     vp.set_defaults(func=cmd_vorp)
+
+    xw = sub.add_parser(
+        "crosswalk", help="resolve players to nflverse gsis_id (needs nflverse extra)"
+    )
+    xw.add_argument("league")
+    xw.add_argument("--show-unmatched", type=int, default=15, help="how many unmatched to list")
+    xw.set_defaults(func=cmd_crosswalk)
+
+    sn = sub.add_parser(
+        "snapshot", help="capture consensus projections/rankings (needs nflverse extra)"
+    )
+    sn.add_argument("--date", default=None, help="YYYY-MM-DD (default: today UTC)")
+    sn.add_argument(
+        "--season", type=int, default=None, help="NFL season (default: latest config season)"
+    )
+    sn.add_argument(
+        "--sources", nargs="+", default=["sleeper", "rankings"],
+        choices=["sleeper", "rankings"], help="which sources to capture",
+    )
+    sn.add_argument("--force", action="store_true", help="overwrite an existing same-date snapshot")
+    sn.set_defaults(func=cmd_snapshot)
 
     return parser
 
