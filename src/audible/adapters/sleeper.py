@@ -157,6 +157,7 @@ class SleeperAdapter:
                     team=entry.get("team"),
                     stats={k: float(v) for k, v in stats.items() if isinstance(v, int | float)},
                     ids={k: str(entry[k]) for k in _ID_FIELDS if entry.get(k)},
+                    years_exp=entry.get("years_exp"),
                 )
             )
         return lines

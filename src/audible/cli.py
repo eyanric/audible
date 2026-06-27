@@ -169,6 +169,62 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fmt_flags(flags: tuple[str, ...]) -> str:
+    return " ".join(flags)
+
+
+def cmd_draft(args: argparse.Namespace) -> int:
+    from .draft import build_board, split_scoring
+
+    cfg = _load(args.league)
+    buckets = split_scoring(cfg.scoring)
+    print(f"Building draft board for [{cfg.key}] {cfg.name} (opportunity xFP from 2025)...")
+    print(
+        f"  coverage: modeled={len(buckets['modeled'])} carried={buckets['carried']} "
+        f"ignored={len(buckets['ignored'])}"
+    )
+    board = build_board(cfg)
+
+    models: dict[str, int] = {}
+    for e in board.entries:
+        models[e.model] = models.get(e.model, 0) + 1
+    model_str = ", ".join(f"{k}={v}" for k, v in models.items())
+    print(f"\n{len(board.entries)} players  |  models: {model_str}")
+
+    hdr = (
+        f"  {'#':>3} {'player':<24} {'pos':<4} {'tm':<3} "
+        f"{'xfp':>6} {'vorp':>6} {'adp':>6} {'val':>5}  notes"
+    )
+    print(f"\nTop {args.top} by VORP (our value of record):")
+    print(hdr)
+    for e in board.entries[: args.top]:
+        adp = f"{e.adp:.0f}" if e.adp is not None else "-"
+        val = f"{e.value:+d}" if e.value is not None else "-"
+        notes = (e.model if e.model != "opportunity" else "") + " " + _fmt_flags(e.flags)
+        print(
+            f"  {e.vorp_rank:>3} {e.name[:24]:<24} {e.position:<4} {(e.team or '-'):<3} "
+            f"{e.points:>6.1f} {e.vorp:>6.1f} {adp:>6} {val:>5}  {notes.strip()}"
+        )
+
+    ranked = [e for e in board.entries if e.value is not None and e.adp_rank is not None]
+    in_market = [e for e in ranked if e.adp_rank is not None and e.adp_rank <= args.market]
+    targets = sorted(in_market, key=lambda e: -(e.value or 0))
+    fades = sorted(in_market, key=lambda e: (e.value or 0))
+    print(f"\nBiggest TARGETS (market underpricing, ADP top {args.market}):")
+    for e in targets[: args.movers]:
+        print(
+            f"  {e.name[:24]:<24} {e.position:<4} vorp#{e.vorp_rank:<3} "
+            f"adp#{e.adp_rank:<3} value {e.value:+d}  {_fmt_flags(e.flags)}"
+        )
+    print(f"\nBiggest FADES (market overpricing, ADP top {args.market}):")
+    for e in fades[: args.movers]:
+        print(
+            f"  {e.name[:24]:<24} {e.position:<4} vorp#{e.vorp_rank:<3} "
+            f"adp#{e.adp_rank:<3} value {e.value:+d}  {_fmt_flags(e.flags)}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="audible", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -207,6 +263,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sn.add_argument("--force", action="store_true", help="overwrite an existing same-date snapshot")
     sn.set_defaults(func=cmd_snapshot)
+
+    dr = sub.add_parser(
+        "draft", help="opportunity-adjusted draft board vs ADP (needs nflverse extra)"
+    )
+    dr.add_argument("league")
+    dr.add_argument("--top", type=int, default=40, help="top-N by VORP to print (default 40)")
+    dr.add_argument(
+        "--market", type=int, default=150, help="ADP cutoff for targets/fades (default 150)"
+    )
+    dr.add_argument("--movers", type=int, default=15, help="how many targets/fades to show")
+    dr.set_defaults(func=cmd_draft)
 
     return parser
 

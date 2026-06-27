@@ -56,3 +56,28 @@ def load_nextgen_stats(seasons: list[int], stat_type: str) -> list[dict[str, Any
     """Next Gen Stats; stat_type in {"passing", "receiving", "rushing"} (week 0 = season agg)."""
     nfl = _require_nflreadpy()
     return nfl.load_nextgen_stats(seasons, stat_type=stat_type).to_dicts()
+
+
+# --- polars frame accessors (bulk sources aggregated downstream in polars) ---------
+# These return the raw polars DataFrame; the draft layer does the heavy aggregation and
+# converts to plain types at its boundary, so polars never leaks past the draft modules.
+
+
+def opportunity_frame(seasons: list[int]) -> Any:
+    """ff_opportunity weekly (expected components); join key ``player_id`` == gsis_id."""
+    return _require_nflreadpy().load_ff_opportunity(seasons, stat_type="weekly")
+
+
+def draft_picks_frame(seasons: list[int]) -> Any:
+    """NFL draft picks (round, pick, position, team, gsis_id, pfr_player_name)."""
+    return _require_nflreadpy().load_draft_picks(seasons)
+
+
+def rosters_frame(seasons: list[int]) -> Any:
+    """Season rosters: sleeper_id <-> gsis_id <-> team, plus years_exp / entry_year."""
+    return _require_nflreadpy().load_rosters(seasons)
+
+
+def player_stats_frame(seasons: list[int]) -> Any:
+    """Weekly player stats (target_share, carries, air_yards_share, ...); keyed by gsis_id."""
+    return _require_nflreadpy().load_player_stats(seasons, summary_level="week")

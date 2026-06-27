@@ -30,6 +30,7 @@ class RawPlayerLine:
     team: str | None
     stats: dict[str, float] = field(default_factory=_empty_stats)
     ids: dict[str, str] = field(default_factory=_empty_ids)
+    years_exp: int | None = None  # 0 => rookie (drives the §C rookie path)
 
 
 @dataclass(frozen=True, slots=True)
