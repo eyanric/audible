@@ -262,6 +262,53 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_idp_stickiness(args: argparse.Namespace) -> int:
+    from .adapters.sleeper import SleeperAdapter
+    from .backtest.idp import IDP_POSITIONS, METRICS, STICKY_METRICS, stickiness
+
+    cfg = _load(args.league)
+    if "LB" not in cfg.positions:
+        raise SystemExit("idp-stickiness needs an IDP league (League A)")
+
+    print(f"IDP thesis test -- year-over-year stickiness [{cfg.key}] {cfg.name}")
+    print(f"  seasons {args.seasons} ({len(args.seasons) - 1} folds, pooled); "
+          f"players >= {args.min_games} games & >= {args.min_snaps:.0f} snaps both years")
+    with SleeperAdapter() as adapter:
+        res = stickiness(adapter, args.seasons, cfg, args.min_games, args.min_snaps)
+
+    cols = list(METRICS)
+    print("\n  pos   " + "  ".join(f"{c:>11}" for c in cols))
+    for pos in IDP_POSITIONS:
+        if (pos, cols[0]) not in res:
+            continue
+        cells = [f"{res[(pos, c)][0]:+.2f}({res[(pos, c)][1]})" for c in cols]
+        print(f"  {pos:<4}  " + "  ".join(f"{c:>11}" for c in cells))
+    print("  (Spearman(prior, next); n in parens. sticky cols: " + ", ".join(STICKY_METRICS) + ")")
+
+    print("\nVerdict (tackle stickiness vs pure-noise INT, per position):")
+    for pos in IDP_POSITIONS:
+        if (pos, "solo/gm") not in res:
+            continue
+        solo = res[(pos, "solo/gm")][0]
+        intc = res[(pos, "int/gm")][0]
+        sack = res[(pos, "sack/gm")][0]
+        tier = "STRONG" if solo > 0.65 else "MODERATE" if solo > 0.45 else "WEAK"
+        extra = ""
+        if sack > 0.45:
+            extra = f"  [NB sacks also sticky {sack:+.2f} -> project, don't regress]"
+        print(f"  {pos}: tackles/gm {solo:+.2f}  vs INT noise {intc:+.2f}  -> {tier}{extra}")
+
+    # LB is the anchor: highest-value IDP in tackle scoring and the most tackle-driven role.
+    lb_solo = res[("LB", "solo/gm")][0] if ("LB", "solo/gm") in res else 0.0
+    confirmed = lb_solo > 0.6
+    msg = (
+        "CONFIRMED -- LB tackle volume is highly sticky (the core edge); build the model"
+        if confirmed else "NOT confirmed -- foundation too weak; reconsider before building"
+    )
+    print(f"\nTHESIS: {msg}")
+    return 0
+
+
 def _write_backtest_results(fr: object, date: str | None) -> object:
     import polars as pl
 
@@ -345,6 +392,18 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--date", default=None, help="results-table date stamp (default today UTC)")
     bt.add_argument("--no-write", action="store_true", help="skip writing the results parquet")
     bt.set_defaults(func=cmd_backtest)
+
+    st = sub.add_parser(
+        "idp-stickiness", help="IDP thesis test: tackle stickiness (needs nflverse extra)"
+    )
+    st.add_argument("league")
+    st.add_argument(
+        "--seasons", type=int, nargs="+", default=[2021, 2022, 2023, 2024, 2025],
+        help="seasons to pool consecutive folds over",
+    )
+    st.add_argument("--min-games", type=int, default=8, help="min games in both years")
+    st.add_argument("--min-snaps", type=float, default=200.0, help="min defensive snaps both years")
+    st.set_defaults(func=cmd_idp_stickiness)
 
     return parser
 
