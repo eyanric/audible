@@ -21,8 +21,10 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 
 expected_reception_points = 0.5  # drift guard: warn if live ESPN REC != this
 notes = "Target half-PPR; live league still 0-PPR until commish flips it. Shallow 8-team, 1-QB."
-# Backtest verdict: scarcity/VONA beats raw VORP OOS in this flat 1-QB format (edge +28 vs +24).
-value_metric = "scarcity"
+# Backtest edged scarcity/VONA over VORP here (+28 vs +24), BUT the current VONA impl has a
+# junk-tail pathology on flat positions (inflates mid-QB value -> QB-dominated board). Until
+# it's reimplemented replacement-bounded, ship on VORP (robust). Tracked as a known issue.
+value_metric = "vorp"
 
 [slot_eligibility]
 QB = ["QB"]

@@ -116,6 +116,35 @@ def cmd_vorp(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cheatsheet(args: argparse.Namespace) -> int:
+    from .draft import build_board
+    from .draft.cheatsheet import build_cheatsheet, render_csv, render_html
+    from .snapshot import SNAPSHOTS_DIR, today_utc
+
+    cfg = _load(args.league)
+    date = args.date or today_utc()
+    print(f"Building cheat sheet for [{cfg.key}] {cfg.name} (value={cfg.value_metric})...")
+    board = build_board(cfg)
+    cs = build_cheatsheet(board, cfg, date)
+
+    out_dir = SNAPSHOTS_DIR.parent / "cheatsheets"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / f"{cfg.key}_{date}.csv"
+    html_path = out_dir / f"{cfg.key}_{date}.html"
+    csv_path.write_text(render_csv(cs), encoding="utf-8")
+    html_path.write_text(render_html(cs), encoding="utf-8")
+
+    tiers = {pos: (tps[-1].tier if tps else 0) for pos, tps in cs.by_position.items()}
+    drafted = [e for e in cs.overall if e.adp_rank is not None and e.adp_rank <= 200]
+    targets = sum(1 for e in drafted if (e.value or 0) >= 12)
+    tier_str = ", ".join(f"{p}={t}" for p, t in tiers.items())
+    print(f"  {len(cs.overall)} players; tiers/pos: {tier_str}")
+    print(f"  {targets} targets within ADP top-200 (of {len(drafted)} drafted-range players)")
+    print(f"  CSV  -> {csv_path}")
+    print(f"  HTML -> {html_path}")
+    return 0
+
+
 def cmd_crosswalk(args: argparse.Namespace) -> int:
     from .adapters.sleeper import SleeperAdapter
     from .crosswalk import Crosswalk
@@ -384,6 +413,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sn.add_argument("--force", action="store_true", help="overwrite an existing same-date snapshot")
     sn.set_defaults(func=cmd_snapshot)
+
+    cs = sub.add_parser(
+        "cheatsheet", help="printable pre-draft cheat sheet: CSV + HTML (needs nflverse extra)"
+    )
+    cs.add_argument("league")
+    cs.add_argument("--date", default=None, help="date stamp (default today UTC)")
+    cs.set_defaults(func=cmd_cheatsheet)
 
     dr = sub.add_parser(
         "draft", help="opportunity-adjusted draft board vs ADP (needs nflverse extra)"

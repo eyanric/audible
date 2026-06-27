@@ -42,9 +42,9 @@ def test_espn_is_shallow_no_idp(espn_config: LeagueConfig) -> None:
 def test_value_metric_is_league_aware(
     sleeper_config: LeagueConfig, espn_config: LeagueConfig
 ) -> None:
-    # Learned from the backtest: VORP for deep superflex+IDP, scarcity for flat 1-QB.
+    # Both ship on VORP: scarcity/VONA is pathological on flat positions (see espn config note).
     assert sleeper_config.value_metric == "vorp"
-    assert espn_config.value_metric == "scarcity"
+    assert espn_config.value_metric == "vorp"
 
 
 def test_bad_value_metric_rejected() -> None:
