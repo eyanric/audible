@@ -39,6 +39,26 @@ def test_espn_is_shallow_no_idp(espn_config: LeagueConfig) -> None:
     assert "DL" not in espn_config.positions  # no IDP in League B
 
 
+def test_value_metric_is_league_aware(
+    sleeper_config: LeagueConfig, espn_config: LeagueConfig
+) -> None:
+    # Learned from the backtest: VORP for deep superflex+IDP, scarcity for flat 1-QB.
+    assert sleeper_config.value_metric == "vorp"
+    assert espn_config.value_metric == "scarcity"
+
+
+def test_bad_value_metric_rejected() -> None:
+    with pytest.raises(ValidationError):
+        LeagueConfig.model_validate(
+            {
+                "key": "x", "name": "x", "platform": "sleeper", "league_id": "1",
+                "season": 2026, "num_teams": 10,
+                "starting_slots": ["QB"], "slot_eligibility": {"QB": ["QB"]},
+                "scoring": {"rec": 0.5}, "value_metric": "nonsense",
+            }
+        )
+
+
 def test_slot_without_eligibility_is_rejected() -> None:
     with pytest.raises(ValidationError):
         LeagueConfig.model_validate(

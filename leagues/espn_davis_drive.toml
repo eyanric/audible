@@ -21,6 +21,8 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 
 expected_reception_points = 0.5  # drift guard: warn if live ESPN REC != this
 notes = "Target half-PPR; live league still 0-PPR until commish flips it. Shallow 8-team, 1-QB."
+# Backtest verdict: scarcity/VONA beats raw VORP OOS in this flat 1-QB format (edge +28 vs +24).
+value_metric = "scarcity"
 
 [slot_eligibility]
 QB = ["QB"]

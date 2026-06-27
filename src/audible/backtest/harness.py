@@ -28,10 +28,9 @@ class FoldResult:
     league_key: str
     prior_season: int
     cur_season: int
-    full_conf_games: int
     population: int
-    per_position: dict[str, list[MethodMetrics]]
-    overall_offense: list[MethodMetrics]  # baseline/consensus/board pooled over offense
+    per_position: dict[str, list[MethodMetrics]]  # [baseline, consensus] per position
+    overall_offense: list[MethodMetrics]  # [baseline, consensus] pooled over offense
     value_edge_scarcity: tuple[float, float, float, int, int]
     value_edge_vorp: tuple[float, float, float, int, int]
     mobile_qb: dict[str, float]
@@ -55,13 +54,12 @@ def run_fold(
     config: LeagueConfig,
     prior_season: int,
     cur_season: int,
-    full_conf_games: int = 14,
     market: int = 150,
 ) -> FoldResult:
     from ..adapters.sleeper import SleeperAdapter
     from ..draft.board import build_board
 
-    board = build_board(config, prior_season, cur_season, full_conf_games)
+    board = build_board(config, prior_season, cur_season)
     with SleeperAdapter() as adapter:
         prior: dict[str, PlayerSeason] = season_actuals(adapter, prior_season, config)
         cur: dict[str, PlayerSeason] = season_actuals(adapter, cur_season, config)
@@ -72,11 +70,13 @@ def run_fold(
         ps, act, base = prior.get(e.player_id), cur.get(e.player_id), baseline.get(e.player_id)
         if ps is None or act is None or base is None or ps.games < MIN_PRIOR_GAMES:
             continue  # veterans only, with a real prior sample and a known outcome
+        # Compare both value metrics independently of the league's configured choice.
+        sc_value = (e.adp_rank - e.scarcity_rank) if e.adp_rank is not None else None
         vorp_value = (e.adp_rank - e.vorp_rank) if e.adp_rank is not None else None
         rows.append({
-            "pos": e.position, "baseline": base, "consensus": e.consensus, "board": e.points,
+            "pos": e.position, "baseline": base, "consensus": e.consensus,
             "actual": act.points, "pid": e.player_id, "adp_rank": e.adp_rank,
-            "scarcity_value": e.value, "vorp_value": vorp_value,
+            "scarcity_value": sc_value, "vorp_value": vorp_value,
             "prior_rush": ps.stats.get("rush_yd", 0.0),
         })
 
@@ -91,7 +91,7 @@ def run_fold(
         n = _hit_n(pos, len(group))
         per_position[pos] = [
             _metrics(m, ids, [float(r[m]) for r in group], actual, n)  # type: ignore[arg-type]
-            for m in ("baseline", "consensus", "board")
+            for m in ("baseline", "consensus")
         ]
 
     # pooled offense metrics (the headline: does board beat baseline/consensus overall?)
@@ -102,7 +102,7 @@ def run_fold(
         off_actual = [float(r["actual"]) for r in off]  # type: ignore[arg-type]
         overall_offense = [
             _metrics(m, off_ids, [float(r[m]) for r in off], off_actual, 48)  # type: ignore[arg-type]
-            for m in ("baseline", "consensus", "board")
+            for m in ("baseline", "consensus")
         ]
 
     # value test (within ADP tier): do targets outscore fades? scarcity (§6) vs raw vorp
@@ -116,18 +116,15 @@ def run_fold(
     mobile_qb: dict[str, float] = {"n": len(mob)}
     if len(mob) >= 3:
         a = [float(r["actual"]) for r in mob]  # type: ignore[arg-type]
-        b = [float(r["board"]) for r in mob]  # type: ignore[arg-type]
         c = [float(r["consensus"]) for r in mob]  # type: ignore[arg-type]
         mobile_qb |= {
-            "mean_actual": sum(a) / len(a), "mean_board": sum(b) / len(b),
-            "mean_consensus": sum(c) / len(c),
-            "board_mae": mae(b, a), "consensus_mae": mae(c, a),
-            "board_spearman": spearman(b, a), "consensus_spearman": spearman(c, a),
+            "mean_actual": sum(a) / len(a), "mean_consensus": sum(c) / len(c),
+            "consensus_mae": mae(c, a), "consensus_spearman": spearman(c, a),
         }
 
     return FoldResult(
         league_key=config.key, prior_season=prior_season, cur_season=cur_season,
-        full_conf_games=full_conf_games, population=len(rows), per_position=per_position,
+        population=len(rows), per_position=per_position,
         overall_offense=overall_offense, value_edge_scarcity=sc, value_edge_vorp=vp,
         mobile_qb=mobile_qb,
     )

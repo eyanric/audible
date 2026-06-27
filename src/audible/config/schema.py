@@ -57,8 +57,17 @@ class LeagueConfig(BaseModel):
     expected_reception_points: float | None = None
     notes: str | None = None
 
+    # Which value metric drives targets-vs-ADP, learned from the backtest per league:
+    # "vorp" (over-replacement) for deep/scarce formats (superflex + IDP); "scarcity"
+    # (VONA, dropoff-slope) for shallow/flat formats (1-QB), where it beats VORP OOS.
+    value_metric: str = "vorp"
+
     @model_validator(mode="after")
     def _validate_structure(self) -> LeagueConfig:
+        if self.value_metric not in ("vorp", "scarcity"):
+            raise ValueError(
+                f"value_metric must be 'vorp' or 'scarcity', got {self.value_metric!r}"
+            )
         if not self.starting_slots:
             raise ValueError("starting_slots must be non-empty")
         for slot in self.starting_slots:

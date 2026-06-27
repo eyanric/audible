@@ -33,8 +33,7 @@ from .signals import (
 OFFENSE = frozenset({"QB", "RB", "WR", "TE"})
 IDP = frozenset({"DL", "LB", "DB"})
 
-ANNUAL_GAMES = 17  # annualize a player's per-game opportunity rate to a full season
-FULL_CONF_GAMES = 14  # >= this many games -> trust opportunity fully; fewer -> shrink to consensus
+ANNUAL_GAMES = 17  # annualize a player's per-game opportunity rate to a full season (overlay only)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +64,7 @@ class DraftEntry:
     scarcity_rank: int
     adp: float | None
     adp_rank: int | None
-    value: int | None  # adp_rank - scarcity_rank (positive => target); scarcity-aware (§6)
+    value: int | None  # adp_rank - (league-configured value rank); positive => target
     flags: tuple[str, ...]
 
 
@@ -111,7 +110,6 @@ def _project_line(
     dc_by_gsis: dict[str, DraftCapital],
     dc_by_name: dict[str, DraftCapital],
     consensus_by_pos: dict[str, list[float]],
-    full_conf_games: int,
 ) -> _Proj:
     scoring = config.scoring
     primary = line.primary_position
@@ -119,8 +117,8 @@ def _project_line(
     adp = _adp_for(line.stats, primary, config.platform.value)
     flags: list[str] = []
 
-    # Rookie: anchor on draft capital (a positional floor) so an early pick is never
-    # replacement-level even when consensus hasn't caught up (e.g. a rookie QB ~0).
+    # Rookie: consensus anchored on a draft-capital positional floor so an early pick is
+    # never replacement-level even when consensus hasn't caught up (e.g. a rookie QB ~0).
     if line.years_exp == 0:
         capital = (dc_by_gsis.get(gsis) if gsis else None) or dc_by_name.get(
             normalize_name(line.name)
@@ -133,12 +131,12 @@ def _project_line(
         points = max(consensus * draft_capital_factor(capital), floor)
         return _Proj(points, "rookie", 0.0, 0.0, consensus, adp, tuple(flags))
 
-    # Matched offense veteran: annualized opportunity xFP + trajectory + vacated, carried
-    # from consensus, then shrunk toward consensus by games played (sample confidence).
+    # Post-gate: CONSENSUS is the projection of record -- it beat our opportunity model
+    # out-of-sample at every position. For matched offense we still compute the opportunity
+    # view, but only as an OVERLAY tilt surfaced via flags; it never drives the ranking.
     if primary in OFFENSE and gsis is not None and gsis in opp:
         o = opp[gsis]
         annualized = modeled_xfp(o, scoring) * (ANNUAL_GAMES / max(o.games, 1))
-        carried = carried_value(line.stats, scoring)
         traj_factor = traj[gsis].factor if gsis in traj else 1.0
         vac = vacated.get(teams.get(gsis, ""))
         vac_factor = 1.0
@@ -147,24 +145,21 @@ def _project_line(
                 vac_factor = 1.0 + min(0.15, 0.5 * vac.target)
             elif primary == "RB":
                 vac_factor = 1.0 + min(0.15, 0.5 * vac.carry)
-        opp_proj = annualized * traj_factor * vac_factor + carried
-        conf = min(1.0, o.games / full_conf_games)
-        points = conf * opp_proj + (1.0 - conf) * consensus
+        opp_view = annualized * traj_factor * vac_factor + carried_value(line.stats, scoring)
+        gap = opp_view - consensus
+        if gap > 20:
+            flags.append(f"opp+{gap:.0f}")  # opportunity sees upside vs consensus (buy tilt)
+        elif gap < -20:
+            flags.append(f"opp{gap:.0f}")  # opportunity sees downside (sell tilt)
         if traj_factor > 1.10:
             flags.append("riser")
         elif traj_factor < 0.90:
             flags.append("faller")
         if vac_factor > 1.05:
             flags.append(f"vac+{round((vac_factor - 1) * 100)}%")
-        if o.games < full_conf_games:
-            flags.append(f"{o.games}g")
-        return _Proj(points, "opportunity", annualized, carried, consensus, adp, tuple(flags))
+        return _Proj(consensus, "consensus", opp_view, 0.0, consensus, adp, tuple(flags))
 
-    # Offense with no 2025 opportunity row -> consensus fallback (flagged, not replacement).
-    if primary in OFFENSE:
-        return _Proj(consensus, "consensus_fallback", 0.0, 0.0, consensus, adp, ("no2025",))
-
-    # IDP / K / DEF -> consensus (ff_opportunity is offense-only).
+    # IDP / K / DEF / offense without an opportunity row -> consensus.
     return _Proj(consensus, "consensus", 0.0, 0.0, consensus, adp, ())
 
 
@@ -172,7 +167,6 @@ def build_board(
     config: LeagueConfig,
     prior_season: int = 2025,
     cur_season: int = 2026,
-    full_conf_games: int = FULL_CONF_GAMES,
 ) -> DraftBoard:
     from ..adapters.sleeper import SleeperAdapter
     from ..crosswalk import Crosswalk
@@ -205,7 +199,7 @@ def build_board(
         proj = _project_line(
             line, config, gsis=gsis, opp=opp, traj=traj, vacated=vacated,
             teams=teams, dc_by_gsis=dc_by_gsis, dc_by_name=dc_by_name,
-            consensus_by_pos=consensus_by_pos, full_conf_games=full_conf_games,
+            consensus_by_pos=consensus_by_pos,
         )
         meta[line.player_id] = proj
         projections.append(
@@ -233,19 +227,23 @@ def build_board(
     adp_pairs.sort(key=lambda pair: pair[1])
     adp_rank = {pid: i + 1 for i, (pid, _) in enumerate(adp_pairs)}
 
+    # League-aware value metric (learned from the backtest): VORP for deep/scarce formats,
+    # scarcity/VONA for shallow/flat ones. value = ADP rank - the chosen value rank.
+    value_rank = scarcity_rank if config.value_metric == "scarcity" else vorp_rank
+
     entries: list[DraftEntry] = []
     for e in vorp_entries:
         pid = e.projection.player_id
         m = meta[pid]
         ar = adp_rank.get(pid)
-        sr = scarcity_rank[pid]
         entries.append(
             DraftEntry(
                 player_id=pid, name=e.projection.name, position=e.projection.primary_position,
                 team=e.projection.team, model=m.model, points=m.points,
                 modeled_xfp=m.modeled, carried=m.carried, consensus=m.consensus,
-                vorp=e.vorp, vorp_rank=vorp_rank[pid], scarcity=scarcity[pid], scarcity_rank=sr,
-                adp=m.adp, adp_rank=ar, value=(ar - sr) if ar is not None else None, flags=m.flags,
+                vorp=e.vorp, vorp_rank=vorp_rank[pid], scarcity=scarcity[pid],
+                scarcity_rank=scarcity_rank[pid], adp=m.adp, adp_rank=ar,
+                value=(ar - value_rank[pid]) if ar is not None else None, flags=m.flags,
             )
         )
     return DraftBoard(league_key=config.key, entries=entries)

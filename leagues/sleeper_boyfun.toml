@@ -19,6 +19,8 @@ trade_deadline_week = 13
 waiver_type = "faab"
 faab_budget = 100
 notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifacts per owner)."
+# Backtest verdict: raw VORP beats scarcity/VONA OOS in this deep superflex+IDP format (edge +37 vs +3).
+value_metric = "vorp"
 
 [slot_eligibility]
 QB = ["QB"]

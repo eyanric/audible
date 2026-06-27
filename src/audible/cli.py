@@ -174,15 +174,12 @@ def _fmt_flags(flags: tuple[str, ...]) -> str:
 
 
 def cmd_draft(args: argparse.Namespace) -> int:
-    from .draft import build_board, split_scoring
+    from .draft import build_board
 
     cfg = _load(args.league)
-    buckets = split_scoring(cfg.scoring)
-    print(f"Building draft board for [{cfg.key}] {cfg.name} (opportunity xFP from 2025)...")
-    print(
-        f"  coverage: modeled={len(buckets['modeled'])} carried={buckets['carried']} "
-        f"ignored={len(buckets['ignored'])}"
-    )
+    print(f"Building draft board for [{cfg.key}] {cfg.name}")
+    print(f"  ranking = consensus -> league-exact VORP; value = {cfg.value_metric} vs ADP")
+    print("  opportunity (opp+/opp-/riser/vac) is an OVERLAY tilt, not the ranking")
     board = build_board(cfg)
 
     models: dict[str, int] = {}
@@ -193,14 +190,14 @@ def cmd_draft(args: argparse.Namespace) -> int:
 
     hdr = (
         f"  {'#':>3} {'player':<24} {'pos':<4} {'tm':<3} "
-        f"{'xfp':>6} {'vorp':>6} {'adp':>6} {'val':>5}  notes"
+        f"{'proj':>6} {'vorp':>6} {'adp':>6} {'val':>5}  notes"
     )
-    print(f"\nTop {args.top} by VORP (our value of record):")
+    print(f"\nTop {args.top} by VORP on consensus (value of record):")
     print(hdr)
     for e in board.entries[: args.top]:
         adp = f"{e.adp:.0f}" if e.adp is not None else "-"
         val = f"{e.value:+d}" if e.value is not None else "-"
-        notes = (e.model if e.model != "opportunity" else "") + " " + _fmt_flags(e.flags)
+        notes = (e.model if e.model != "consensus" else "") + " " + _fmt_flags(e.flags)
         print(
             f"  {e.vorp_rank:>3} {e.name[:24]:<24} {e.position:<4} {(e.team or '-'):<3} "
             f"{e.points:>6.1f} {e.vorp:>6.1f} {adp:>6} {val:>5}  {notes.strip()}"
@@ -234,65 +231,34 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 
     cfg = _load(args.league)
     print(f"Backtest fold {args.prior}->{args.cur}  [{cfg.key}] {cfg.name}")
-
-    print("\nTuning full_conf_games (pooled-offense board Spearman / value edge):")
-    folds = {}
-    for g in args.grid:
-        fr = run_fold(cfg, args.prior, args.cur, full_conf_games=g, market=args.market)
-        folds[g] = fr
-        bsp = next((m.spearman for m in fr.overall_offense if m.method == "board"), float("nan"))
-        edge = fr.value_edge_scarcity[2]
-        print(f"  full_conf_games={g:>2}  board_spearman={bsp:+.3f}  value_edge={edge:+.1f}")
-    best = max(folds, key=lambda g: next(
-        (m.spearman for m in folds[g].overall_offense if m.method == "board"), -9.0))
-    fr = folds[best]
-    print(f"  -> learned default full_conf_games = {best}")
+    fr = run_fold(cfg, args.prior, args.cur, market=args.market)
 
     print(f"\nPopulation: {fr.population} veterans (>= 6 prior games)")
-    print(f"\nPer-position vs actual {args.cur}  (baseline | consensus | board):")
+    print(f"\nProjection of record vs actual {args.cur}  (naive baseline | consensus):")
     for pos, mms in fr.per_position.items():
-        print(f"  {pos:<4} n={mms[0].n:<4} {_mm(mms[0])} | {_mm(mms[1])} | {_mm(mms[2])}")
+        print(f"  {pos:<4} n={mms[0].n:<4} {_mm(mms[0])} | {_mm(mms[1])}")
     if fr.overall_offense:
         o = fr.overall_offense
-        print(f"  OFF  n={o[0].n:<4} {_mm(o[0])} | {_mm(o[1])} | {_mm(o[2])}")
+        print(f"  OFF  n={o[0].n:<4} {_mm(o[0])} | {_mm(o[1])}")
 
     mt, mf, edge, nt, nf = fr.value_edge_scarcity
     vmt, vmf, vedge, vnt, vnf = fr.value_edge_vorp
-    print(f"\nValue test (ADP top {args.market}; mean actual {args.cur} pts, targets vs fades):")
-    print(f"  scarcity-aware (§6): {mt:6.1f} (n={nt}) vs {mf:6.1f} (n={nf})  edge {edge:+.1f}")
-    print(f"  raw VORP (pre-§6):   {vmt:6.1f} (n={vnt}) vs {vmf:6.1f} (n={vnf})  edge {vedge:+.1f}")
+    print(f"\nValue layer (on consensus; ADP top {args.market}; targets vs fades, mean actual):")
+    print(f"  scarcity/VONA (§6): {mt:6.1f} (n={nt}) vs {mf:6.1f} (n={nf})  edge {edge:+.1f}")
+    print(f"  raw VORP:           {vmt:6.1f} (n={vnt}) vs {vmf:6.1f} (n={vnf})  edge {vedge:+.1f}")
+    print(f"  -> better value metric this fold: {'scarcity/VONA' if edge > vedge else 'raw VORP'}")
 
     m = fr.mobile_qb
     if int(m.get("n", 0)) >= 3:
-        print(f"\nMobile QBs (>=300 prior rush yds, n={int(m['n'])}):")
-        print(f"  mean actual={m['mean_actual']:.0f}  board={m['mean_board']:.0f}  "
-              f"consensus={m['mean_consensus']:.0f}")
-        print(f"  board MAE={m['board_mae']:.0f} (sp {m['board_spearman']:+.2f})  "
-              f"consensus MAE={m['consensus_mae']:.0f} (sp {m['consensus_spearman']:+.2f})")
-        under = m["mean_board"] < m["mean_actual"] - 10 and m["board_mae"] > m["consensus_mae"]
-        verdict = (
-            "board UNDER-projects -> fade likely unjustified (Tier-2 target)"
-            if under else "fade defensible OOS"
-        )
-        print(f"  verdict: {verdict}")
+        print(f"\nMobile QBs (>=300 prior rush yds, n={int(m['n'])}) -- consensus handling:")
+        print(f"  mean actual={m['mean_actual']:.0f}  consensus={m['mean_consensus']:.0f}  "
+              f"MAE={m['consensus_mae']:.0f} (sp {m['consensus_spearman']:+.2f})")
 
-    print("\nPromotion gate (board must beat CONSENSUS out-of-sample to be projection-of-record):")
-    for pos, mms in fr.per_position.items():
-        b = next(x for x in mms if x.method == "baseline")
-        c = next(x for x in mms if x.method == "consensus")
-        bd = next(x for x in mms if x.method == "board")
-        if bd.spearman > c.spearman:
-            gate = "PROMOTE"
-        elif bd.spearman > b.spearman:
-            gate = "tilt (beats baseline, not consensus)"
-        else:
-            gate = "stay flag"
-        print(f"  {pos:<4} board {bd.spearman:+.3f}  consensus {c.spearman:+.3f}  "
-              f"baseline {b.spearman:+.3f}  -> {gate}")
+    print("\nGate: consensus is the projection of record (opportunity stays an overlay tilt);")
+    print("      the value layer ships per league only where its targets beat fades OOS.")
 
     if not args.no_write:
-        path = _write_backtest_results(fr, args.date)
-        print(f"\nResults table -> {path}")
+        print(f"\nResults table -> {_write_backtest_results(fr, args.date)}")
     return 0
 
 
@@ -311,7 +277,6 @@ def _write_backtest_results(fr: object, date: str | None) -> object:
             rows.append({
                 "captured_date": stamp, "league": fr.league_key,
                 "fold": f"{fr.prior_season}->{fr.cur_season}",
-                "full_conf_games": fr.full_conf_games,
                 "scope": scope, "method": m.method, "n": m.n,
                 "spearman": m.spearman, "mae": m.mae, "rmse": m.rmse, "hit_rate": m.hit_rate,
             })
@@ -376,10 +341,6 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("league")
     bt.add_argument("--prior", type=int, default=2024, help="prior season N (default 2024)")
     bt.add_argument("--cur", type=int, default=2025, help="outcome season N+1 (default 2025)")
-    bt.add_argument(
-        "--grid", type=int, nargs="+", default=[8, 10, 12, 14, 17],
-        help="full_conf_games values to tune over",
-    )
     bt.add_argument("--market", type=int, default=150, help="ADP tier for the value test")
     bt.add_argument("--date", default=None, help="results-table date stamp (default today UTC)")
     bt.add_argument("--no-write", action="store_true", help="skip writing the results parquet")
