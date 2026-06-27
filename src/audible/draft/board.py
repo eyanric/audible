@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from ..config.schema import LeagueConfig
 from ..models.player import PlayerProjection, RawPlayerLine
 from ..scoring.engine import score_stat_line
-from ..value import compute_vorp
+from ..value import compute_vorp, scarcity_values
 from .opportunity import OpportunityXfp, carried_value, modeled_xfp, season_opportunity
 from .rookies import DraftCapital, draft_capital_factor, load_draft_capital, normalize_name
 from .signals import (
@@ -61,9 +61,11 @@ class DraftEntry:
     consensus: float
     vorp: float
     vorp_rank: int
+    scarcity: float
+    scarcity_rank: int
     adp: float | None
     adp_rank: int | None
-    value: int | None  # adp_rank - vorp_rank (positive => target)
+    value: int | None  # adp_rank - scarcity_rank (positive => target); scarcity-aware (§6)
     flags: tuple[str, ...]
 
 
@@ -109,6 +111,7 @@ def _project_line(
     dc_by_gsis: dict[str, DraftCapital],
     dc_by_name: dict[str, DraftCapital],
     consensus_by_pos: dict[str, list[float]],
+    full_conf_games: int,
 ) -> _Proj:
     scoring = config.scoring
     primary = line.primary_position
@@ -145,7 +148,7 @@ def _project_line(
             elif primary == "RB":
                 vac_factor = 1.0 + min(0.15, 0.5 * vac.carry)
         opp_proj = annualized * traj_factor * vac_factor + carried
-        conf = min(1.0, o.games / FULL_CONF_GAMES)
+        conf = min(1.0, o.games / full_conf_games)
         points = conf * opp_proj + (1.0 - conf) * consensus
         if traj_factor > 1.10:
             flags.append("riser")
@@ -153,7 +156,7 @@ def _project_line(
             flags.append("faller")
         if vac_factor > 1.05:
             flags.append(f"vac+{round((vac_factor - 1) * 100)}%")
-        if o.games < FULL_CONF_GAMES:
+        if o.games < full_conf_games:
             flags.append(f"{o.games}g")
         return _Proj(points, "opportunity", annualized, carried, consensus, adp, tuple(flags))
 
@@ -166,13 +169,16 @@ def _project_line(
 
 
 def build_board(
-    config: LeagueConfig, prior_season: int = 2025, cur_season: int = 2026
+    config: LeagueConfig,
+    prior_season: int = 2025,
+    cur_season: int = 2026,
+    full_conf_games: int = FULL_CONF_GAMES,
 ) -> DraftBoard:
     from ..adapters.sleeper import SleeperAdapter
     from ..crosswalk import Crosswalk
 
     with SleeperAdapter() as sleeper:
-        lines = sleeper.raw_player_lines(config)
+        lines = sleeper.raw_player_lines(config, season=cur_season)
 
     xwalk = Crosswalk.from_nflverse()
     opp = season_opportunity([prior_season])
@@ -199,7 +205,7 @@ def build_board(
         proj = _project_line(
             line, config, gsis=gsis, opp=opp, traj=traj, vacated=vacated,
             teams=teams, dc_by_gsis=dc_by_gsis, dc_by_name=dc_by_name,
-            consensus_by_pos=consensus_by_pos,
+            consensus_by_pos=consensus_by_pos, full_conf_games=full_conf_games,
         )
         meta[line.player_id] = proj
         projections.append(
@@ -213,6 +219,16 @@ def build_board(
     vorp_entries, _ = compute_vorp(projections, config)
     vorp_rank = {e.projection.player_id: i + 1 for i, e in enumerate(vorp_entries)}
 
+    # Scarcity-aware value (VONA) drives the target/fade signal (§6): captures the
+    # dropoff slope so flat positions (streamable 1-QB) don't generate false targets.
+    scarcity = scarcity_values(projections, config)
+    scarcity_rank = {
+        pid: i + 1
+        for i, (pid, _) in enumerate(
+            sorted(scarcity.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
+    }
+
     adp_pairs = [(pid, a) for pid, p in meta.items() if (a := p.adp) is not None]
     adp_pairs.sort(key=lambda pair: pair[1])
     adp_rank = {pid: i + 1 for i, (pid, _) in enumerate(adp_pairs)}
@@ -222,14 +238,14 @@ def build_board(
         pid = e.projection.player_id
         m = meta[pid]
         ar = adp_rank.get(pid)
-        vr = vorp_rank[pid]
+        sr = scarcity_rank[pid]
         entries.append(
             DraftEntry(
                 player_id=pid, name=e.projection.name, position=e.projection.primary_position,
                 team=e.projection.team, model=m.model, points=m.points,
                 modeled_xfp=m.modeled, carried=m.carried, consensus=m.consensus,
-                vorp=e.vorp, vorp_rank=vr, adp=m.adp, adp_rank=ar,
-                value=(ar - vr) if ar is not None else None, flags=m.flags,
+                vorp=e.vorp, vorp_rank=vorp_rank[pid], scarcity=scarcity[pid], scarcity_rank=sr,
+                adp=m.adp, adp_rank=ar, value=(ar - sr) if ar is not None else None, flags=m.flags,
             )
         )
     return DraftBoard(league_key=config.key, entries=entries)

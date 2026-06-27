@@ -96,6 +96,19 @@ class SleeperAdapter:
         ]
         return self._get(url, params=params)
 
+    def get_stats(
+        self, season: int, position: str, week: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Actual stats (season totals when week is None) -- the backtest answer key.
+
+        Same stat-key vocabulary as projections, incl. IDP (idp_tkl_solo, ...) and ``gp``,
+        so league-correct actuals come straight through the scoring engine.
+        """
+        suffix = f"/{week}" if week is not None else ""
+        url = f"{BASE_COM}/stats/nfl/{season}{suffix}"
+        params: _Params = [("season_type", "regular"), ("position[]", position)]
+        return self._get(url, params=params)
+
     # --- normalisation -----------------------------------------------------
     @staticmethod
     def classify(
@@ -123,19 +136,23 @@ class SleeperAdapter:
                 primary = sorted(eligible)[0]
         return primary, eligible
 
-    def raw_player_lines(self, config: LeagueConfig) -> list[RawPlayerLine]:
+    def raw_player_lines(
+        self, config: LeagueConfig, season: int | None = None
+    ) -> list[RawPlayerLine]:
         """The unscored universe: every rosterable player + raw projected stat line.
 
         Projection-source-agnostic on purpose -- this is what a ProjectionProvider
         scores. The ConsensusProvider runs these through the scoring engine; a future
-        OpportunityProvider joins them to nflverse via ``ids`` instead.
+        OpportunityProvider joins them to nflverse via ``ids`` instead. ``season``
+        overrides the projection season for historical backtest folds.
         """
         catalog = self.get_players_catalog()
+        proj_season = season if season is not None else config.season
 
         # Merge raw stat lines across the league's positions (hybrids dedupe by id).
         stat_lines: dict[str, dict[str, float]] = {}
         for position in sorted(config.positions):
-            for row in self.get_projections(config.season, position):
+            for row in self.get_projections(proj_season, position):
                 stats = row.get("stats")
                 if stats:
                     stat_lines[str(row["player_id"])] = stats
