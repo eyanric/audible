@@ -1,0 +1,68 @@
+# audible league config -- League B (ESPN)
+# Davis Drive Alumni FF League (league_id 6012, legacy/private).
+#
+# IMPORTANT: target scoring is HALF-PPR (rec = 0.5), but the live ESPN league is
+# still set to STANDARD (0 PPR) and will be flipped this season. The ESPN adapter
+# verifies live scoring_format (statId 53 = REC) against `expected_reception_points`
+# and screams loudly on mismatch rather than silently trusting live values.
+#
+# Scoring keys use the Sleeper stat vocabulary for one shared scoring engine; they
+# will be reconciled against ESPN's live scoring_format when the adapter lands (Phase 1).
+
+key = "espn_davis_drive"
+name = "Davis Drive Alumni FF League"
+platform = "espn"
+league_id = "6012"
+season = 2026
+num_teams = 8
+
+# Starting lineup (9). 1-QB, no IDP, team D/ST only (normalized to DEF internally).
+starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
+
+expected_reception_points = 0.5  # drift guard: warn if live ESPN REC != this
+notes = "Target half-PPR; live league still 0-PPR until commish flips it. Shallow 8-team, 1-QB."
+
+[slot_eligibility]
+QB = ["QB"]
+RB = ["RB"]
+WR = ["WR"]
+TE = ["TE"]
+FLEX = ["RB", "WR", "TE"]
+DEF = ["DEF"]
+K = ["K"]
+
+# Target half-PPR scoring (ESPN defaults + half-PPR reception).
+[scoring]
+pass_yd = 0.04
+pass_td = 4
+pass_int = -2
+pass_2pt = 2
+rush_yd = 0.1
+rush_td = 6
+rush_2pt = 2
+rec = 0.5
+rec_yd = 0.1
+rec_td = 6
+rec_2pt = 2
+fum_lost = -2
+# Kicker (ESPN tiered makes; distance-based)
+fgm_0_19 = 3
+fgm_20_29 = 3
+fgm_30_39 = 3
+fgm_40_49 = 4
+fgm_50p = 5
+xpm = 1
+fgmiss = -1
+# Team D/ST
+sack = 1
+int = 2
+fum_rec = 2
+def_td = 6
+safe = 2
+blk_kick = 2
+pts_allow_0 = 5
+pts_allow_1_6 = 4
+pts_allow_7_13 = 3
+pts_allow_14_20 = 1
+pts_allow_28_34 = -1
+pts_allow_35p = -4

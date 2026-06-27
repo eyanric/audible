@@ -1,0 +1,110 @@
+# audible league config -- League A (Sleeper)
+# Captured from the LIVE league on 2026-06-26 and verified at load against the API.
+# Config-as-DATA: scoring/structure live here, never in engine logic.
+
+key = "sleeper_boyfun"
+name = "BoyFun & Friends"
+platform = "sleeper"
+league_id = "1361543954771738624"
+season = 2026
+num_teams = 10
+
+# Starting lineup (BN/IR excluded). 15 starters incl. SUPER_FLEX + 4 IDP slots.
+starting_slots = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX", "K", "DEF", "DL", "LB", "DB", "IDP_FLEX"]
+
+median_match = true  # play H2H opponent AND league median
+playoff_teams = 6
+playoff_week_start = 15
+trade_deadline_week = 13
+waiver_type = "faab"
+faab_budget = 100
+notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifacts per owner)."
+
+[slot_eligibility]
+QB = ["QB"]
+RB = ["RB"]
+WR = ["WR"]
+TE = ["TE"]
+FLEX = ["RB", "WR", "TE"]
+SUPER_FLEX = ["QB", "RB", "WR", "TE"]
+K = ["K"]
+DEF = ["DEF"]
+DL = ["DL"]
+LB = ["LB"]
+DB = ["DB"]
+IDP_FLEX = ["DL", "LB", "DB"]
+
+# Full scoring_settings (72 keys) -- captured verbatim from the live league.
+[scoring]
+blk_kick = 3
+bonus_fd_qb = 0
+bonus_fd_rb = 0
+bonus_fd_te = 0
+bonus_fd_wr = 0
+def_st_ff = 1
+def_st_fum_rec = 2
+def_st_td = 6
+def_td = 6
+ff = 1
+fgm_0_19 = 0
+fgm_20_29 = 0
+fgm_30_39 = 0
+fgm_40_49 = 0
+fgm_50p = 0
+fgm_yds = 0.1
+fgmiss = 0
+fgmiss_0_19 = -2
+fgmiss_20_29 = -1
+fgmiss_30_39 = -1
+fgmiss_40_49 = -1
+fgmiss_50p = -0.5
+fum = -1
+fum_lost = -1
+fum_rec = 2
+fum_rec_td = 6
+idp_blk_kick = 3
+idp_def_td = 6
+idp_ff = 3
+idp_fum_rec = 3
+idp_fum_ret_yd = 0.1
+idp_int = 6
+idp_int_ret_yd = 0.1
+idp_pass_def = 3
+idp_qb_hit = 1
+idp_sack = 6
+idp_sack_yd = 0.1
+idp_safe = 3
+idp_tkl_ast = 1
+idp_tkl_loss = 2
+idp_tkl_solo = 2
+int = 2
+pass_2pt = 2
+pass_int = -2
+pass_td = 4
+pass_yd = 0.04
+pts_allow_0 = 14
+pts_allow_14_20 = 2
+pts_allow_1_6 = 10
+pts_allow_21_27 = 0
+pts_allow_28_34 = -2
+pts_allow_35p = -5
+pts_allow_7_13 = 5
+rec = 0.5
+rec_2pt = 2
+rec_30_39 = 0.5
+rec_40p = 1
+rec_td = 6
+rec_yd = 0.1
+rush_2pt = 2
+rush_40p = 2
+rush_td = 6
+rush_yd = 0.1
+sack = 1
+safe = 3
+st_ff = 1
+st_fum_rec = 1
+st_td = 6
+xpm = 1
+xpmiss = -2
+yds_allow_500_549 = -2
+yds_allow_550p = -2.5

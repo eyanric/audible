@@ -1,0 +1,53 @@
+[project]
+name = "audible"
+version = "0.1.0"
+description = "Personal, league-aware fantasy football decision engine (Sleeper + ESPN + nflverse)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# nflverse adapter is isolated behind an extra so the deterministic core installs
+# even where nflreadpy/polars wheels lag a new Python release.
+nflverse = ["nflreadpy>=0.1.5"]
+
+[project.scripts]
+audible = "audible.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audible"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+# Strict typing where correctness is load-bearing: the deterministic math.
+# Adapters (I/O over untyped sports APIs) stay at standard to avoid fighting library Anys.
+strict = [
+    "src/audible/config",
+    "src/audible/models",
+    "src/audible/scoring",
+    "src/audible/value",
+    "src/audible/providers",
+]
