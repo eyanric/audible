@@ -10,9 +10,14 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from .config import LeagueConfig, load_all_leagues
 from .value import VorpEntry, compute_vorp
+
+if TYPE_CHECKING:
+    from .draft.board import DraftBoard
+    from .draft.live import LiveView, Pick
 
 # Display order for positions (offense, then specialists, then IDP).
 _POS_ORDER = ["QB", "RB", "WR", "TE", "K", "DEF", "DL", "LB", "DB"]
@@ -113,6 +118,87 @@ def cmd_vorp(args: argparse.Namespace) -> int:
         at_pos = [e for e in entries if e.projection.primary_position == pos]
         print(f"\n {pos}:")
         _print_top(at_pos, per_pos)
+    return 0
+
+
+def _simulate_picks(board: DraftBoard, cfg: LeagueConfig, n: int) -> list[Pick]:
+    from .draft.live import Pick, my_slot_on_clock
+
+    teams = cfg.num_teams
+    by_adp = sorted((e for e in board.entries if e.adp is not None), key=lambda e: e.adp or 0.0)
+    picks: list[Pick] = []
+    for pick_no in range(1, min(n, len(by_adp)) + 1):
+        e = by_adp[pick_no - 1]
+        rnd = (pick_no - 1) // teams + 1
+        picks.append(Pick(pick_no, rnd, my_slot_on_clock(pick_no, teams), e.player_id))
+    return picks
+
+
+def _render_live(v: LiveView, slot: int) -> None:
+    print("\n" + "=" * 66)
+    print(f"PICK #{v.current_pick}  (slot {v.on_the_clock} on the clock)")
+    if v.my_next_pick is not None:
+        print(f"YOU (slot {slot}): next pick #{v.my_next_pick}  ({v.picks_until_me} away)")
+    print(f"Your roster ({len(v.my_roster)}): {', '.join(v.my_roster) or '(none)'}")
+    print(f"Unfilled starters: {', '.join(v.unfilled) or 'ALL FILLED'}")
+    if v.runs or v.cliffs:
+        print("\nALERTS:")
+        for r in v.runs:
+            print(f"  ! {r}")
+        for c in v.cliffs:
+            print(f"  ~ {c}")
+    print("\nON YOUR CLOCK -- best available that fills a need:")
+    for cand in v.recommendations:
+        e = cand.entry
+        val = f"{e.value:+d}" if e.value is not None else "-"
+        print(f"  {'GRAB' if cand.grab_now else 'wait':<4} {e.name[:22]:<22} {e.position:<3} "
+              f"val {val:>4}  {' '.join(e.flags)}")
+    print("\nBEST AVAILABLE (by league value):")
+    for cand in v.best_available:
+        e = cand.entry
+        val = f"{e.value:+d}" if e.value is not None else "-"
+        mark = "GRAB" if cand.grab_now else "    "
+        need = "*" if cand.fills_need else " "
+        print(f"  {mark} {need}{e.name[:22]:<22} {e.position:<3} proj {e.points:>5.0f}  "
+              f"val {val:>4}  {' '.join(e.flags)}")
+
+
+def cmd_live(args: argparse.Namespace) -> int:
+    import time
+
+    from .adapters.sleeper import SleeperAdapter
+    from .draft import build_board
+    from .draft.live import compute_view, parse_picks
+
+    cfg = _load(args.league)
+    print(f"Building board for [{cfg.key}] {cfg.name} (value={cfg.value_metric})...")
+    board = build_board(cfg)
+    rounds = args.rounds
+
+    adapter: SleeperAdapter | None = None
+    draft_id = args.draft_id
+    if not args.simulate:
+        if cfg.platform.value != "sleeper":
+            raise SystemExit("live sync is Sleeper-only; for ESPN use --simulate / manual mark-off")
+        adapter = SleeperAdapter()
+        draft_id = draft_id or str(adapter.get_league(cfg.league_id).get("draft_id"))
+        rounds = int(adapter.get_draft(draft_id).get("settings", {}).get("rounds", rounds))
+
+    try:
+        while True:
+            if args.simulate:
+                picks = _simulate_picks(board, cfg, args.simulate)
+            else:
+                assert adapter is not None and draft_id is not None
+                picks = parse_picks(adapter.get_draft_picks(draft_id))
+            view = compute_view(board, picks, args.slot, cfg, rounds)
+            _render_live(view, args.slot)
+            if not args.watch:
+                break
+            time.sleep(args.watch)
+    finally:
+        if adapter is not None:
+            adapter.close()
     return 0
 
 
@@ -413,6 +499,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sn.add_argument("--force", action="store_true", help="overwrite an existing same-date snapshot")
     sn.set_defaults(func=cmd_snapshot)
+
+    lv = sub.add_parser("live", help="live draft decision surface (needs nflverse extra)")
+    lv.add_argument("league")
+    lv.add_argument("--slot", type=int, required=True, help="your draft slot (1..teams)")
+    lv.add_argument("--draft-id", default=None, help="override (default: from the league)")
+    lv.add_argument("--rounds", type=int, default=16, help="draft rounds (default 16 / from draft)")
+    lv.add_argument("--watch", type=int, default=0, help="poll every N seconds (0 = one-shot)")
+    lv.add_argument("--simulate", type=int, default=0, help="offline demo: simulate N ADP picks")
+    lv.set_defaults(func=cmd_live)
 
     cs = sub.add_parser(
         "cheatsheet", help="printable pre-draft cheat sheet: CSV + HTML (needs nflverse extra)"

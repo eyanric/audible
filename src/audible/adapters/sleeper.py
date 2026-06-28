@@ -75,6 +75,13 @@ class SleeperAdapter:
     def get_users(self, league_id: str) -> list[dict[str, Any]]:
         return self._get(f"{BASE_APP}/league/{league_id}/users")
 
+    def get_draft(self, draft_id: str) -> dict[str, Any]:
+        return self._get(f"{BASE_APP}/draft/{draft_id}")
+
+    def get_draft_picks(self, draft_id: str) -> list[dict[str, Any]]:
+        """Live picks as they come off the board (player_id, pick_no, round, draft_slot)."""
+        return self._get(f"{BASE_APP}/draft/{draft_id}/picks")
+
     def get_players_catalog(self, *, force: bool = False) -> dict[str, Any]:
         if not force:
             cached = self._cache.get(PLAYERS_CACHE_KEY, PLAYERS_TTL_S)
