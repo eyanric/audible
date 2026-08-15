@@ -26,6 +26,9 @@ notes = "Target half-PPR; live league still 0-PPR until commish flips it. Shallo
 # it's reimplemented replacement-bounded, ship on VORP (robust). Tracked as a known issue.
 value_metric = "vorp"
 
+# Sleeper ADP market used to price this league: 1-QB, half-PPR, no IDP.
+adp_market = "adp_half_ppr"
+
 [slot_eligibility]
 QB = ["QB"]
 RB = ["RB"]

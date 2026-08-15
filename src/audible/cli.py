@@ -66,14 +66,26 @@ def cmd_verify_scoring(args: argparse.Namespace) -> int:
         raise SystemExit("verify-scoring currently supports Sleeper leagues only")
     with SleeperAdapter() as sleeper:
         drift = sleeper.verify_scoring(cfg)
-    if not drift:
+        structure = sleeper.verify_structure(cfg)
+
+    if drift:
+        print(f"[{cfg.key}] SCORING DRIFT -- {len(drift)} key(s) differ (config vs live):")
+        for key, cfg_val, live_val in drift:
+            print(f"   {key:<18} config={cfg_val!s:<8} live={live_val!s}")
+    else:
         print(f"[{cfg.key}] config scoring is FAITHFUL to the live league "
               f"({len(cfg.scoring)} keys match).")
-        return 0
-    print(f"[{cfg.key}] SCORING DRIFT -- {len(drift)} key(s) differ (config vs live):")
-    for key, cfg_val, live_val in drift:
-        print(f"   {key:<18} config={cfg_val!s:<8} live={live_val!s}")
-    return 1
+
+    if structure:
+        print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
+        print("   Replacement baselines are derived from this, so EVERY value number is wrong:")
+        for slot, cfg_n, live_n in structure:
+            print(f"   {slot:<12} config={cfg_n:<4} live={live_n}")
+    else:
+        print(f"[{cfg.key}] roster structure is FAITHFUL "
+              f"({len(cfg.starting_slots)} starting slots match).")
+
+    return 1 if (drift or structure) else 0
 
 
 def _print_top(entries: Sequence[VorpEntry], n: int) -> None:
@@ -130,14 +142,24 @@ def _simulate_picks(board: DraftBoard, cfg: LeagueConfig, n: int) -> list[Pick]:
     for pick_no in range(1, min(n, len(by_adp)) + 1):
         e = by_adp[pick_no - 1]
         rnd = (pick_no - 1) // teams + 1
-        picks.append(Pick(pick_no, rnd, my_slot_on_clock(pick_no, teams), e.player_id))
+        slot = my_slot_on_clock(pick_no, teams)
+        assert slot is not None  # unbounded call: only pick_no < 1 yields None
+        picks.append(Pick(pick_no, rnd, slot, e.player_id))
     return picks
 
 
 def _render_live(v: LiveView, slot: int) -> None:
     print("\n" + "=" * 66)
-    print(f"PICK #{v.current_pick}  (slot {v.on_the_clock} on the clock)")
-    if v.my_next_pick is not None:
+    if v.on_the_clock is None:
+        print(f"PICK #{v.current_pick}  -- DRAFT COMPLETE")
+    else:
+        print(f"PICK #{v.current_pick}  (slot {v.on_the_clock} on the clock)")
+    if v.picks_until_me == 0:
+        horizon = (f", then #{v.survival_horizon} "
+                   f"({v.opponent_picks_until_horizon} rival picks later)"
+                   if v.survival_horizon is not None else " -- your last pick")
+        print(f"YOU (slot {slot}): >>> ON THE CLOCK <<<{horizon}")
+    elif v.my_next_pick is not None:
         print(f"YOU (slot {slot}): next pick #{v.my_next_pick}  ({v.picks_until_me} away)")
     print(f"Your roster ({len(v.my_roster)}): {', '.join(v.my_roster) or '(none)'}")
     print(f"Unfilled starters: {', '.join(v.unfilled) or 'ALL FILLED'}")
@@ -147,7 +169,9 @@ def _render_live(v: LiveView, slot: int) -> None:
             print(f"  ! {r}")
         for c in v.cliffs:
             print(f"  ~ {c}")
-    print("\nON YOUR CLOCK -- best available that fills a need:")
+    header = ("best available (all starters filled -- depth/upside)"
+              if v.starters_complete else "best available that fills a need")
+    print(f"\nON YOUR CLOCK -- {header}:")
     for cand in v.recommendations:
         e = cand.entry
         val = f"{e.value:+d}" if e.value is not None else "-"
@@ -182,7 +206,17 @@ def cmd_live(args: argparse.Namespace) -> int:
             raise SystemExit("live sync is Sleeper-only; for ESPN use --simulate / manual mark-off")
         adapter = SleeperAdapter()
         draft_id = draft_id or str(adapter.get_league(cfg.league_id).get("draft_id"))
-        rounds = int(adapter.get_draft(draft_id).get("settings", {}).get("rounds", rounds))
+        settings = adapter.get_draft(draft_id).get("settings", {})
+        rounds = int(settings.get("rounds", rounds))
+
+        # Reconcile against the live draft room before showing a single number. A config that
+        # disagrees with the room silently ruins the whole session.
+        for slot, cfg_n, live_n in adapter.verify_structure(cfg):
+            print(f"  !! ROSTER DRIFT {slot}: config={cfg_n} live={live_n} "
+                  f"-- value numbers are derived from this and are WRONG until reconciled")
+        live_teams = int(settings.get("teams", cfg.num_teams))
+        if live_teams != cfg.num_teams:
+            print(f"  !! TEAM COUNT DRIFT: config={cfg.num_teams} live={live_teams}")
 
     try:
         while True:
@@ -504,7 +538,7 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("league")
     lv.add_argument("--slot", type=int, required=True, help="your draft slot (1..teams)")
     lv.add_argument("--draft-id", default=None, help="override (default: from the league)")
-    lv.add_argument("--rounds", type=int, default=16, help="draft rounds (default 16 / from draft)")
+    lv.add_argument("--rounds", type=int, default=18, help="draft rounds (default 18 / from draft)")
     lv.add_argument("--watch", type=int, default=0, help="poll every N seconds (0 = one-shot)")
     lv.add_argument("--simulate", type=int, default=0, help="offline demo: simulate N ADP picks")
     lv.set_defaults(func=cmd_live)

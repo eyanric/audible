@@ -19,7 +19,8 @@ def test_compute_tiers_edge_cases() -> None:
 
 def _entry(pid: str, pos: str, pts: float, vrank: int, srank: int, value: int) -> DraftEntry:
     return DraftEntry(
-        player_id=pid, name=f"Player {pid}", position=pos, team="X", model="consensus",
+        player_id=pid, name=f"Player {pid}", position=pos,
+        eligible_positions=frozenset({pos}), team="X", model="consensus",
         points=pts, modeled_xfp=0.0, carried=0.0, consensus=pts, vorp=pts, vorp_rank=vrank,
         scarcity=pts, scarcity_rank=srank, adp=float(vrank + value), adp_rank=vrank + value,
         value=value, flags=("opp+30",),

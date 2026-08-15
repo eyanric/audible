@@ -55,18 +55,24 @@ def next_pick_after(slot: int, teams: int, rounds: int, current_pick: int) -> in
 
 
 def unfilled_slots(my_entries: list[DraftEntry], config: LeagueConfig) -> list[str]:
-    """My remaining starting slots after greedily placing my picks (most-specific slot first)."""
+    """My remaining starting slots after greedily placing my picks (most-specific slot first).
+
+    Placement mirrors ``value.replacement.assign_starters``: a player is matched on his full
+    slot eligibility, not just his VORP bucket, so a DL/LB hybrid can fill either slot. Among
+    equally specific open slots the one matching his primary position wins, so he only spills
+    to secondary eligibility (or a flex) once his primary slots are gone.
+    """
     slots = list(config.starting_slots)
     filled = [False] * len(slots)
     for entry in sorted(my_entries, key=lambda e: -e.points):
         best_idx = -1
-        best_key: tuple[int, str] | None = None
+        best_key: tuple[int, int, str] | None = None
         for i, name in enumerate(slots):
             if filled[i]:
                 continue
-            eligible = config.slot_eligibility[name]
-            if entry.position in eligible:
-                key = (len(eligible), name)
+            eligible = frozenset(config.slot_eligibility[name])
+            if entry.eligible_positions & eligible:
+                key = (len(eligible), 0 if entry.position in eligible else 1, name)
                 if best_key is None or key < best_key:
                     best_key, best_idx = key, i
         if best_idx >= 0:
@@ -84,11 +90,14 @@ class Candidate:
 @dataclass(frozen=True, slots=True)
 class LiveView:
     current_pick: int
-    on_the_clock: int | None  # draft slot on the clock
+    on_the_clock: int | None  # draft slot on the clock (None once the draft is over)
     my_next_pick: int | None
-    picks_until_me: int | None
+    picks_until_me: int | None  # 0 == I am on the clock right now
+    survival_horizon: int | None  # the next pick I control AFTER this one
+    opponent_picks_until_horizon: int | None  # rival picks between now and that horizon
     my_roster: list[str]  # names of my picks
     unfilled: list[str]  # my remaining starting slots
+    starters_complete: bool
     best_available: list[Candidate]  # ranked by league value
     recommendations: list[Candidate]  # best available that fill a need, on the clock
     runs: list[str]
@@ -111,14 +120,29 @@ def compute_view(
     top: int = 18,
 ) -> LiveView:
     teams = config.num_teams
+    if my_slot is not None and not 1 <= my_slot <= teams:
+        raise ValueError(f"draft slot {my_slot} out of range for a {teams}-team league")
+
     by_id = {e.player_id: e for e in board.entries}
     drafted = {p.player_id for p in picks}
     available = [e for e in board.entries if e.player_id not in drafted]  # already value-ranked
 
-    current_pick = len(picks) + 1
-    on_clock = my_slot_on_clock(current_pick, teams)
+    # Derive the clock from the authoritative pick numbers, not the record count: parse_picks
+    # drops rows without a player_id, so len(picks) silently rewinds the draft on any gap.
+    current_pick = (max(p.pick_no for p in picks) + 1) if picks else 1
+    on_clock = my_slot_on_clock(current_pick, teams, rounds)
     my_next = next_pick_after(my_slot, teams, rounds, current_pick) if my_slot else None
     picks_until = (my_next - current_pick) if my_next is not None else None
+    on_my_clock = picks_until == 0
+
+    # Survival is about the next pick I control AFTER this one. Asking ">= current_pick" while
+    # I am on the clock answers "will he last until right now", which is always yes -- that is
+    # what silenced grab-now at every one of my own picks. It also makes wheel picks legible:
+    # at slot 1 holding 20 and 21, only the picks strictly between them can take a player.
+    horizon = next_pick_after(my_slot, teams, rounds, current_pick + 1) if my_slot else None
+    opponent_picks = (
+        None if horizon is None else horizon - current_pick - (1 if on_my_clock else 0)
+    )
 
     my_entries = [
         by_id[p.player_id] for p in picks if p.draft_slot == my_slot and p.player_id in by_id
@@ -127,15 +151,25 @@ def compute_view(
     needs = {pos for slot in unfilled for pos in config.slot_eligibility[slot]}
 
     gone: set[str] = set()
-    if picks_until and picks_until > 0:
+    if opponent_picks:
         by_adp = sorted((e for e in available if e.adp is not None), key=lambda e: e.adp or 0.0)
-        gone = {e.player_id for e in by_adp[:picks_until]}
+        gone = {e.player_id for e in by_adp[:opponent_picks]}
 
     def candidate(e: DraftEntry) -> Candidate:
-        return Candidate(e, grab_now=e.player_id in gone, fills_need=e.position in needs)
+        return Candidate(
+            e, grab_now=e.player_id in gone, fills_need=bool(e.eligible_positions & needs)
+        )
 
     best = [candidate(e) for e in available[:top]]
-    recs = [candidate(e) for e in available if e.position in needs][:6]
+    # Once every starting slot is placed the needs set empties, which would blank the
+    # recommendation panel for the whole bench phase. Fall back to raw best-available there --
+    # the tool still has an opinion about depth, it just no longer has a slot to justify it.
+    starters_complete = not unfilled
+    pool = (
+        available if starters_complete
+        else [e for e in available if e.eligible_positions & needs]
+    )
+    recs = [candidate(e) for e in pool][:6]
 
     # scarcity-run alerts over the recent window
     window = recent_window or teams
@@ -162,13 +196,22 @@ def compute_view(
 
     return LiveView(
         current_pick=current_pick, on_the_clock=on_clock, my_next_pick=my_next,
-        picks_until_me=picks_until, my_roster=[e.name for e in my_entries], unfilled=unfilled,
+        picks_until_me=picks_until, survival_horizon=horizon,
+        opponent_picks_until_horizon=opponent_picks,
+        my_roster=[e.name for e in my_entries], unfilled=unfilled,
+        starters_complete=starters_complete,
         best_available=best, recommendations=recs, runs=runs, cliffs=cliffs,
     )
 
 
-def my_slot_on_clock(current_pick: int, teams: int) -> int:
-    """Which draft slot is on the clock for ``current_pick`` (snake order)."""
+def my_slot_on_clock(current_pick: int, teams: int, rounds: int | None = None) -> int | None:
+    """Which draft slot is on the clock for ``current_pick`` (snake order).
+
+    Returns None once ``current_pick`` runs past ``teams * rounds`` -- without the bound a
+    finished draft keeps rendering as though a fresh round were starting.
+    """
+    if current_pick < 1 or (rounds is not None and current_pick > teams * rounds):
+        return None
     rnd = (current_pick - 1) // teams + 1
     idx = (current_pick - 1) % teams
     return idx + 1 if rnd % 2 == 1 else teams - idx

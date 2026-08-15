@@ -1,5 +1,7 @@
 # audible league config -- League A (Sleeper)
-# Captured from the LIVE league on 2026-06-26 and verified at load against the API.
+# Scoring captured from the LIVE league 2026-06-26 (re-verified faithful 2026-08-15, 72/72 keys).
+# Roster structure re-captured 2026-08-15 after the committed version was found to disagree
+# with the live league; run `audible verify-scoring <league>` to re-check both.
 # Config-as-DATA: scoring/structure live here, never in engine logic.
 
 key = "sleeper_boyfun"
@@ -9,8 +11,11 @@ league_id = "1361543954771738624"
 season = 2026
 num_teams = 10
 
-# Starting lineup (BN/IR excluded). 15 starters incl. SUPER_FLEX + 4 IDP slots.
-starting_slots = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX", "K", "DEF", "DL", "LB", "DB", "IDP_FLEX"]
+# Starting lineup (BN/IR excluded). 11 starters incl. SUPER_FLEX + ONE IDP_FLEX.
+# Re-verified against live roster_positions 2026-08-15: the league carries no DEF slot and
+# a single IDP_FLEX -- NOT the DL/LB/DB/IDP_FLEX stack captured on 2026-06-26. Corroborated
+# by draft settings (slots_idp_flex=1, no slots_def, slots_bn=7, rounds=18 = 11 + 7).
+starting_slots = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX", "K", "IDP_FLEX"]
 
 median_match = true  # play H2H opponent AND league median
 playoff_teams = 6
@@ -20,7 +25,15 @@ waiver_type = "faab"
 faab_budget = 100
 notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifacts per owner)."
 # Backtest verdict: raw VORP beats scarcity/VONA OOS in this deep superflex+IDP format (edge +37 vs +3).
+# NOTE: that verdict was measured under the (wrong) 4-IDP-slot structure above; it has not been
+# re-run against the corrected 11-starter roster.
 value_metric = "vorp"
+
+# Which Sleeper ADP market prices this league. `adp_idp` is the SUPERFLEX+IDP market and is
+# the only field that covers offense and IDP on one scale (verified 2026-08-15: Josh Allen
+# adp_idp 3.9 ~ adp_2qb 3.8, while adp_idp_1qb 19.5 ~ adp_half_ppr 23.1). Mixing markets by
+# position produces incomparable ranks, so one league gets exactly one market.
+adp_market = "adp_idp"
 
 [slot_eligibility]
 QB = ["QB"]
@@ -30,10 +43,6 @@ TE = ["TE"]
 FLEX = ["RB", "WR", "TE"]
 SUPER_FLEX = ["QB", "RB", "WR", "TE"]
 K = ["K"]
-DEF = ["DEF"]
-DL = ["DL"]
-LB = ["LB"]
-DB = ["DB"]
 IDP_FLEX = ["DL", "LB", "DB"]
 
 # Full scoring_settings (72 keys) -- captured verbatim from the live league.

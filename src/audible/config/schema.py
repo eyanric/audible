@@ -62,6 +62,11 @@ class LeagueConfig(BaseModel):
     # (VONA, dropoff-slope) for shallow/flat formats (1-QB), where it beats VORP OOS.
     value_metric: str = "vorp"
 
+    # The single Sleeper ADP field that prices this league's market. One league gets exactly
+    # one market: ADP ranks drawn from different markets (e.g. adp_2qb for offense and
+    # adp_idp for IDP) are not comparable, so pooling them corrupts every value number.
+    adp_market: str = "adp_half_ppr"
+
     @model_validator(mode="after")
     def _validate_structure(self) -> LeagueConfig:
         if self.value_metric not in ("vorp", "scarcity"):

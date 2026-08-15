@@ -201,7 +201,33 @@ class SleeperAdapter:
             for line in self.raw_player_lines(config)
         ]
 
-    # --- drift guard -------------------------------------------------------
+    # --- drift guards ------------------------------------------------------
+    # Bench/IR slots never demand a weekly starter, so they're excluded from the comparison.
+    _NON_STARTER_SLOTS = frozenset({"BN", "IR", "TAXI"})
+
+    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int, int]]:
+        """Compare the committed starting lineup against the live league's roster_positions.
+
+        Returns one ``(slot, config_count, live_count)`` tuple per mismatched slot; an empty
+        list means the structure is faithful. This is the structural twin of
+        :meth:`verify_scoring`, and it exists because its absence is exactly how the config
+        came to claim four IDP slots and a DEF slot the live league does not have -- which
+        silently corrupts every replacement baseline the value engine derives.
+        """
+        live_positions: list[str] = self.get_league(config.league_id).get("roster_positions", [])
+        live_counts: dict[str, int] = {}
+        for slot in live_positions:
+            if slot in self._NON_STARTER_SLOTS:
+                continue
+            live_counts[slot] = live_counts.get(slot, 0) + 1
+
+        cfg_counts = config.slot_counts()
+        return [
+            (slot, cfg_counts.get(slot, 0), live_counts.get(slot, 0))
+            for slot in sorted(set(cfg_counts) | set(live_counts))
+            if cfg_counts.get(slot, 0) != live_counts.get(slot, 0)
+        ]
+
     def verify_scoring(self, config: LeagueConfig) -> list[tuple[str, float | None, float | None]]:
         """Compare the committed config scoring against the live league.
 
