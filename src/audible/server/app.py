@@ -9,6 +9,7 @@ staleness indicator climb, which is exactly the information the user needs.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -34,9 +35,11 @@ class PlayerRef(BaseModel):
     player_id: str | None = None
 
 
-def create_app(service: CockpitService, *, warm: bool = True) -> FastAPI:
+def create_app(
+    service: CockpitService, *, warm: bool = True, mcp_token: str | None = None
+) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def cockpit_lifespan(app: FastAPI):
         service.restore()
         if warm:
             service.warm_board()
@@ -44,7 +47,19 @@ def create_app(service: CockpitService, *, warm: bool = True) -> FastAPI:
         yield
         service.stop()
 
-    app = FastAPI(title="audible cockpit", docs_url=None, redoc_url=None, lifespan=lifespan)
+    # MCP rides the SAME process and the SAME service instance as the UI. Its session manager
+    # needs its own lifespan, so the two are combined rather than one replacing the other --
+    # dropping either leaves a half-initialised server that fails at the first tool call.
+    from fastmcp.utilities.lifespan import combine_lifespans
+
+    from .mcp import build_mcp
+
+    mcp_app = build_mcp(service, auth_token=mcp_token).http_app(path="/")
+    app = FastAPI(
+        title="audible cockpit", docs_url=None, redoc_url=None,
+        lifespan=combine_lifespans(cockpit_lifespan, mcp_app.lifespan),
+    )
+    app.mount("/mcp", mcp_app)
 
     @app.get("/")
     def index() -> FileResponse:
@@ -109,6 +124,12 @@ def serve(
     service = CockpitService(
         config, draft_id=draft_id, slot_override=slot, user_name=user_name
     )
-    app = create_app(service)
+    token = os.environ.get("MCP_AUTH_TOKEN") or None
+    app = create_app(service, mcp_token=token)
     log.info("cockpit for [%s] %s -> http://%s:%d", config.key, config.name, host, port)
+    log.info(
+        "MCP at http://%s:%d/mcp  (%s)", host, port,
+        "bearer auth from MCP_AUTH_TOKEN" if token
+        else "UNAUTHENTICATED - set MCP_AUTH_TOKEN before exposing this beyond localhost",
+    )
     uvicorn.run(app, host=host, port=port, log_level="warning")

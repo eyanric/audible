@@ -1,0 +1,89 @@
+name: image
+
+# Build on every PR so a broken Dockerfile fails in review, but only PUSH from main. The SHA
+# tag is what gets pinned for draft week; `latest` is a convenience and is never what runs on
+# draft night.
+on:
+  pull_request:
+    paths: ['Dockerfile', '.dockerignore', 'pyproject.toml', 'uv.lock', 'src/**', 'leagues/**',
+            '.github/workflows/image.yml']
+  push:
+    branches: [main]
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # A build that succeeds but produces an image that cannot start is worse than a failed
+      # build, because it ships. Boot it and require /healthz to answer.
+      - name: smoke test the image
+        run: |
+          set -euo pipefail
+          IMAGE=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          if [ "${{ github.event_name }}" != "push" ]; then
+            docker buildx build --load -t audible:smoke .
+            IMAGE=audible:smoke
+          fi
+          docker run -d --name audible-smoke -p 8080:8080 "$IMAGE"
+          # The board build pulls nflverse data, so allow a generous warm-up. /healthz is
+          # expected to 503 until the board is present -- that is the point of the probe.
+          for i in $(seq 1 90); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz || true)
+            echo "attempt $i: /healthz -> ${code:-none}"
+            if [ "$code" = "200" ]; then echo "image is healthy"; break; fi
+            if [ "$i" = "90" ]; then
+              echo "::error::image never became healthy"; docker logs audible-smoke; exit 1
+            fi
+            sleep 5
+          done
+          curl -s http://127.0.0.1:8080/healthz
+          echo
+          curl -s -o /dev/null -w 'index: %{http_code}\n' http://127.0.0.1:8080/
+          docker rm -f audible-smoke
+
+      - name: report digest
+        if: github.event_name == 'push'
+        run: |
+          echo "### image published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Pin THIS digest for draft week." >> "$GITHUB_STEP_SUMMARY"
