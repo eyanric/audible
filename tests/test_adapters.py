@@ -1,13 +1,53 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from audible.adapters.sleeper import SleeperAdapter
 from audible.config import LeagueConfig
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+
 
 def _classify(catalog: dict[str, dict[str, Any]], pid: str, cfg: LeagueConfig):
     return SleeperAdapter.classify(catalog[pid], cfg.positions)
+
+
+def test_verify_structure_catches_roster_drift(
+    monkeypatch: pytest.MonkeyPatch, sleeper_config: LeagueConfig
+) -> None:
+    """The Phase-0 capture carried 15 starters (DEF plus a full DL/LB/DB/IDP_FLEX stack); the
+    live league has since moved to 11 with a single IDP_FLEX and no DEF. Nothing compared the
+    two, so the stale structure silently corrupted every replacement baseline the value engine
+    derives -- this guard is what makes that failure loud.
+    """
+    captured = json.loads((FIXTURES / "sleeper_league.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(SleeperAdapter, "get_league", lambda self, league_id: captured)
+
+    with SleeperAdapter() as adapter:
+        drift = {slot: (cfg_n, live_n) for slot, cfg_n, live_n in adapter.verify_structure(
+            sleeper_config
+        )}
+
+    # config no longer has these slots; the June capture had one of each.
+    assert drift["DEF"] == (0, 1)
+    assert drift["DL"] == (0, 1)
+    assert drift["LB"] == (0, 1)
+    assert drift["DB"] == (0, 1)
+    assert "IDP_FLEX" not in drift  # one in both -- unchanged
+    assert "BN" not in drift  # bench never demands a starter
+
+
+def test_verify_structure_is_quiet_when_faithful(
+    monkeypatch: pytest.MonkeyPatch, sleeper_config: LeagueConfig
+) -> None:
+    live = {"roster_positions": list(sleeper_config.starting_slots) + ["BN"] * 7}
+    monkeypatch.setattr(SleeperAdapter, "get_league", lambda self, league_id: live)
+    with SleeperAdapter() as adapter:
+        assert adapter.verify_structure(sleeper_config) == []
 
 
 def test_two_way_player_buckets_to_offense(

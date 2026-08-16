@@ -7,6 +7,7 @@ from .replacement import (
     compute_vorp,
     replacement_levels,
 )
+from .scarcity import scarcity_values
 
 __all__ = [
     "ReplacementLevel",
@@ -14,4 +15,5 @@ __all__ = [
     "assign_starters",
     "compute_vorp",
     "replacement_levels",
+    "scarcity_values",
 ]

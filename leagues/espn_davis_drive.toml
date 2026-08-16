@@ -21,6 +21,13 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 
 expected_reception_points = 0.5  # drift guard: warn if live ESPN REC != this
 notes = "Target half-PPR; live league still 0-PPR until commish flips it. Shallow 8-team, 1-QB."
+# Backtest edged scarcity/VONA over VORP here (+28 vs +24), BUT the current VONA impl has a
+# junk-tail pathology on flat positions (inflates mid-QB value -> QB-dominated board). Until
+# it's reimplemented replacement-bounded, ship on VORP (robust). Tracked as a known issue.
+value_metric = "vorp"
+
+# Sleeper ADP market used to price this league: 1-QB, half-PPR, no IDP.
+adp_market = "adp_half_ppr"
 
 [slot_eligibility]
 QB = ["QB"]

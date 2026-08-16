@@ -57,8 +57,22 @@ class LeagueConfig(BaseModel):
     expected_reception_points: float | None = None
     notes: str | None = None
 
+    # Which value metric drives targets-vs-ADP, learned from the backtest per league:
+    # "vorp" (over-replacement) for deep/scarce formats (superflex + IDP); "scarcity"
+    # (VONA, dropoff-slope) for shallow/flat formats (1-QB), where it beats VORP OOS.
+    value_metric: str = "vorp"
+
+    # The single Sleeper ADP field that prices this league's market. One league gets exactly
+    # one market: ADP ranks drawn from different markets (e.g. adp_2qb for offense and
+    # adp_idp for IDP) are not comparable, so pooling them corrupts every value number.
+    adp_market: str = "adp_half_ppr"
+
     @model_validator(mode="after")
     def _validate_structure(self) -> LeagueConfig:
+        if self.value_metric not in ("vorp", "scarcity"):
+            raise ValueError(
+                f"value_metric must be 'vorp' or 'scarcity', got {self.value_metric!r}"
+            )
         if not self.starting_slots:
             raise ValueError("starting_slots must be non-empty")
         for slot in self.starting_slots:

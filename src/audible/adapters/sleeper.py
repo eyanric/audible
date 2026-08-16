@@ -75,6 +75,13 @@ class SleeperAdapter:
     def get_users(self, league_id: str) -> list[dict[str, Any]]:
         return self._get(f"{BASE_APP}/league/{league_id}/users")
 
+    def get_draft(self, draft_id: str) -> dict[str, Any]:
+        return self._get(f"{BASE_APP}/draft/{draft_id}")
+
+    def get_draft_picks(self, draft_id: str) -> list[dict[str, Any]]:
+        """Live picks as they come off the board (player_id, pick_no, round, draft_slot)."""
+        return self._get(f"{BASE_APP}/draft/{draft_id}/picks")
+
     def get_players_catalog(self, *, force: bool = False) -> dict[str, Any]:
         if not force:
             cached = self._cache.get(PLAYERS_CACHE_KEY, PLAYERS_TTL_S)
@@ -94,6 +101,19 @@ class SleeperAdapter:
             ("position[]", position),
             ("order_by", "pts_half_ppr"),
         ]
+        return self._get(url, params=params)
+
+    def get_stats(
+        self, season: int, position: str, week: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Actual stats (season totals when week is None) -- the backtest answer key.
+
+        Same stat-key vocabulary as projections, incl. IDP (idp_tkl_solo, ...) and ``gp``,
+        so league-correct actuals come straight through the scoring engine.
+        """
+        suffix = f"/{week}" if week is not None else ""
+        url = f"{BASE_COM}/stats/nfl/{season}{suffix}"
+        params: _Params = [("season_type", "regular"), ("position[]", position)]
         return self._get(url, params=params)
 
     # --- normalisation -----------------------------------------------------
@@ -123,19 +143,23 @@ class SleeperAdapter:
                 primary = sorted(eligible)[0]
         return primary, eligible
 
-    def raw_player_lines(self, config: LeagueConfig) -> list[RawPlayerLine]:
+    def raw_player_lines(
+        self, config: LeagueConfig, season: int | None = None
+    ) -> list[RawPlayerLine]:
         """The unscored universe: every rosterable player + raw projected stat line.
 
         Projection-source-agnostic on purpose -- this is what a ProjectionProvider
         scores. The ConsensusProvider runs these through the scoring engine; a future
-        OpportunityProvider joins them to nflverse via ``ids`` instead.
+        OpportunityProvider joins them to nflverse via ``ids`` instead. ``season``
+        overrides the projection season for historical backtest folds.
         """
         catalog = self.get_players_catalog()
+        proj_season = season if season is not None else config.season
 
         # Merge raw stat lines across the league's positions (hybrids dedupe by id).
         stat_lines: dict[str, dict[str, float]] = {}
         for position in sorted(config.positions):
-            for row in self.get_projections(config.season, position):
+            for row in self.get_projections(proj_season, position):
                 stats = row.get("stats")
                 if stats:
                     stat_lines[str(row["player_id"])] = stats
@@ -177,7 +201,33 @@ class SleeperAdapter:
             for line in self.raw_player_lines(config)
         ]
 
-    # --- drift guard -------------------------------------------------------
+    # --- drift guards ------------------------------------------------------
+    # Bench/IR slots never demand a weekly starter, so they're excluded from the comparison.
+    _NON_STARTER_SLOTS = frozenset({"BN", "IR", "TAXI"})
+
+    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int, int]]:
+        """Compare the committed starting lineup against the live league's roster_positions.
+
+        Returns one ``(slot, config_count, live_count)`` tuple per mismatched slot; an empty
+        list means the structure is faithful. This is the structural twin of
+        :meth:`verify_scoring`, and it exists because its absence is exactly how the config
+        came to claim four IDP slots and a DEF slot the live league does not have -- which
+        silently corrupts every replacement baseline the value engine derives.
+        """
+        live_positions: list[str] = self.get_league(config.league_id).get("roster_positions", [])
+        live_counts: dict[str, int] = {}
+        for slot in live_positions:
+            if slot in self._NON_STARTER_SLOTS:
+                continue
+            live_counts[slot] = live_counts.get(slot, 0) + 1
+
+        cfg_counts = config.slot_counts()
+        return [
+            (slot, cfg_counts.get(slot, 0), live_counts.get(slot, 0))
+            for slot in sorted(set(cfg_counts) | set(live_counts))
+            if cfg_counts.get(slot, 0) != live_counts.get(slot, 0)
+        ]
+
     def verify_scoring(self, config: LeagueConfig) -> list[tuple[str, float | None, float | None]]:
         """Compare the committed config scoring against the live league.
 

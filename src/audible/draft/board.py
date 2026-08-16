@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from ..config.schema import LeagueConfig
 from ..models.player import PlayerProjection, RawPlayerLine
 from ..scoring.engine import score_stat_line
-from ..value import compute_vorp
+from ..value import compute_vorp, scarcity_values
 from .opportunity import OpportunityXfp, carried_value, modeled_xfp, season_opportunity
 from .rookies import DraftCapital, draft_capital_factor, load_draft_capital, normalize_name
 from .signals import (
@@ -33,8 +33,7 @@ from .signals import (
 OFFENSE = frozenset({"QB", "RB", "WR", "TE"})
 IDP = frozenset({"DL", "LB", "DB"})
 
-ANNUAL_GAMES = 17  # annualize a player's per-game opportunity rate to a full season
-FULL_CONF_GAMES = 14  # >= this many games -> trust opportunity fully; fewer -> shrink to consensus
+ANNUAL_GAMES = 17  # annualize a player's per-game opportunity rate to a full season (overlay only)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +51,8 @@ class _Proj:
 class DraftEntry:
     player_id: str
     name: str
-    position: str
+    position: str  # VORP primary bucket
+    eligible_positions: frozenset[str]  # every slot-eligible position (hybrids: DE -> DL+LB)
     team: str | None
     model: str
     points: float
@@ -61,9 +61,11 @@ class DraftEntry:
     consensus: float
     vorp: float
     vorp_rank: int
+    scarcity: float
+    scarcity_rank: int
     adp: float | None
     adp_rank: int | None
-    value: int | None  # adp_rank - vorp_rank (positive => target)
+    value: int | None  # adp_rank - (league-configured value rank); positive => target
     flags: tuple[str, ...]
 
 
@@ -73,28 +75,18 @@ class DraftBoard:
     entries: list[DraftEntry]  # sorted by vorp_rank
 
 
-def _adp_for(stats: dict[str, float], primary: str, platform: str) -> float | None:
-    sleeper_key = "adp_idp" if primary in IDP else "adp_2qb"
-    key = sleeper_key if platform == "sleeper" else "adp_half_ppr"
-    value = stats.get(key)
-    return value if value and value > 0 else None
+# Sleeper encodes "undrafted in this market" as 999.0 rather than omitting the key. 91% of the
+# catalog (7158/7861 on adp_2qb, 2026-08-15) carries it, so treating it as a real ADP inflates
+# every rank and makes `value` meaningless for anyone deep on the board.
+_ADP_UNDRAFTED = 999.0
 
 
-# Draft round -> target depth at the player's position (a R1 pick should land ~a starter).
-_ROUND_TARGET: dict[int, int] = {1: 12, 2: 24, 3: 40, 4: 60, 5: 80, 6: 100, 7: 120}
-
-
-def _rookie_floor(
-    consensus_by_pos: dict[str, list[float]], position: str, capital: DraftCapital | None
-) -> float:
-    """Positional consensus value at a draft-capital-implied depth (0 if undrafted/no peers)."""
-    if capital is None:
-        return 0.0
-    peers = consensus_by_pos.get(position)
-    if not peers:
-        return 0.0
-    target = _ROUND_TARGET.get(capital.round, 140)
-    return peers[min(target, len(peers) - 1)]
+def _adp_for(stats: dict[str, float], adp_market: str) -> float | None:
+    """This league's ADP for a player, or None when the market never drafts him."""
+    value = stats.get(adp_market)
+    if value is None or value <= 0 or value >= _ADP_UNDRAFTED:
+        return None
+    return value
 
 
 def _project_line(
@@ -108,16 +100,17 @@ def _project_line(
     teams: dict[str, str],
     dc_by_gsis: dict[str, DraftCapital],
     dc_by_name: dict[str, DraftCapital],
-    consensus_by_pos: dict[str, list[float]],
 ) -> _Proj:
     scoring = config.scoring
     primary = line.primary_position
     consensus = score_stat_line(line.stats, scoring)
-    adp = _adp_for(line.stats, primary, config.platform.value)
+    adp = _adp_for(line.stats, config.adp_market)
     flags: list[str] = []
 
-    # Rookie: anchor on draft capital (a positional floor) so an early pick is never
-    # replacement-level even when consensus hasn't caught up (e.g. a rookie QB ~0).
+    # Rookie: consensus (which is already rookie-aware) tilted by draft capital. There is
+    # deliberately no positional "floor" here -- a round-keyed floor overwrote the projection
+    # entirely rather than nudging it, pinning every R1 rookie to the same manufactured number
+    # (a QB3 projected 12.6 pts became 286.7) and flattening whole classes into ties.
     if line.years_exp == 0:
         capital = (dc_by_gsis.get(gsis) if gsis else None) or dc_by_name.get(
             normalize_name(line.name)
@@ -126,16 +119,17 @@ def _project_line(
         flags.append(f"rookie:{branch}")
         if capital is not None:
             flags.append(f"R{capital.round}.{capital.pick:03d}")
-        floor = _rookie_floor(consensus_by_pos, primary, capital)
-        points = max(consensus * draft_capital_factor(capital), floor)
-        return _Proj(points, "rookie", 0.0, 0.0, consensus, adp, tuple(flags))
+        return _Proj(
+            consensus * draft_capital_factor(capital), "rookie", 0.0, 0.0, consensus, adp,
+            tuple(flags),
+        )
 
-    # Matched offense veteran: annualized opportunity xFP + trajectory + vacated, carried
-    # from consensus, then shrunk toward consensus by games played (sample confidence).
+    # Post-gate: CONSENSUS is the projection of record -- it beat our opportunity model
+    # out-of-sample at every position. For matched offense we still compute the opportunity
+    # view, but only as an OVERLAY tilt surfaced via flags; it never drives the ranking.
     if primary in OFFENSE and gsis is not None and gsis in opp:
         o = opp[gsis]
         annualized = modeled_xfp(o, scoring) * (ANNUAL_GAMES / max(o.games, 1))
-        carried = carried_value(line.stats, scoring)
         traj_factor = traj[gsis].factor if gsis in traj else 1.0
         vac = vacated.get(teams.get(gsis, ""))
         vac_factor = 1.0
@@ -144,35 +138,34 @@ def _project_line(
                 vac_factor = 1.0 + min(0.15, 0.5 * vac.target)
             elif primary == "RB":
                 vac_factor = 1.0 + min(0.15, 0.5 * vac.carry)
-        opp_proj = annualized * traj_factor * vac_factor + carried
-        conf = min(1.0, o.games / FULL_CONF_GAMES)
-        points = conf * opp_proj + (1.0 - conf) * consensus
+        opp_view = annualized * traj_factor * vac_factor + carried_value(line.stats, scoring)
+        gap = opp_view - consensus
+        if gap > 20:
+            flags.append(f"opp+{gap:.0f}")  # opportunity sees upside vs consensus (buy tilt)
+        elif gap < -20:
+            flags.append(f"opp{gap:.0f}")  # opportunity sees downside (sell tilt)
         if traj_factor > 1.10:
             flags.append("riser")
         elif traj_factor < 0.90:
             flags.append("faller")
         if vac_factor > 1.05:
             flags.append(f"vac+{round((vac_factor - 1) * 100)}%")
-        if o.games < FULL_CONF_GAMES:
-            flags.append(f"{o.games}g")
-        return _Proj(points, "opportunity", annualized, carried, consensus, adp, tuple(flags))
+        return _Proj(consensus, "consensus", opp_view, 0.0, consensus, adp, tuple(flags))
 
-    # Offense with no 2025 opportunity row -> consensus fallback (flagged, not replacement).
-    if primary in OFFENSE:
-        return _Proj(consensus, "consensus_fallback", 0.0, 0.0, consensus, adp, ("no2025",))
-
-    # IDP / K / DEF -> consensus (ff_opportunity is offense-only).
+    # IDP / K / DEF / offense without an opportunity row -> consensus.
     return _Proj(consensus, "consensus", 0.0, 0.0, consensus, adp, ())
 
 
 def build_board(
-    config: LeagueConfig, prior_season: int = 2025, cur_season: int = 2026
+    config: LeagueConfig,
+    prior_season: int = 2025,
+    cur_season: int = 2026,
 ) -> DraftBoard:
     from ..adapters.sleeper import SleeperAdapter
     from ..crosswalk import Crosswalk
 
     with SleeperAdapter() as sleeper:
-        lines = sleeper.raw_player_lines(config)
+        lines = sleeper.raw_player_lines(config, season=cur_season)
 
     xwalk = Crosswalk.from_nflverse()
     opp = season_opportunity([prior_season])
@@ -181,17 +174,6 @@ def build_board(
     teams = current_team_by_gsis(cur_season)
     dc_by_gsis, dc_by_name = load_draft_capital(cur_season)
 
-    # Veteran consensus distribution per position -> rookie floors by draft round.
-    consensus_by_pos: dict[str, list[float]] = {}
-    for line in lines:
-        if line.years_exp == 0:
-            continue
-        consensus_by_pos.setdefault(line.primary_position, []).append(
-            score_stat_line(line.stats, config.scoring)
-        )
-    for peers in consensus_by_pos.values():
-        peers.sort(reverse=True)
-
     projections: list[PlayerProjection] = []
     meta: dict[str, _Proj] = {}
     for line in lines:
@@ -199,7 +181,6 @@ def build_board(
         proj = _project_line(
             line, config, gsis=gsis, opp=opp, traj=traj, vacated=vacated,
             teams=teams, dc_by_gsis=dc_by_gsis, dc_by_name=dc_by_name,
-            consensus_by_pos=consensus_by_pos,
         )
         meta[line.player_id] = proj
         projections.append(
@@ -213,23 +194,47 @@ def build_board(
     vorp_entries, _ = compute_vorp(projections, config)
     vorp_rank = {e.projection.player_id: i + 1 for i, e in enumerate(vorp_entries)}
 
+    # Scarcity-aware value (VONA) drives the target/fade signal (§6): captures the
+    # dropoff slope so flat positions (streamable 1-QB) don't generate false targets.
+    scarcity = scarcity_values(projections, config)
+    scarcity_rank = {
+        pid: i + 1
+        for i, (pid, _) in enumerate(
+            sorted(scarcity.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
+    }
+
     adp_pairs = [(pid, a) for pid, p in meta.items() if (a := p.adp) is not None]
     adp_pairs.sort(key=lambda pair: pair[1])
     adp_rank = {pid: i + 1 for i, (pid, _) in enumerate(adp_pairs)}
+
+    # League-aware value metric (learned from the backtest): VORP for deep/scarce formats,
+    # scarcity/VONA for shallow/flat ones.
+    value_rank = scarcity_rank if config.value_metric == "scarcity" else vorp_rank
+
+    # value = ADP rank - our value rank, but BOTH ranks must span the same population or the
+    # difference measures universe size instead of market disagreement: ADP covers ~712 players
+    # while the board carries ~7.6k, which alone drives a deep player to -7000. So re-rank our
+    # value densely across exactly the players the market prices.
+    market_value_rank = {
+        pid: i + 1
+        for i, pid in enumerate(sorted(adp_rank, key=lambda pid: value_rank[pid]))
+    }
 
     entries: list[DraftEntry] = []
     for e in vorp_entries:
         pid = e.projection.player_id
         m = meta[pid]
         ar = adp_rank.get(pid)
-        vr = vorp_rank[pid]
         entries.append(
             DraftEntry(
                 player_id=pid, name=e.projection.name, position=e.projection.primary_position,
+                eligible_positions=e.projection.eligible_positions,
                 team=e.projection.team, model=m.model, points=m.points,
                 modeled_xfp=m.modeled, carried=m.carried, consensus=m.consensus,
-                vorp=e.vorp, vorp_rank=vr, adp=m.adp, adp_rank=ar,
-                value=(ar - vr) if ar is not None else None, flags=m.flags,
+                vorp=e.vorp, vorp_rank=vorp_rank[pid], scarcity=scarcity[pid],
+                scarcity_rank=scarcity_rank[pid], adp=m.adp, adp_rank=ar,
+                value=(ar - market_value_rank[pid]) if ar is not None else None, flags=m.flags,
             )
         )
     return DraftBoard(league_key=config.key, entries=entries)
