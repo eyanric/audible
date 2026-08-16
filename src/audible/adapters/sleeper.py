@@ -12,6 +12,7 @@ league's own scoring weights.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import httpx
@@ -50,6 +51,9 @@ class SleeperAdapter:
         self._client = httpx.Client(
             timeout=timeout, headers={"User-Agent": "audible/0.1 (+personal)"}
         )
+        # Per-draft conditional-request state for the live pick poll (see get_draft_picks).
+        self._picks_etag: dict[str, str] = {}
+        self._picks_last: dict[str, list[dict[str, Any]]] = {}
 
     def close(self) -> None:
         self._client.close()
@@ -79,8 +83,37 @@ class SleeperAdapter:
         return self._get(f"{BASE_APP}/draft/{draft_id}")
 
     def get_draft_picks(self, draft_id: str) -> list[dict[str, Any]]:
-        """Live picks as they come off the board (player_id, pick_no, round, draft_slot)."""
-        return self._get(f"{BASE_APP}/draft/{draft_id}/picks")
+        """Live picks as they come off the board (player_id, pick_no, round, draft_slot).
+
+        Bypasses the edge cache deliberately. Cloudflare serves this endpoint with
+        ``s-maxage=30, stale-while-revalidate=300``; measured against the live API the
+        ``age`` header reached 57s on a repeated poll, which is a full pick stale against a
+        60s timer -- the cockpit would show a player as available after he was taken.
+
+        A unique query param forces a cache MISS so the answer comes from origin (~110ms vs
+        ~15ms at the edge, still trivial at a 5s cadence). The weak ETag then lets origin
+        reply 304 with an empty body when nothing has changed, so the common case stays cheap.
+        """
+        headers = {"Cache-Control": "no-cache"}
+        etag = self._picks_etag.get(draft_id)
+        if etag is not None:
+            headers["If-None-Match"] = etag
+
+        resp = self._client.get(
+            f"{BASE_APP}/draft/{draft_id}/picks",
+            params=[("_", str(time.time_ns()))],
+            headers=headers,
+        )
+        if resp.status_code == 304:
+            return self._picks_last.get(draft_id, [])
+
+        resp.raise_for_status()
+        picks: list[dict[str, Any]] = resp.json()
+        new_etag = resp.headers.get("etag")
+        if new_etag:
+            self._picks_etag[draft_id] = new_etag
+        self._picks_last[draft_id] = picks
+        return picks
 
     def get_players_catalog(self, *, force: bool = False) -> dict[str, Any]:
         if not force:

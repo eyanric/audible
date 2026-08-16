@@ -59,12 +59,13 @@ differently in each because each league's exact scoring/structure is modeled as 
 ## Stack
 
 Python 3.12+ / uv · Pydantic (config + models) · httpx (Sleeper) · nflreadpy (extra) ·
-OR-Tools CP-SAT (Phase 1) · FastMCP + Anthropic SDK (Phase 3) · pytest / ruff / pyright.
+FastAPI + uvicorn (cockpit) · OR-Tools CP-SAT (deferred) · FastMCP (Phase 3) ·
+pytest / ruff / pyright. **No Anthropic SDK — `audible` never calls a model.**
 
 ## Layout
 
-`leagues/*.toml` (data) · `src/audible/{config,models,scoring,adapters,value,cli}` ·
-`tests/` (offline, fixture-backed). `optimize/`, `reasoning/`, `server/` arrive with their phases.
+`leagues/*.toml` (data) · `src/audible/{config,models,scoring,adapters,value,draft,server,cli}` ·
+`tests/` (offline, fixture-backed). `optimize/` arrives with its phase.
 
 ## Commands
 
@@ -85,7 +86,13 @@ uv run pyright
 - **Phase 1:** per-league value engine, projection blend (ESPN+Sleeper native), CP-SAT
   lineup optimizer, **draft assistant** (highest preseason value).
 - **Phase 2:** nflverse/NGS ingestion + breakout detection; `start_sit`, `waiver_targets`.
-- **Phase 3:** LLM reasoning layer (features in, judgment out), FastMCP server, Docker/homelab.
+- **Phase 3 — MCP surface, not a reasoning layer.** `audible` makes **no model calls** and holds
+  **no API key**; there will not be one. Instead it *exposes* itself over MCP (FastMCP mounted
+  into the cockpit's FastAPI app, streamable HTTP, bearer token from `MCP_AUTH_TOKEN`) so Claude
+  on the Max subscription can query it conversationally. The recommendation engine stays fully
+  deterministic — Claude reads tool output and reasons about it; it never computes a ranking.
+  That keeps the engine testable, replayable against a past draft, and identical whether you
+  read it in the UI or ask about it in chat. Plus Docker/homelab deploy.
 - **Phase 4:** full IDP modeling, `trade_evaluator`, proactive alerts.
 
 ## Conventions
