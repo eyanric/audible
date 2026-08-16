@@ -22,6 +22,7 @@ def _entry(pid: str, pos: str, pts: float, vrank: int, srank: int, value: int) -
         player_id=pid, name=f"Player {pid}", position=pos,
         eligible_positions=frozenset({pos}), team="X", model="consensus",
         points=pts, modeled_xfp=0.0, carried=0.0, consensus=pts, vorp=pts, vorp_rank=vrank,
+        consensus_rank=vrank, opp_rank=vrank, deviation=False,
         scarcity=pts, scarcity_rank=srank, adp=float(vrank + value), adp_rank=vrank + value,
         value=value, flags=("opp+30",),
     )

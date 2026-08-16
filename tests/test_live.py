@@ -49,6 +49,7 @@ def _entry(
         eligible_positions=eligible if eligible is not None else frozenset({pos}),
         team="X", model="consensus",
         points=pts, modeled_xfp=0.0, carried=0.0, consensus=pts, vorp=pts, vorp_rank=0,
+        consensus_rank=0, opp_rank=0, deviation=False,
         scarcity=pts, scarcity_rank=0, adp=adp, adp_rank=int(adp) if adp else None,
         value=value, flags=(),
     )

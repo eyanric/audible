@@ -79,6 +79,11 @@ class SleeperAdapter:
     def get_users(self, league_id: str) -> list[dict[str, Any]]:
         return self._get(f"{BASE_APP}/league/{league_id}/users")
 
+    def get_league_drafts(self, league_id: str) -> list[dict[str, Any]]:
+        """Drafts for a league, most recent first. Note ``slot_to_roster_id`` is NOT on these
+        summaries -- it only appears on ``GET /draft/{id}``."""
+        return self._get(f"{BASE_APP}/league/{league_id}/drafts")
+
     def get_draft(self, draft_id: str) -> dict[str, Any]:
         return self._get(f"{BASE_APP}/draft/{draft_id}")
 

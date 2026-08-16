@@ -1,0 +1,1441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+<title>audible — draft cockpit</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   audible draft cockpit
+   Two semantic accents only:
+     --urgent  grab-now, runs, on-the-clock, staleness alarm
+     --safe    survives to your next pick, nothing to do
+   Position hues are low-saturation chips and must never compete.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0f1218;
+  --panel:#161a21;
+  --panel-2:#1b2029;
+  --row-hover:#1d222b;
+  --line:#252b36;
+  --line-soft:#1e232c;
+
+  --txt:#e2e6ed;
+  --txt-2:#9aa2b1;
+  --txt-3:#6a7280;
+
+  --urgent:#ff6a3c;
+  --urgent-2:#ffb08d;
+  --urgent-bg:rgba(255,106,60,.13);
+  --urgent-bg-2:rgba(255,106,60,.07);
+  --warm:#e0913f;            /* the amber band of the urgency family */
+  --safe:#46cf9c;
+  --safe-bg:rgba(70,207,156,.10);
+
+  --focus:#cfe0ff;
+
+  --f-display:"Bahnschrift","Franklin Gothic Medium","Segoe UI Semibold","Segoe UI",sans-serif;
+  --f-data:"Bahnschrift","Segoe UI",sans-serif;
+  --f-cond:"Bahnschrift Light Condensed","Bahnschrift Condensed","Bahnschrift","Segoe UI",sans-serif;
+  --f-mono:"Cascadia Mono","Consolas",ui-monospace,monospace;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--txt);
+  font-family:var(--f-data);
+  font-size:13px;
+  height:100dvh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button,input{font:inherit;color:inherit}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--focus);outline-offset:1px;border-radius:2px}
+.num,.mono,.count-num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.mono{font-family:var(--f-mono)}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+*{scrollbar-width:thin;scrollbar-color:#39404d transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#333a46;border:3px solid var(--panel);border-radius:6px}
+::-webkit-scrollbar-thumb:hover{background:#455066}
+
+/* ── top bar ─────────────────────────────────────────────── */
+#top{
+  flex:0 0 auto;
+  display:grid;
+  grid-template-columns:minmax(230px,1fr) auto minmax(230px,1fr);
+  align-items:center;
+  gap:16px;
+  padding:8px 14px;
+  background:linear-gradient(180deg,#181c24,#12161d);
+  border-bottom:1px solid var(--line);
+}
+#top.onclock{
+  background:linear-gradient(180deg,rgba(255,106,60,.20),rgba(255,106,60,.06));
+  border-bottom:2px solid var(--urgent);
+  padding-bottom:7px;
+}
+@media (prefers-reduced-motion:no-preference){
+  #top.onclock{animation:onclock 2.4s ease-in-out infinite}
+  @keyframes onclock{0%,100%{background-color:rgba(255,106,60,0)}50%{background-color:rgba(255,106,60,.09)}}
+}
+
+.t-left{display:flex;flex-direction:column;gap:2px;min-width:0}
+.t-pick{display:flex;align-items:baseline;gap:10px}
+#pickNo{font-family:var(--f-display);font-size:26px;font-weight:600;font-stretch:87.5%;letter-spacing:.01em;line-height:1}
+#pickRound{font-family:var(--f-mono);font-size:15px;color:var(--txt-2)}
+.t-league{display:flex;align-items:center;gap:7px;min-width:0}
+#leagueLine{font-family:var(--f-cond);font-size:11.5px;color:var(--txt-3);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{
+  font-family:var(--f-cond);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  border:1px solid var(--line);color:var(--txt-2);padding:1px 5px;border-radius:2px;white-space:nowrap;
+}
+
+.t-mid{display:flex;align-items:baseline;justify-content:center;gap:14px;text-align:center}
+#clockLabel{font-family:var(--f-display);font-size:15px;font-weight:600;font-stretch:87.5%;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-2)}
+#clockNum{
+  font-family:var(--f-display);font-weight:600;
+  font-size:clamp(46px,5.4vw,80px);line-height:.86;letter-spacing:-.02em;
+  min-width:2.1ch;text-align:right;display:inline-block;
+}
+#top.soon #clockNum{color:var(--urgent)}
+#clockWord{
+  font-family:var(--f-display);font-weight:600;font-stretch:87.5%;
+  font-size:clamp(26px,3vw,44px);line-height:1;letter-spacing:.02em;text-transform:uppercase;
+}
+#top.onclock #clockWord{color:var(--urgent)}
+#clockSub{
+  font-family:var(--f-cond);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3);
+  white-space:nowrap;
+}
+.t-right{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+
+#syncChip{display:flex;align-items:center;gap:7px;font-family:var(--f-cond);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--txt-2);white-space:nowrap}
+#syncDot{width:8px;height:8px;border-radius:50%;background:var(--safe);flex:0 0 auto}
+#syncChip.warn #syncDot{background:var(--warm)}
+#syncChip.bad  #syncDot{background:var(--urgent)}
+#syncChip.off  #syncDot{background:var(--txt-3)}
+#syncChip.warn{color:var(--warm)}
+#syncChip.bad{color:var(--urgent-2)}
+#syncText{font-variant-numeric:tabular-nums}
+
+.btn{
+  background:#1d222b;border:1px solid var(--line);color:var(--txt-2);
+  font-family:var(--f-cond);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:5px 10px;border-radius:3px;cursor:pointer;white-space:nowrap;
+}
+.btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}
+.btn[aria-pressed="true"]{border-color:var(--warm);color:var(--warm);background:rgba(224,145,63,.10)}
+
+/* ── alert strip ─────────────────────────────────────────── */
+#alert{
+  flex:0 0 auto;display:flex;align-items:baseline;gap:10px;
+  padding:6px 14px;border-bottom:1px solid var(--line);
+  background:var(--panel-2);
+}
+#alert[hidden]{display:none}
+#alert.bad{background:var(--urgent-bg);border-bottom-color:rgba(255,106,60,.45)}
+#alertTitle{font-family:var(--f-display);font-size:12.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--txt-2);white-space:nowrap}
+#alert.bad #alertTitle{color:var(--urgent)}
+#alertMsg{font-size:12.5px;color:var(--txt-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── board ───────────────────────────────────────────────── */
+.board{
+  flex:1;min-height:0;display:grid;gap:9px;padding:9px;
+  grid-template-columns:248px minmax(520px,1fr) 328px;
+}
+@media (min-width:1750px){.board{grid-template-columns:288px minmax(0,1fr) 380px}}
+@media (max-width:1280px){.board{grid-template-columns:206px minmax(0,1fr) 282px}}
+
+.col{display:flex;flex-direction:column;gap:9px;min-width:0;min-height:0}
+
+.panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:4px;
+  display:flex;flex-direction:column;min-height:0;
+}
+.panel.grow{flex:1}
+.phead{
+  flex:0 0 auto;display:flex;align-items:center;gap:9px;
+  padding:0 9px;height:29px;border-bottom:1px solid var(--line-soft);
+}
+.ptitle{
+  font-family:var(--f-display);font-size:11.5px;font-weight:600;font-stretch:87.5%;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--txt-2);white-space:nowrap;
+}
+.phint{font-family:var(--f-cond);font-size:11px;letter-spacing:.05em;color:var(--txt-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{margin-left:auto}
+.pbody{overflow:auto;scrollbar-gutter:stable;min-height:0}
+.pbody.grow{flex:1}
+
+/* ── position chips ──────────────────────────────────────── */
+.chip{
+  display:inline-block;font-family:var(--f-cond);font-size:10.5px;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;padding:1px 4px;border-radius:2px;
+  background:rgba(255,255,255,.05);color:var(--pc,#8a93a3);
+  background:color-mix(in srgb, var(--pc,#8a93a3) 15%, transparent);
+  min-width:26px;text-align:center;
+}
+.pos-QB{--pc:#a98cc4}
+.pos-RB{--pc:#8fb07d}
+.pos-WR{--pc:#7fa3cc}
+.pos-TE{--pc:#bfa06e}
+.pos-K {--pc:#8b93a6}
+.pos-DEF{--pc:#7f9a90}
+.pos-DL{--pc:#9c8fa8}
+.pos-LB{--pc:#a8977f}
+.pos-DB{--pc:#82a5a5}
+
+/* ── your team ───────────────────────────────────────────── */
+#rosterList{padding:4px 0}
+.slot{padding:3px 9px 4px}
+.slot + .slot{border-top:1px solid var(--line-soft)}
+.slot-top{display:flex;align-items:center;gap:8px}
+.slot-name{
+  font-family:var(--f-display);font-size:12.5px;font-weight:600;font-stretch:87.5%;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3);min-width:44px;
+}
+.slot.need .slot-name{color:var(--txt)}
+.slot-dots{font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;color:var(--txt-3)}
+.slot.need .slot-dots{color:var(--txt)}
+.slot-open{
+  margin-left:auto;font-family:var(--f-cond);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--txt-2);
+}
+.slot-players{margin:1px 0 0 52px;font-size:11.5px;color:var(--txt-2);line-height:1.35}
+.slot-players:empty{display:none}
+.pfoot{
+  flex:0 0 auto;border-top:1px solid var(--line-soft);padding:6px 9px;
+  font-family:var(--f-cond);font-size:11px;line-height:1.5;color:var(--txt-3);letter-spacing:.03em;
+}
+.pfoot b{color:var(--txt-2);font-weight:600}
+#starterState{font-family:var(--f-cond);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+#starterState.done{color:var(--safe)}
+#starterState.open{color:var(--txt-3)}
+.legend{margin-top:6px;padding-top:6px;border-top:1px solid var(--line-soft);color:var(--txt-3)}
+.legend kbd{
+  font-family:var(--f-mono);font-size:10px;background:#20252e;border:1px solid var(--line);
+  border-radius:2px;padding:0 4px;color:var(--txt-2);margin-right:4px;
+}
+.legend div{margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ── player tables ───────────────────────────────────────── */
+.ptable{table-layout:fixed;width:100%;border-collapse:collapse}
+col.w-name{width:auto}
+col.w-pos{width:44px}
+col.w-team{width:40px}
+col.w-r{width:48px}
+col.w-surv{width:52px}
+col.w-flags{width:146px}
+col.w-act{width:24px}
+
+.ptable thead th{
+  position:sticky;top:0;z-index:2;background:var(--panel);
+  font-family:var(--f-cond);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--txt-3);text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);
+  white-space:nowrap;cursor:help;
+}
+.ptable th.num,.ptable td.num{text-align:right}
+.ptable td{
+  padding:0 6px;height:23px;border-bottom:1px solid var(--line-soft);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.prow{cursor:default}
+.prow:hover{background:var(--row-hover)}
+.prow.sel{background:#232935;box-shadow:inset 2px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
+.prow:focus-visible{outline:none;box-shadow:inset 2px 0 0 0 var(--focus),inset 0 0 0 1px var(--focus)}
+.c-name{font-size:13.5px;color:var(--txt)}
+.c-team{font-family:var(--f-mono);font-size:11px;color:var(--txt-3)}
+.c-num{font-family:var(--f-mono);font-size:12px;color:var(--txt-2);font-variant-numeric:tabular-nums}
+.c-cons{color:var(--txt-2)}
+.c-vorp{color:var(--txt)}
+.c-flags{font-family:var(--f-cond);font-size:10.5px;color:var(--txt-3);letter-spacing:.02em}
+.need-tag{
+  font-family:var(--f-cond);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  border:1px solid #3b4453;color:var(--txt-2);border-radius:2px;padding:0 3px;margin-left:6px;vertical-align:1px;
+}
+.need-tag[hidden]{display:none}
+.c-opp.dev{color:var(--txt)}
+.c-opp.dev::after{content:"\25B3";font-size:9px;margin-left:3px;vertical-align:1px;color:var(--txt-2)}
+.c-surv.low{color:var(--urgent)}
+.c-surv.high{color:var(--safe)}
+.mark{
+  width:18px;height:18px;line-height:1;padding:0;border-radius:2px;cursor:pointer;
+  background:transparent;border:1px solid transparent;color:var(--txt-3);font-size:12px;
+}
+.prow:hover .mark,.prow.sel .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
+.mark:hover{border-color:var(--urgent);color:var(--urgent)}
+
+/* grab now */
+#grabPanel{border-color:rgba(255,106,60,.38);background:linear-gradient(180deg,var(--urgent-bg-2),transparent 90px),var(--panel)}
+#grabPanel .phead{border-bottom-color:rgba(255,106,60,.30)}
+#grabPanel .ptitle{color:var(--urgent)}
+#grabBody .prow{background:transparent;box-shadow:inset 2px 0 0 0 var(--urgent)}
+#grabBody .prow:hover{background:var(--urgent-bg-2)}
+#grabBody .prow.sel{background:#262a33;box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px #454c5b}
+#grabBody .prow:focus-visible{box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px var(--focus)}
+#grabBody td{height:26px;border-bottom-color:rgba(255,106,60,.12)}
+#grabBody .c-name{font-size:14.5px;color:#fff}
+#grabEmpty{padding:11px 11px 12px;color:var(--txt-2);font-size:12.5px}
+#grabEmpty b{color:var(--txt);font-weight:600}
+#grabEmpty span{display:block;color:var(--txt-3);font-size:11.5px;margin-top:2px}
+
+.note{font-family:var(--f-cond);font-size:11px;letter-spacing:.04em;color:var(--txt-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px}
+.note.err{color:var(--urgent)}
+#undoBtn[hidden]{display:none}
+
+/* tabs + search */
+#tabs{display:flex;gap:2px}
+.tab{
+  background:transparent;border:1px solid transparent;border-radius:2px;cursor:pointer;
+  font-family:var(--f-cond);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--txt-3);padding:3px 7px;
+}
+.tab:hover{color:var(--txt);background:#20252e}
+.tab[aria-pressed="true"]{color:var(--txt);background:#262c37;border-color:#39414f}
+.tab[hidden]{display:none}
+#q{
+  background:#12161d;border:1px solid var(--line);border-radius:2px;
+  padding:3px 7px;width:160px;font-size:12px;color:var(--txt);
+}
+#q::placeholder{color:var(--txt-3)}
+#q:focus{border-color:#3f4a5c}
+
+#bestEmpty,#bestMore{
+  padding:8px 10px;font-family:var(--f-cond);font-size:11.5px;letter-spacing:.04em;color:var(--txt-3);
+}
+#bestMore{border-top:1px solid var(--line-soft);text-align:center}
+[hidden]{display:none !important}
+
+/* not ready / not started panel */
+#notReady{padding:18px 20px;max-width:640px}
+#notReady h2{font-family:var(--f-display);font-size:17px;font-weight:600;font-stretch:87.5%;letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px;color:var(--txt)}
+#notReady p{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--txt-2);max-width:60ch}
+#notReady .quiet{color:var(--txt-3);font-size:12px}
+
+/* ── runs, cliffs, counts ────────────────────────────────── */
+#countsRow{display:flex;flex-wrap:wrap;gap:6px;padding:8px 9px;border-bottom:1px solid var(--line-soft);align-items:center}
+#countsChips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cnt{display:flex;align-items:center;gap:4px}
+.cnt .n{font-family:var(--f-mono);font-size:12px;color:var(--txt-2);font-variant-numeric:tabular-nums}
+#countsLabel{font-family:var(--f-cond);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3);margin-right:2px}
+#countsEmpty{font-family:var(--f-cond);font-size:11.5px;color:var(--txt-3)}
+
+.warnbox{padding:6px 9px;border-bottom:1px solid var(--line-soft);display:flex;gap:8px;align-items:baseline}
+.warnbox .wtext{font-size:12.5px;color:var(--txt-2);line-height:1.35;white-space:normal}
+.warnbox.sev-high{background:var(--urgent-bg);box-shadow:inset 3px 0 0 0 var(--urgent)}
+.warnbox.sev-high .wtext{color:var(--txt)}
+.warnbox.sev-medium{box-shadow:inset 3px 0 0 0 var(--warm)}
+.warnbox.loud{background:var(--urgent-bg);box-shadow:inset 4px 0 0 0 var(--urgent);padding:9px}
+.warnbox.loud .wtext{
+  font-family:var(--f-display);font-size:15.5px;font-weight:600;font-stretch:87.5%;
+  letter-spacing:.02em;color:var(--urgent-2);text-transform:uppercase;
+}
+.wgap{margin-left:auto;font-family:var(--f-mono);font-size:11px;color:var(--txt-3)}
+.calm{padding:8px 9px;font-family:var(--f-cond);font-size:11.5px;letter-spacing:.04em;color:var(--txt-3)}
+.subhead{
+  padding:6px 9px 3px;font-family:var(--f-cond);font-size:10px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--txt-3);border-top:1px solid var(--line-soft);
+}
+
+/* ── recent picks ────────────────────────────────────────── */
+.pick{display:flex;align-items:center;gap:7px;padding:0 9px;height:23px;border-bottom:1px solid var(--line-soft)}
+.pick .no{font-family:var(--f-mono);font-size:11px;color:var(--txt-3);width:26px;text-align:right;font-variant-numeric:tabular-nums}
+.pick .nm{font-size:12.5px;color:var(--txt-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick .tm{font-family:var(--f-mono);font-size:10.5px;color:var(--txt-3)}
+.pick .st{font-family:var(--f-mono);font-size:10.5px;color:var(--txt-3);width:26px;text-align:right}
+.pick.mine{box-shadow:inset 3px 0 0 0 var(--txt);background:#1b2029}
+.pick.mine .nm{color:var(--txt);font-weight:600}
+.pick.mine .st{color:var(--txt)}
+
+/* ── last-known / frozen dimming ─────────────────────────── */
+.board.lastknown{opacity:.72}
+.board.lastknown .panel{border-style:dashed}
+
+/* ── stacked fallback ────────────────────────────────────── */
+@media (max-width:900px){
+  body{height:auto;min-height:100dvh;overflow:auto}
+  #top{grid-template-columns:1fr;gap:8px;text-align:left}
+  .t-mid{justify-content:flex-start}
+  .t-right{justify-content:flex-start}
+  .board{grid-template-columns:1fr;height:auto}
+  .col{min-height:0}
+  .col-mid{order:1}.col-left{order:2}.col-right{order:3}
+  .panel.grow{flex:0 0 auto}
+  .pbody.grow{max-height:70vh}
+  col.w-flags,.c-flags,th.h-flags{display:none}
+  #q{width:110px}
+  .phint{display:none}
+}
+@media (max-width:520px){
+  col.w-team,.c-team,th.h-team{display:none}
+  #clockNum{font-size:56px}
+}
+</style>
+</head>
+<body>
+
+<header id="top">
+  <div class="t-left">
+    <div class="t-pick">
+      <span id="pickNo">—</span>
+      <span id="pickRound" class="mono"></span>
+    </div>
+    <div class="t-league">
+      <span id="leagueLine">connecting</span>
+      <span id="sfxBadge" class="badge" hidden>superflex</span>
+    </div>
+  </div>
+
+  <div class="t-mid">
+    <span id="clockLabel">your pick in</span>
+    <span id="clockNum">—</span>
+    <span id="clockWord" hidden></span>
+    <span id="clockSub"></span>
+  </div>
+
+  <div class="t-right">
+    <div id="syncChip" class="off" title="">
+      <span id="syncDot" aria-hidden="true"></span>
+      <span id="syncText">waiting for first update</span>
+    </div>
+    <button id="pauseBtn" class="btn" type="button" aria-pressed="false">Pause updates</button>
+  </div>
+</header>
+
+<div id="alert" role="status" hidden>
+  <span id="alertTitle"></span>
+  <span id="alertMsg"></span>
+</div>
+
+<main class="board" id="board">
+
+  <!-- ── left ─────────────────────────────────────────── -->
+  <section class="col col-left">
+    <div class="panel grow">
+      <div class="phead">
+        <span class="ptitle">Your team</span>
+        <span id="starterState" class="spacer open"></span>
+      </div>
+      <div class="pbody grow" id="rosterList"></div>
+      <div class="pfoot">
+        <div id="slotLine">draft slot unresolved</div>
+        <div id="draftLine"></div>
+        <div class="legend">
+          <div><kbd>/</kbd>search</div>
+          <div><kbd>&uarr;&darr;</kbd>move selection</div>
+          <div><kbd>t</kbd>Mark taken</div>
+          <div><kbd>u</kbd>Undo</div>
+          <div><kbd>space</kbd>Pause updates</div>
+          <div><kbd>0-6</kbd>position filter</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── centre ───────────────────────────────────────── -->
+  <section class="col col-mid">
+
+    <div class="panel" id="grabPanel">
+      <div class="phead">
+        <span class="ptitle">Grab now</span>
+        <span id="grabHint" class="phint">won&rsquo;t last to your next pick</span>
+        <span class="spacer"></span>
+        <span id="actionNote" class="note"></span>
+        <button id="undoBtn" class="btn" type="button" hidden>Undo</button>
+      </div>
+      <div id="grabEmpty" hidden>
+        <b>Nobody at risk before your next pick.</b>
+        <span>Take the best board player &mdash; the names below will still be there.</span>
+      </div>
+      <div class="pbody" id="grabScroll">
+        <table class="ptable" aria-label="Grab now">
+          <colgroup>
+            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
+            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+          </colgroup>
+          <tbody id="grabBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel grow" id="bestPanel">
+      <div class="phead">
+        <span class="ptitle">Best available</span>
+        <div id="tabs" role="group" aria-label="Position filter"></div>
+        <span class="spacer"></span>
+        <input id="q" type="text" placeholder="Search players" aria-label="Search players by name" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="pbody grow" id="bestScroll">
+        <table class="ptable" aria-label="Best available">
+          <colgroup>
+            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
+            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col" title="Player">Player</th>
+              <th scope="col" title="Position">Pos</th>
+              <th scope="col" class="h-team" title="NFL team">Tm</th>
+              <th scope="col" class="num" title="Consensus rank — the market's order">Cons</th>
+              <th scope="col" class="num" title="VORP rank — value over replacement in this league">VORP</th>
+              <th scope="col" class="num" title="Opportunity rank — volume and role. A triangle means it disagrees with consensus.">Opp</th>
+              <th scope="col" class="num" title="Chance he survives to your next pick">Surv</th>
+              <th scope="col" class="h-flags" title="Signals">Signals</th>
+              <th scope="col"><span class="sr">Mark taken</span></th>
+            </tr>
+          </thead>
+          <tbody id="bestBody"></tbody>
+        </table>
+        <div id="bestEmpty" hidden></div>
+        <div id="bestMore" hidden></div>
+      </div>
+    </div>
+
+    <div class="panel grow" id="notReady" hidden>
+      <h2 id="nrTitle">Board not ready</h2>
+      <p id="nrMsg"></p>
+      <p class="quiet" id="nrHint">This screen fills itself in as soon as the board is built. Nothing to click.</p>
+    </div>
+
+  </section>
+
+  <!-- ── right ────────────────────────────────────────── -->
+  <section class="col col-right">
+    <div class="panel">
+      <div class="phead"><span class="ptitle">Runs &amp; cliffs</span></div>
+      <div class="pbody" id="warnBody">
+        <div id="countsRow">
+          <span id="countsLabel">last 10</span>
+          <span id="countsChips"></span>
+          <span id="countsEmpty" hidden>no picks yet</span>
+        </div>
+        <div id="runsList"></div>
+        <div id="runsCalm" class="calm" hidden>No positional run.</div>
+        <div class="subhead">Tier cliffs</div>
+        <div id="cliffsList"></div>
+        <div id="cliffsCalm" class="calm" hidden>No cliff within reach.</div>
+      </div>
+    </div>
+
+    <div class="panel grow">
+      <div class="phead">
+        <span class="ptitle">Recent picks</span>
+        <span class="phint spacer" id="picksHint"></span>
+      </div>
+      <div class="pbody grow" id="picksList"></div>
+      <div class="calm" id="picksCalm" hidden>No picks yet.</div>
+    </div>
+  </section>
+
+</main>
+
+<noscript><p style="padding:14px">This cockpit needs JavaScript. Nothing else about it needs a network beyond this server.</p></noscript>
+
+<script>
+"use strict";
+(function () {
+
+/* ───────────────────────── constants ───────────────────────── */
+
+var POLL_MS = 2000;
+var TICK_MS = 500;
+var MAX_ROWS = 140;        // hard cap on rendered best-available rows
+var GRAB_CAP = 5;
+
+var BASE_TABS = ["ALL", "QB", "RB", "WR", "TE", "K", "LB"];   // keys 0-6
+var EXTRA_TABS = ["DL", "DB", "DEF"];                          // keys 7-9, only when present
+var KNOWN_POS = ["QB","RB","WR","TE","K","DEF","DL","LB","DB"];
+
+/* ───────────────────────── dom helpers ─────────────────────── */
+
+function $(id) { return document.getElementById(id); }
+
+function mk(tag, cls, txt) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (txt != null) n.textContent = txt;
+  return n;
+}
+
+function setText(node, v) {
+  var s = (v == null) ? "" : String(v);
+  if (node.textContent !== s) node.textContent = s;
+}
+
+function setAttr(node, k, v) {
+  if (v == null) { if (node.hasAttribute(k)) node.removeAttribute(k); }
+  else if (node.getAttribute(k) !== v) node.setAttribute(k, v);
+}
+
+function setHidden(node, on) {
+  on = !!on;
+  if (node.hidden !== on) node.hidden = on;
+}
+
+function setPos(node, pos) {
+  var p = KNOWN_POS.indexOf(pos) >= 0 ? pos : null;
+  if (node._pos === pos) return;
+  if (node._posCls) node.classList.remove(node._posCls);
+  node._posCls = p ? ("pos-" + p) : null;
+  if (node._posCls) node.classList.add(node._posCls);
+  node._pos = pos;
+  setText(node, pos || "--");
+}
+
+/* Keyed reconciler. Creates/updates/moves/removes only what changed.
+   Never rebuilds a container, never touches untouched text nodes. */
+function reconcile(container, items, keyOf, create, update) {
+  var map = container._rows || (container._rows = new Map());
+  var seen = new Set();
+  var cursor = container.firstElementChild;
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var k = keyOf(item, i);
+    seen.add(k);
+    var rec = map.get(k);
+    if (!rec) { rec = create(item, k); map.set(k, rec); }
+    update(rec, item, i);
+    var node = rec.el;
+    if (node !== cursor) container.insertBefore(node, cursor);
+    else cursor = cursor.nextElementSibling;
+  }
+  map.forEach(function (rec, k) {
+    if (!seen.has(k)) { rec.el.remove(); map.delete(k); }
+  });
+}
+
+/* ───────────────────────── formatting ──────────────────────── */
+
+function rank(v) { return (v == null) ? "—" : String(v); }
+
+function pct(v) {
+  if (v == null || isNaN(v)) return "—";
+  var n = Math.round(v * 100);
+  if (n <= 0 && v > 0) n = 1;
+  return n + "%";
+}
+
+function fmtAge(s) {
+  if (s == null || isNaN(s)) return "—";
+  if (s < 1) return "just now";
+  if (s < 60) return Math.floor(s) + "s ago";
+  var m = Math.floor(s / 60), r = Math.floor(s % 60);
+  if (m < 60) return m + "m " + (r < 10 ? "0" : "") + r + "s ago";
+  return Math.floor(m / 60) + "h " + (m % 60) + "m ago";
+}
+
+function clockNow() {
+  var d = new Date();
+  function p(n) { return (n < 10 ? "0" : "") + n; }
+  return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+/* ───────────────────────── app state ───────────────────────── */
+
+var S = {
+  data: null,            // last good payload
+  receivedAt: 0,         // performance-clock ms when payload landed
+  paused: false,
+  pausedAge: null,
+  filter: "ALL",
+  query: "",
+  inflight: false,
+  fetchFail: 0,
+  lastFetchError: null,
+  lastGoodClock: null,   // wall clock of our last successful fetch
+  sel: null,             // {scope,id}
+  selIdx: 0,
+  nav: [],               // [{scope,id,el}] in visual order
+  takenStack: [],        // [{id,name}] marks made from this screen
+  actionMsg: "",
+  actionErr: false,
+  tabsBuilt: false
+};
+
+/* ───────────────────────── player rows ─────────────────────── */
+
+function createPlayerRow(scope) {
+  var tr = mk("tr", "prow");
+  tr.tabIndex = -1;
+
+  var tdName = mk("td", "c-name");
+  var nameSpan = mk("span", "pname");
+  var needTag = mk("span", "need-tag", "need");
+  needTag.hidden = true;
+  tdName.appendChild(nameSpan);
+  tdName.appendChild(needTag);
+
+  var tdPos = mk("td", "c-pos");
+  var chip = mk("span", "chip");
+  tdPos.appendChild(chip);
+
+  var tdTeam = mk("td", "c-team");
+  var tdCons = mk("td", "c-num c-cons num");
+  var tdVorp = mk("td", "c-num c-vorp num");
+  var tdOpp = mk("td", "c-num c-opp num");
+  var tdSurv = mk("td", "c-num c-surv num");
+  var tdFlags = mk("td", "c-flags");
+
+  var tdAct = mk("td", "c-act");
+  var btn = mk("button", "mark", "✕");
+  btn.type = "button";
+  setAttr(btn, "title", "Mark taken");
+  tdAct.appendChild(btn);
+
+  tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
+  tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
+  tr.appendChild(tdSurv); tr.appendChild(tdFlags); tr.appendChild(tdAct);
+
+  var rec = {
+    el: tr, scope: scope, id: null,
+    name: nameSpan, need: needTag, chip: chip, team: tdTeam,
+    cons: tdCons, vorp: tdVorp, opp: tdOpp, surv: tdSurv,
+    flags: tdFlags, btn: btn
+  };
+
+  tr.addEventListener("mousedown", function () { select(scope, rec.id, false); });
+  tr.addEventListener("focus", function () { select(scope, rec.id, false); });
+  btn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    markTaken(rec.id, rec.name.textContent);
+  });
+
+  return rec;
+}
+
+function updatePlayerRow(rec, p) {
+  rec.id = p.id;
+  setAttr(rec.el, "data-id", String(p.id));
+  setText(rec.name, p.name || "—");
+  setHidden(rec.need, !p.fills_need);
+  setPos(rec.chip, p.position);
+  setText(rec.team, p.team || "—");
+  setText(rec.cons, rank(p.consensus_rank));
+  setText(rec.vorp, rank(p.vorp_rank));
+  setText(rec.opp, rank(p.opp_rank));
+  rec.opp.classList.toggle("dev", !!p.deviation);
+  setAttr(rec.opp, "title", p.deviation
+    ? "Opportunity disagrees with consensus"
+    : null);
+
+  var s = p.survival;
+  setText(rec.surv, pct(s));
+  rec.surv.classList.toggle("low", s != null && s < 0.30);
+  rec.surv.classList.toggle("high", s != null && s >= 0.70);
+
+  var f = (p.flags && p.flags.length) ? p.flags.join(" ") : "";
+  if (p.manual) f = f ? (f + " manual") : "manual";
+  setText(rec.flags, f);
+  setAttr(rec.flags, "title", f || null);
+
+  setAttr(rec.btn, "aria-label", "Mark taken: " + (p.name || p.id));
+}
+
+/* ───────────────────────── selection ───────────────────────── */
+
+function selKey(scope, id) { return scope + "|" + id; }
+
+function select(scope, id, scroll) {
+  if (id == null) return;
+  S.sel = { scope: scope, id: id };
+  var k = selKey(scope, id);
+  for (var i = 0; i < S.nav.length; i++) {
+    if (selKey(S.nav[i].scope, S.nav[i].id) === k) { S.selIdx = i; break; }
+  }
+  paintSelection();
+  if (scroll) {
+    var n = currentNavEntry();
+    if (n) {
+      n.el.focus({ preventScroll: true });
+      n.el.scrollIntoView({ block: "nearest" });
+    }
+  }
+}
+
+function currentNavEntry() {
+  if (!S.sel) return null;
+  var k = selKey(S.sel.scope, S.sel.id);
+  for (var i = 0; i < S.nav.length; i++) {
+    if (selKey(S.nav[i].scope, S.nav[i].id) === k) return S.nav[i];
+  }
+  return null;
+}
+
+function paintSelection() {
+  var k = S.sel ? selKey(S.sel.scope, S.sel.id) : null;
+  for (var i = 0; i < S.nav.length; i++) {
+    S.nav[i].el.classList.toggle("sel", selKey(S.nav[i].scope, S.nav[i].id) === k);
+  }
+}
+
+/* After a render the selected row may be gone (drafted). Hold the
+   position in the list rather than losing the user's place. */
+function resolveSelection() {
+  if (!S.nav.length) { S.sel = null; return; }
+  if (S.sel && currentNavEntry()) { paintSelection(); return; }
+  var idx = Math.min(S.selIdx, S.nav.length - 1);
+  if (idx < 0) idx = 0;
+  S.sel = { scope: S.nav[idx].scope, id: S.nav[idx].id };
+  S.selIdx = idx;
+  paintSelection();
+}
+
+function moveSelection(delta) {
+  if (!S.nav.length) return;
+  var idx = S.sel ? S.selIdx : -1;
+  idx += delta;
+  if (idx < 0) idx = 0;
+  if (idx > S.nav.length - 1) idx = S.nav.length - 1;
+  var n = S.nav[idx];
+  S.selIdx = idx;
+  select(n.scope, n.id, true);
+}
+
+/* ───────────────────────── tabs ────────────────────────────── */
+
+function buildTabs(present) {
+  var wrap = $("tabs");
+  if (!S.tabsBuilt) {
+    var all = BASE_TABS.concat(EXTRA_TABS);
+    all.forEach(function (key, i) {
+      var b = mk("button", "tab", key);
+      b.type = "button";
+      b.dataset.key = key;
+      setAttr(b, "title", key === "ALL" ? "All positions (key 0)" : key + " only (key " + i + ")");
+      b.addEventListener("click", function () { setFilter(key); });
+      wrap.appendChild(b);
+    });
+    S.tabsBuilt = true;
+  }
+  Array.prototype.forEach.call(wrap.children, function (b) {
+    var key = b.dataset.key;
+    var optional = EXTRA_TABS.indexOf(key) >= 0;
+    setHidden(b, optional && !present[key]);
+    setAttr(b, "aria-pressed", S.filter === key ? "true" : "false");
+  });
+}
+
+function setFilter(key) {
+  var btn = null;
+  Array.prototype.forEach.call($("tabs").children, function (b) {
+    if (b.dataset.key === key) btn = b;
+  });
+  if (btn && btn.hidden) return;
+  S.filter = key;
+  Array.prototype.forEach.call($("tabs").children, function (b) {
+    setAttr(b, "aria-pressed", b.dataset.key === key ? "true" : "false");
+  });
+  if (S.data) render(S.data);
+}
+
+/* ───────────────────────── top bar ─────────────────────────── */
+
+function renderTop(d) {
+  var top = $("top");
+  var draft = d.draft || {};
+  var clock = d.clock || {};
+  var lg = d.league || {};
+
+  var started = draft.started !== false;
+  var complete = clock.complete === true;
+
+  // left
+  if (started && clock.current_pick != null) {
+    setText($("pickNo"), "PICK " + clock.current_pick);
+    setText($("pickRound"), clock.label || ("R" + clock.round + "." + clock.slot_on_clock));
+  } else {
+    setText($("pickNo"), started ? "PICK —" : "PRE-DRAFT");
+    setText($("pickRound"), "");
+  }
+
+  var parts = [];
+  if (lg.name) parts.push(lg.name);
+  if (lg.num_teams) parts.push(lg.num_teams + " teams");
+  setText($("leagueLine"), parts.join("  ·  ") || "league");
+  setHidden($("sfxBadge"), !lg.superflex);
+
+  // centre
+  var num = $("clockNum"), label = $("clockLabel"), word = $("clockWord"), sub = $("clockSub");
+  var n = clock.picks_until_me;
+  var wordMode = null, subText = "";
+
+  if (!started) {
+    wordMode = "Draft not started";
+    subText = [draft.type, draft.rounds ? draft.rounds + " rounds" : null].filter(Boolean).join("  ·  ");
+  } else if (complete) {
+    wordMode = "Draft complete";
+    subText = clock.current_pick ? clock.current_pick + " picks made" : "";
+  } else if (clock.my_slot == null) {
+    wordMode = "Slot unresolved";
+    subText = "board is still usable · no countdown until your slot is known";
+  } else if (n === 0) {
+    wordMode = "You're on the clock";
+    subText = clock.current_pick ? "pick " + clock.current_pick : "";
+  } else {
+    subText = (clock.my_next_pick != null) ? "your next pick · " + clock.my_next_pick : "";
+  }
+
+  if (wordMode) {
+    setHidden(label, true); setHidden(num, true); setHidden(word, false);
+    setText(word, wordMode);
+  } else {
+    setHidden(label, false); setHidden(num, false); setHidden(word, true);
+    setText(num, n == null ? "—" : String(n));
+  }
+  setText(sub, subText);
+
+  top.classList.toggle("onclock", started && !complete && n === 0);
+  top.classList.toggle("soon", started && !complete && n != null && n > 0 && n <= 2);
+
+  // browser tab — he is usually looking at the Sleeper window
+  var t;
+  if (!started) t = "audible · pre-draft";
+  else if (complete) t = "audible · complete";
+  else if (n === 0) t = "● ON THE CLOCK";
+  else if (n != null) t = "in " + n + " · audible";
+  else t = "audible";
+  if (document.title !== t) document.title = t;
+}
+
+/* ───────────────────────── sync / staleness ────────────────── */
+
+function ageSeconds() {
+  if (!S.data) return null;
+  var base = (S.data.sync && typeof S.data.sync.age_s === "number") ? S.data.sync.age_s : 0;
+  if (S.paused && S.pausedAge != null) return S.pausedAge;
+  return base + (performance.now() - S.receivedAt) / 1000;
+}
+
+function renderSync() {
+  var chip = $("syncChip"), text = $("syncText");
+  var sync = (S.data && S.data.sync) || {};
+  var age = ageSeconds();
+  var cls = "", msg;
+
+  if (S.paused) {
+    cls = "off";
+    msg = "Paused · frozen at " + (S.lastGoodClock || sync.last_success || "—");
+  } else if (S.fetchFail > 0) {
+    cls = "bad";
+    msg = "Not updating · last good " + (S.lastGoodClock || sync.last_success || "—");
+  } else if (!S.data) {
+    cls = "off";
+    msg = "waiting for first update";
+  } else if (sync.status === "failing") {
+    cls = "bad";
+    msg = "Feed failing · last good " + (sync.last_success || "—");
+  } else if (age != null && age > 30) {
+    cls = "bad";
+    msg = "STALE · last updated " + (sync.last_success || "—");
+  } else if ((age != null && age >= 10) || sync.status === "stale") {
+    cls = "warn";
+    msg = "slow · updated " + fmtAge(age);
+  } else {
+    cls = "";
+    msg = "updated " + fmtAge(age);
+  }
+
+  if (chip.className !== ("" + cls)) chip.className = cls;
+  setText(text, msg);
+
+  var tip = [];
+  if (sync.poll_count != null) tip.push("polls " + sync.poll_count);
+  if (sync.status) tip.push("feed " + sync.status);
+  if (sync.last_error) tip.push("feed error: " + sync.last_error);
+  if (S.lastFetchError) tip.push("browser: " + S.lastFetchError);
+  setAttr(chip, "title", tip.join("  ·  "));
+}
+
+/* ───────────────────────── alert strip ─────────────────────── */
+
+function renderAlert() {
+  var bar = $("alert"), title = $("alertTitle"), msg = $("alertMsg");
+  var d = S.data;
+  var kind = null, head = "", body = "";
+
+  if (d && d.ok === false) {
+    kind = "bad"; head = "Not ok";
+    body = d.message || "The server returned a failure with no message.";
+  } else if (S.fetchFail > 0) {
+    kind = "bad"; head = "Not updating";
+    body = "The browser cannot reach the server (" + (S.lastFetchError || "unknown") + "). "
+         + S.fetchFail + " failed " + (S.fetchFail === 1 ? "try" : "tries") + ". "
+         + "Everything below is last-known data from " + (S.lastGoodClock || "earlier") + ".";
+  } else if (d && d.sync && d.sync.status === "failing") {
+    kind = "bad"; head = "Feed failing";
+    body = "The server is up but its draft feed is failing"
+         + (d.sync.last_error ? " (" + d.sync.last_error + ")" : "")
+         + ". Showing last-known board from " + (d.sync.last_success || "earlier") + ".";
+  } else if (d && d.board_ready === false) {
+    kind = ""; head = "Board not ready";
+    body = d.message || "The value board has not been built yet.";
+  } else if (d && d.draft && d.draft.started === false) {
+    kind = ""; head = "Not started";
+    body = "The draft has not started. Board and roster shape are live; there is no clock yet.";
+  } else if (d && d.clock && d.clock.complete === true) {
+    kind = ""; head = "Draft complete";
+    body = "The draft is over. This board is frozen at the final state.";
+  } else if (d && d.message) {
+    kind = ""; head = "Note";
+    body = d.message;
+  }
+
+  if (!head) { setHidden(bar, true); return; }
+  setHidden(bar, false);
+  bar.className = kind;
+  setText(title, head);
+  setText(msg, body);
+}
+
+/* ───────────────────────── roster ──────────────────────────── */
+
+function renderRoster(d) {
+  var roster = d.roster || {};
+  var slots = roster.slots || [];
+  var unfilled = roster.unfilled || [];
+
+  reconcile($("rosterList"), slots,
+    function (s, i) { return (s.slot || "?") + "#" + i; },
+    function () {
+      var el = mk("div", "slot");
+      var top = mk("div", "slot-top");
+      var name = mk("span", "slot-name");
+      var dots = mk("span", "slot-dots");
+      var open = mk("span", "slot-open");
+      top.appendChild(name); top.appendChild(dots); top.appendChild(open);
+      var players = mk("div", "slot-players");
+      el.appendChild(top); el.appendChild(players);
+      return { el: el, name: name, dots: dots, open: open, players: players };
+    },
+    function (rec, s) {
+      var total = s.total || 0, filled = s.filled || 0;
+      setText(rec.name, s.slot || "?");
+      var dots = "";
+      for (var i = 0; i < total; i++) dots += (i < filled) ? "●" : "○";
+      setText(rec.dots, dots);
+      var need = filled < total || unfilled.indexOf(s.slot) >= 0;
+      rec.el.classList.toggle("need", need);
+      setText(rec.open, need ? ((total - filled) + " open") : "");
+      setText(rec.players, (s.players && s.players.length) ? s.players.join(", ") : "");
+    });
+
+  var st = $("starterState");
+  if (roster.starters_complete === true) {
+    st.className = "spacer done";
+    setText(st, "starters set");
+  } else {
+    st.className = "spacer open";
+    setText(st, unfilled.length ? (unfilled.length + " open") : "");
+  }
+
+  var clock = d.clock || {};
+  if (clock.my_slot != null) {
+    setText($("slotLine"), "Draft slot " + clock.my_slot
+      + (clock.my_slot_source ? "  ·  " + clock.my_slot_source : ""));
+  } else {
+    setText($("slotLine"), "Draft slot unresolved");
+  }
+  var dr = d.draft || {}, lg = d.league || {};
+  setText($("draftLine"), [dr.type, dr.rounds ? dr.rounds + " rounds" : null,
+    lg.num_teams ? lg.num_teams + " teams" : null].filter(Boolean).join("  ·  "));
+}
+
+/* ───────────────────────── centre board ────────────────────── */
+
+function filteredBest(list) {
+  var q = S.query.trim().toLowerCase();
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    if (S.filter !== "ALL" && p.position !== S.filter) continue;
+    if (q && String(p.name || "").toLowerCase().indexOf(q) < 0) continue;
+    out.push(p);
+    if (out.length >= MAX_ROWS) break;
+  }
+  return { rows: out, total: countMatches(list, q) };
+}
+
+function countMatches(list, q) {
+  var n = 0;
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    if (S.filter !== "ALL" && p.position !== S.filter) continue;
+    if (q && String(p.name || "").toLowerCase().indexOf(q) < 0) continue;
+    n++;
+  }
+  return n;
+}
+
+function renderCentre(d) {
+  var ready = d.board_ready !== false;
+  setHidden($("grabPanel"), !ready);
+  setHidden($("bestPanel"), !ready);
+  setHidden($("notReady"), ready);
+
+  if (!ready) {
+    setText($("nrMsg"), d.message || "The value board has not been built yet.");
+    S.nav = [];
+    return;
+  }
+
+  var clock = d.clock || {};
+  var grab = (d.grab_now || []).slice(0, GRAB_CAP);
+  var best = d.best_available || [];
+
+  // grab now
+  setHidden($("grabEmpty"), grab.length > 0);
+  setHidden($("grabScroll"), grab.length === 0);
+  reconcile($("grabBody"), grab,
+    function (p) { return String(p.id); },
+    function () { return createPlayerRow("grab"); },
+    updatePlayerRow);
+
+  var hint = "won't last to your next pick";
+  if (clock.survival_horizon != null) {
+    hint = "survival to pick " + clock.survival_horizon;
+    if (clock.opponent_picks_until_horizon != null) {
+      hint += "  ·  " + clock.opponent_picks_until_horizon + " opponent picks first";
+    }
+  }
+  setText($("grabHint"), hint);
+
+  // best available
+  var res = filteredBest(best);
+  reconcile($("bestBody"), res.rows,
+    function (p) { return String(p.id); },
+    function () { return createPlayerRow("best"); },
+    updatePlayerRow);
+
+  var noneShown = res.rows.length === 0;
+  setHidden($("bestEmpty"), !noneShown);
+  if (noneShown) {
+    setText($("bestEmpty"), best.length === 0
+      ? "No players left on the board."
+      : "No player matches " + (S.filter !== "ALL" ? S.filter : "")
+        + (S.query ? (S.filter !== "ALL" ? " + " : "") + "“" + S.query + "”" : "") + ".");
+  }
+  var more = res.total - res.rows.length;
+  setHidden($("bestMore"), more <= 0);
+  if (more > 0) setText($("bestMore"), "showing " + res.rows.length + " of " + res.total + " — narrow with search");
+
+  // nav order: grab rows, then best rows
+  // DOM order is the nav order; the reconciler's map is keyed, not ordered.
+  var nav = [];
+  Array.prototype.forEach.call($("grabBody").children, function (tr) {
+    nav.push({ scope: "grab", id: tr.getAttribute("data-id"), el: tr });
+  });
+  Array.prototype.forEach.call($("bestBody").children, function (tr) {
+    nav.push({ scope: "best", id: tr.getAttribute("data-id"), el: tr });
+  });
+  S.nav = nav;
+  resolveSelection();
+
+  // position tabs present in this league's payload
+  var present = {};
+  for (var i = 0; i < best.length; i++) present[best[i].position] = true;
+  buildTabs(present);
+}
+
+/* ───────────────────────── right column ────────────────────── */
+
+function renderRight(d) {
+  var counts = d.counts_last10 || {};
+  var keys = Object.keys(counts).filter(function (k) { return counts[k]; });
+  keys.sort(function (a, b) {
+    if (counts[b] !== counts[a]) return counts[b] - counts[a];
+    return KNOWN_POS.indexOf(a) - KNOWN_POS.indexOf(b);
+  });
+  setHidden($("countsEmpty"), keys.length > 0);
+  reconcile($("countsChips"), keys,
+    function (k) { return k; },
+    function () {
+      var el = mk("span", "cnt");
+      var chip = mk("span", "chip");
+      var n = mk("span", "n");
+      el.appendChild(chip); el.appendChild(n);
+      return { el: el, chip: chip, n: n };
+    },
+    function (rec, k) { setPos(rec.chip, k); setText(rec.n, counts[k]); });
+
+  var superflex = !!(d.league && d.league.superflex);
+  var runs = d.runs || [];
+  setHidden($("runsCalm"), runs.length > 0);
+  reconcile($("runsList"), runs,
+    function (r) { return r.position + "|" + r.window; },
+    function () {
+      var el = mk("div", "warnbox");
+      var chip = mk("span", "chip");
+      var t = mk("span", "wtext");
+      el.appendChild(chip); el.appendChild(t);
+      return { el: el, chip: chip, t: t };
+    },
+    function (rec, r) {
+      setPos(rec.chip, r.position);
+      var txt = r.text || (r.position + " run — " + r.count + " of last " + r.window);
+      setText(rec.t, txt);
+      var loud = (r.position === "QB" && superflex && r.severity !== "low");
+      rec.el.className = "warnbox sev-" + (r.severity || "low") + (loud ? " loud" : "");
+    });
+
+  var cliffs = d.cliffs || [];
+  setHidden($("cliffsCalm"), cliffs.length > 0);
+  reconcile($("cliffsList"), cliffs,
+    function (c, i) { return (c.position || "?") + "#" + i; },
+    function () {
+      var el = mk("div", "warnbox");
+      var chip = mk("span", "chip");
+      var t = mk("span", "wtext");
+      var g = mk("span", "wgap");
+      el.appendChild(chip); el.appendChild(t); el.appendChild(g);
+      return { el: el, chip: chip, t: t, g: g };
+    },
+    function (rec, c) {
+      setPos(rec.chip, c.position);
+      setText(rec.t, c.text || "");
+      setText(rec.g, c.gap != null ? ("−" + Math.round(c.gap)) : "");
+    });
+
+  var picks = (d.recent_picks || []).slice(0, 12);
+  setHidden($("picksCalm"), picks.length > 0);
+  setText($("picksHint"), picks.length ? "newest first" : "");
+  reconcile($("picksList"), picks,
+    function (p, i) { return p.pick_no != null ? "p" + p.pick_no : "i" + i; },
+    function () {
+      var el = mk("div", "pick");
+      var no = mk("span", "no");
+      var nm = mk("span", "nm");
+      var chip = mk("span", "chip");
+      var tm = mk("span", "tm");
+      var st = mk("span", "st");
+      el.appendChild(no); el.appendChild(nm); el.appendChild(chip);
+      el.appendChild(tm); el.appendChild(st);
+      return { el: el, no: no, nm: nm, chip: chip, tm: tm, st: st };
+    },
+    function (rec, p) {
+      setText(rec.no, p.pick_no != null ? p.pick_no : "");
+      setText(rec.nm, p.name || "—");
+      setPos(rec.chip, p.position);
+      setText(rec.tm, p.team || "");
+      setText(rec.st, p.mine ? "YOU" : (p.slot != null ? "T" + p.slot : ""));
+      rec.el.classList.toggle("mine", !!p.mine);
+    });
+}
+
+/* ───────────────────────── action note ─────────────────────── */
+
+function renderAction() {
+  var note = $("actionNote"), btn = $("undoBtn");
+  setText(note, S.actionMsg || "");
+  note.className = "note" + (S.actionErr ? " err" : "");
+  setHidden(btn, S.takenStack.length === 0);
+  if (S.takenStack.length) {
+    var top = S.takenStack[S.takenStack.length - 1];
+    setAttr(btn, "title", "Undo: " + top.name);
+  }
+}
+
+/* ───────────────────────── render all ──────────────────────── */
+
+function render(d) {
+  var lastKnown = (S.fetchFail > 0) || (d.sync && d.sync.status === "failing");
+  $("board").classList.toggle("lastknown", !!lastKnown);
+  renderTop(d);
+  renderAlert();
+  renderSync();
+  renderRoster(d);
+  renderCentre(d);
+  renderRight(d);
+  renderAction();
+}
+
+function applyState(d) {
+  if (!d || typeof d !== "object") throw new Error("bad payload");
+  S.data = d;
+  S.receivedAt = performance.now();
+  S.lastGoodClock = (d.sync && d.sync.last_success) || clockNow();
+  render(d);
+}
+
+/* ───────────────────────── network ─────────────────────────── */
+
+function poll() {
+  if (S.paused || S.inflight) return;
+  S.inflight = true;
+  fetch("/api/state", { headers: { "Accept": "application/json" }, cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (j) {
+      S.fetchFail = 0;
+      S.lastFetchError = null;
+      applyState(j);
+    })
+    .catch(function (err) {
+      S.fetchFail++;
+      S.lastFetchError = (err && err.message) ? err.message : String(err);
+      console.error("[audible] /api/state poll failed:", err);
+      // never blank the board — only the connection surfaces change
+      if (S.data) $("board").classList.add("lastknown");
+      renderAlert();
+      renderSync();
+    })
+    .then(function () { S.inflight = false; });
+}
+
+function post(path, id) {
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify({ player_id: String(id) })
+  }).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  });
+}
+
+function markTaken(id, name) {
+  if (id == null) return;
+  var label = name || id;
+  post("/api/taken", id).then(function (j) {
+    S.takenStack.push({ id: String(id), name: label });
+    S.actionMsg = "Marked taken: " + label;
+    S.actionErr = false;
+    S.fetchFail = 0;
+    S.lastFetchError = null;
+    applyState(j);
+  }).catch(function (err) {
+    console.error("[audible] mark taken failed:", err);
+    S.actionMsg = "Mark taken failed: " + label;
+    S.actionErr = true;
+    renderAction();
+  });
+}
+
+function undoTaken() {
+  if (!S.takenStack.length) {
+    S.actionMsg = "Nothing to undo";
+    S.actionErr = false;
+    renderAction();
+    return;
+  }
+  var top = S.takenStack[S.takenStack.length - 1];
+  post("/api/taken/undo", top.id).then(function (j) {
+    S.takenStack.pop();
+    S.actionMsg = "Undone: " + top.name;
+    S.actionErr = false;
+    S.fetchFail = 0;
+    S.lastFetchError = null;
+    applyState(j);
+  }).catch(function (err) {
+    console.error("[audible] undo failed:", err);
+    S.actionMsg = "Undo failed: " + top.name;
+    S.actionErr = true;
+    renderAction();
+  });
+}
+
+/* ───────────────────────── pause ───────────────────────────── */
+
+function setPaused(on) {
+  S.paused = !!on;
+  S.pausedAge = S.paused ? ageSeconds() : null;
+  // resuming: the frozen age readout is meaningless, go get real data now
+  if (!S.paused) poll();
+  var b = $("pauseBtn");
+  setText(b, S.paused ? "Resume updates" : "Pause updates");
+  setAttr(b, "aria-pressed", S.paused ? "true" : "false");
+  renderSync();
+}
+
+/* ───────────────────────── keyboard ────────────────────────── */
+
+function isTyping(t) {
+  return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+}
+
+document.addEventListener("keydown", function (e) {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+  if (isTyping(e.target)) {
+    if (e.key === "Escape") {
+      var q = $("q");
+      if (q.value !== "") { q.value = ""; S.query = ""; if (S.data) render(S.data); }
+      else q.blur();
+      e.preventDefault();
+    }
+    return;
+  }
+
+  switch (e.key) {
+    case "/":
+      e.preventDefault();
+      $("q").focus();
+      $("q").select();
+      break;
+    case "t": case "T":
+      if (S.sel) {
+        var n = currentNavEntry();
+        markTaken(S.sel.id, n ? n.el.querySelector(".pname").textContent : S.sel.id);
+        e.preventDefault();
+      }
+      break;
+    case "u": case "U":
+      undoTaken();
+      e.preventDefault();
+      break;
+    case " ":
+      if (e.target && e.target.tagName === "BUTTON") return;
+      setPaused(!S.paused);
+      e.preventDefault();
+      break;
+    case "ArrowDown": moveSelection(1); e.preventDefault(); break;
+    case "ArrowUp": moveSelection(-1); e.preventDefault(); break;
+    case "PageDown": moveSelection(10); e.preventDefault(); break;
+    case "PageUp": moveSelection(-10); e.preventDefault(); break;
+    case "Home": moveSelection(-1e6); e.preventDefault(); break;
+    case "End": moveSelection(1e6); e.preventDefault(); break;
+    case "Escape":
+      if (S.query) { $("q").value = ""; S.query = ""; if (S.data) render(S.data); e.preventDefault(); }
+      break;
+    default:
+      if (e.key >= "0" && e.key <= "9") {
+        var all = BASE_TABS.concat(EXTRA_TABS);
+        var idx = parseInt(e.key, 10);
+        if (idx < all.length) { setFilter(all[idx]); e.preventDefault(); }
+      }
+  }
+});
+
+/* ───────────────────────── wiring ──────────────────────────── */
+
+$("pauseBtn").addEventListener("click", function () { setPaused(!S.paused); });
+$("undoBtn").addEventListener("click", function () { undoTaken(); });
+$("q").addEventListener("input", function () {
+  S.query = this.value;
+  if (S.data) render(S.data);
+});
+
+/* the age readout ticks on its own so the page can never look
+   fresher than it is, even if polling has died completely */
+setInterval(renderSync, TICK_MS);
+setInterval(poll, POLL_MS);
+buildTabs({});
+renderSync();
+poll();
+
+})();
+</script>
+</body>
+</html>

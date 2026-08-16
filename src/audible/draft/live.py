@@ -10,6 +10,7 @@ No new modeling -- pure application of the value layer to live state.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,21 +55,26 @@ def next_pick_after(slot: int, teams: int, rounds: int, current_pick: int) -> in
     return next((n for n in snake_pick_numbers(slot, teams, rounds) if n >= current_pick), None)
 
 
-def unfilled_slots(my_entries: list[DraftEntry], config: LeagueConfig) -> list[str]:
-    """My remaining starting slots after greedily placing my picks (most-specific slot first).
+def place_into_slots(
+    my_entries: list[DraftEntry], config: LeagueConfig
+) -> list[tuple[str, DraftEntry | None]]:
+    """Greedily place my picks into starting slots; returns (slot, player-or-None) in order.
 
     Placement mirrors ``value.replacement.assign_starters``: a player is matched on his full
     slot eligibility, not just his VORP bucket, so a DL/LB hybrid can fill either slot. Among
     equally specific open slots the one matching his primary position wins, so he only spills
     to secondary eligibility (or a flex) once his primary slots are gone.
+
+    Returning the assignment (rather than just the leftovers) is what lets the cockpit show
+    *which* player is filling each slot instead of guessing at the render layer.
     """
     slots = list(config.starting_slots)
-    filled = [False] * len(slots)
+    placed: list[DraftEntry | None] = [None] * len(slots)
     for entry in sorted(my_entries, key=lambda e: -e.points):
         best_idx = -1
         best_key: tuple[int, int, str] | None = None
         for i, name in enumerate(slots):
-            if filled[i]:
+            if placed[i] is not None:
                 continue
             eligible = frozenset(config.slot_eligibility[name])
             if entry.eligible_positions & eligible:
@@ -76,14 +82,20 @@ def unfilled_slots(my_entries: list[DraftEntry], config: LeagueConfig) -> list[s
                 if best_key is None or key < best_key:
                     best_key, best_idx = key, i
         if best_idx >= 0:
-            filled[best_idx] = True
-    return [slots[i] for i in range(len(slots)) if not filled[i]]
+            placed[best_idx] = entry
+    return list(zip(slots, placed, strict=True))
+
+
+def unfilled_slots(my_entries: list[DraftEntry], config: LeagueConfig) -> list[str]:
+    """My remaining starting slots after placement (see :func:`place_into_slots`)."""
+    return [slot for slot, entry in place_into_slots(my_entries, config) if entry is None]
 
 
 @dataclass(frozen=True, slots=True)
 class Candidate:
     entry: DraftEntry
     grab_now: bool  # unlikely to survive to my next pick
+    survival: float  # P(still available at my next pick), 0..1
     fills_need: bool  # eligible for one of my unfilled starting slots
 
 
@@ -96,6 +108,7 @@ class LiveView:
     survival_horizon: int | None  # the next pick I control AFTER this one
     opponent_picks_until_horizon: int | None  # rival picks between now and that horizon
     my_roster: list[str]  # names of my picks
+    roster_slots: list[tuple[str, DraftEntry | None]]  # every starting slot -> who fills it
     unfilled: list[str]  # my remaining starting slots
     starters_complete: bool
     best_available: list[Candidate]  # ranked by league value
@@ -120,7 +133,9 @@ def compute_view(
     top: int = 18,
 ) -> LiveView:
     teams = config.num_teams
-    if my_slot is not None and not 1 <= my_slot <= teams:
+    # 0/None means "my slot isn't known yet" (pre-draft, before draft_order populates) and is
+    # a legitimate state; a non-zero slot outside the league is a bug worth failing loudly on.
+    if my_slot and not 1 <= my_slot <= teams:
         raise ValueError(f"draft slot {my_slot} out of range for a {teams}-team league")
 
     by_id = {e.player_id: e for e in board.entries}
@@ -147,17 +162,41 @@ def compute_view(
     my_entries = [
         by_id[p.player_id] for p in picks if p.draft_slot == my_slot and p.player_id in by_id
     ]
-    unfilled = unfilled_slots(my_entries, config)
+    roster_slots = place_into_slots(my_entries, config)
+    unfilled = [slot for slot, filled_by in roster_slots if filled_by is None]
     needs = {pos for slot in unfilled for pos in config.slot_eligibility[slot]}
 
-    gone: set[str] = set()
-    if opponent_picks:
-        by_adp = sorted((e for e in available if e.adp is not None), key=lambda e: e.adp or 0.0)
-        gone = {e.player_id for e in by_adp[:opponent_picks]}
+    # Survival model. The rivals picking before me are assumed to take, in order, the players
+    # the market rates highest among those still available -- so a player's risk is his RANK in
+    # the available-by-ADP queue versus the number of picks ahead of me, not his raw ADP.
+    #
+    # That distinction is load-bearing. Raw ADP goes stale the moment a draft departs from it:
+    # a player with ADP 26 who is somehow still there at pick 78 has an ADP that has already
+    # been falsified, and comparing it to a pick count says "certain to last" when he is in
+    # fact the very next player off the board. Ranking among who is actually left cannot drift
+    # that way. It also keeps `grab_now` and `survival` two views of ONE model, so the board can
+    # never show "GRAB NOW" beside "100%".
+    #
+    # The logistic is a documented approximation, not an oracle -- it is a tiebreaker. The slope
+    # widens with the horizon because a one-pick wait is nearly deterministic while a twenty-pick
+    # wait is mostly noise. Nothing here models this specific room's tendencies.
+    by_adp = sorted((e for e in available if e.adp is not None), key=lambda e: e.adp or 0.0)
+    adp_queue = {e.player_id: i for i, e in enumerate(by_adp)}
+    gone = {e.player_id for e in by_adp[:opponent_picks]} if opponent_picks else set()
+    slope = 1.0 + 0.3 * (opponent_picks or 0)
+
+    def survival(e: DraftEntry) -> float:
+        if not opponent_picks:
+            return 1.0
+        index = adp_queue.get(e.player_id)
+        if index is None:
+            return 1.0  # the market isn't drafting him at all
+        return 1.0 / (1.0 + math.exp(-(index - opponent_picks) / slope))
 
     def candidate(e: DraftEntry) -> Candidate:
         return Candidate(
-            e, grab_now=e.player_id in gone, fills_need=bool(e.eligible_positions & needs)
+            e, grab_now=e.player_id in gone, survival=survival(e),
+            fills_need=bool(e.eligible_positions & needs),
         )
 
     best = [candidate(e) for e in available[:top]]
@@ -198,7 +237,7 @@ def compute_view(
         current_pick=current_pick, on_the_clock=on_clock, my_next_pick=my_next,
         picks_until_me=picks_until, survival_horizon=horizon,
         opponent_picks_until_horizon=opponent_picks,
-        my_roster=[e.name for e in my_entries], unfilled=unfilled,
+        my_roster=[e.name for e in my_entries], roster_slots=roster_slots, unfilled=unfilled,
         starters_complete=starters_complete,
         best_available=best, recommendations=recs, runs=runs, cliffs=cliffs,
     )
