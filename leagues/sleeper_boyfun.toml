@@ -24,9 +24,13 @@ trade_deadline_week = 13
 waiver_type = "faab"
 faab_budget = 100
 notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifacts per owner)."
-# Backtest verdict: raw VORP beats scarcity/VONA OOS in this deep superflex+IDP format (edge +37 vs +3).
-# NOTE: that verdict was measured under the (wrong) 4-IDP-slot structure above; it has not been
-# re-run against the corrected 11-starter roster.
+# Backtest verdict: raw VORP beats scarcity/VONA out-of-sample here.
+# Re-run 2026-08-15 on the 2024->2025 fold against the CORRECTED 11-starter roster:
+#   raw VORP       edge +28.7  (targets n=53 mean 197.6 vs fades n=72 mean 168.9)
+#   scarcity/VONA  edge +20.1  (targets n=18 mean 199.4 vs fades n=110 mean 179.4)
+# Verdict holds, but the margin is much thinner than the original +37-vs-+3 reading, which was
+# measured under the wrong 4-IDP-slot structure. Treat this as "VORP, weakly" -- worth re-running
+# if the roster changes again.
 value_metric = "vorp"
 
 # Which Sleeper ADP market prices this league. `adp_idp` is the SUPERFLEX+IDP market and is

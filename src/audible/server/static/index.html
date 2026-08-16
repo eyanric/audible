@@ -36,10 +36,18 @@
 
   --focus:#cfe0ff;
 
-  --f-display:"Bahnschrift","Franklin Gothic Medium","Segoe UI Semibold","Segoe UI",sans-serif;
-  --f-data:"Bahnschrift","Segoe UI",sans-serif;
-  --f-cond:"Bahnschrift Light Condensed","Bahnschrift Condensed","Bahnschrift","Segoe UI",sans-serif;
-  --f-mono:"Cascadia Mono","Consolas",ui-monospace,monospace;
+  /* Windows first -- the desktop instrument is the primary surface and Bahnschrift/Cascadia
+     are the reason it reads like an instrument rather than a spreadsheet. Neither ships on
+     iOS, and the mobile fallback is the last-resort surface on draft night, so the Apple
+     names are chosen rather than left to generic sans-serif: Avenir Next Condensed is the
+     closest condensed grotesque that ships on iOS, and Menlo/ui-monospace give real tabular
+     figures. A CSP blocks webfonts, so every name here must already be on the device. */
+  --f-display:"Bahnschrift","Franklin Gothic Medium","Segoe UI Semibold",
+              "Avenir Next Condensed","Avenir Next",-apple-system,"Segoe UI",sans-serif;
+  --f-data:"Bahnschrift","Segoe UI","Avenir Next",-apple-system,sans-serif;
+  --f-cond:"Bahnschrift Light Condensed","Bahnschrift Condensed","Bahnschrift",
+           "Avenir Next Condensed",-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"Cascadia Mono","Consolas",ui-monospace,"Menlo",monospace;
 }
 
 *{box-sizing:border-box}

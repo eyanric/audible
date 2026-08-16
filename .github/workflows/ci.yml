@@ -1,0 +1,39 @@
+name: ci
+
+# Three PRs landed in this repo with no automated check, one of them carrying five commits
+# nobody had reviewed. This is the cheap insurance: lint, types, tests, on every PR.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # --extra nflverse is deliberate. The suite is offline and every nflreadpy import in
+      # src/ is lazy, so a plain `uv sync` would still pass -- but tests/test_snapshot.py
+      # guards on `pytest.importorskip("polars")` and would SKIP three tests silently. A CI
+      # job that quietly runs less than the local suite is worse than no CI, because it
+      # reports green for a smaller claim than the one you think you're making.
+      - run: uv sync --extra nflverse
+
+      - name: ruff
+        run: uv run ruff check .
+
+      - name: pyright
+        run: uv run pyright
+
+      - name: pytest
+        run: uv run pytest
