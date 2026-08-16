@@ -21,7 +21,7 @@ from ..models.player import PlayerProjection, RawPlayerLine
 from ..scoring.engine import score_stat_line
 from ..value import compute_vorp, scarcity_values
 from .opportunity import OpportunityXfp, carried_value, modeled_xfp, season_opportunity
-from .rookies import DraftCapital, draft_capital_factor, load_draft_capital, normalize_name
+from .rookies import DraftCapital, load_draft_capital, normalize_name
 from .signals import (
     TrajInfo,
     VacatedShares,
@@ -118,10 +118,18 @@ def _project_line(
     adp = _adp_for(line.stats, config.adp_market)
     flags: list[str] = []
 
-    # Rookie: consensus (which is already rookie-aware) tilted by draft capital. There is
-    # deliberately no positional "floor" here -- a round-keyed floor overwrote the projection
-    # entirely rather than nudging it, pinning every R1 rookie to the same manufactured number
-    # (a QB3 projected 12.6 pts became 286.7) and flattening whole classes into ties.
+    # Rookie: plain consensus. Draft capital is surfaced as a flag and priced ZERO times here,
+    # because consensus already prices it. Measured over the 204 rookies with known capital
+    # (2026 class): mean consensus by draft round runs 125.8 / 58.8 / 38.0 / 22.5 / 15.0 /
+    # 12.2 / 4.3, and Spearman(overall pick, consensus points) is -0.424. Multiplying by a
+    # capital tilt on top of that counted the same signal twice -- it was adding +32.6 to
+    # Jeremiyah Love and +32.9 to Sonny Styles, enough to move Love from ~#13 to #8 overall.
+    #
+    # This is the same rule the rest of the board already follows: consensus is the projection
+    # of record, and a second view of a signal consensus has already priced becomes a flag,
+    # never a multiplier. (The earlier round-keyed floor was a worse version of the same
+    # mistake -- it overwrote the projection outright, pinning a QB3 projected 12.6 pts to
+    # 286.7 and flattening whole rookie classes into ties.)
     if line.years_exp == 0:
         capital = (dc_by_gsis.get(gsis) if gsis else None) or dc_by_name.get(
             normalize_name(line.name)
@@ -130,10 +138,7 @@ def _project_line(
         flags.append(f"rookie:{branch}")
         if capital is not None:
             flags.append(f"R{capital.round}.{capital.pick:03d}")
-        return _Proj(
-            consensus * draft_capital_factor(capital), "rookie", 0.0, 0.0, consensus, adp,
-            tuple(flags),
-        )
+        return _Proj(consensus, "rookie", 0.0, 0.0, consensus, adp, tuple(flags))
 
     # Post-gate: CONSENSUS is the projection of record -- it beat our opportunity model
     # out-of-sample at every position. For matched offense we still compute the opportunity

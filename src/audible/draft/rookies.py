@@ -71,6 +71,13 @@ def draft_capital_factor(capital: DraftCapital | None, bound: float = 0.15) -> f
 
     A transparent heuristic tilt (not a fitted projection): early capital earns role,
     Day 3 rarely does in year one. Bounded so it nudges, never invents.
+
+    NOT APPLIED TO THE BOARD, deliberately. Measurement on the 2026 class showed consensus
+    already prices draft capital (mean consensus by round 125.8 / 58.8 / 38.0 / 22.5 / 15.0 /
+    12.2 / 4.3; Spearman(pick, consensus) = -0.424), so multiplying by this counted the same
+    signal twice. Kept because the shape is right and a future projection source that is *not*
+    rookie-aware would need it -- but anything wiring it back in must first show that its
+    projections do not already encode capital.
     """
     if capital is None:
         return 1.0
