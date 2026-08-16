@@ -236,6 +236,19 @@ def cmd_live(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .server import serve
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "sleeper":
+        raise SystemExit("the cockpit's live sync is Sleeper-only; for ESPN use mark-taken")
+    serve(
+        cfg, host=args.host, port=args.port, draft_id=args.draft_id,
+        slot=args.slot, user_name=args.user,
+    )
+    return 0
+
+
 def cmd_cheatsheet(args: argparse.Namespace) -> int:
     from .draft import build_board
     from .draft.cheatsheet import build_cheatsheet, render_csv, render_html
@@ -542,6 +555,16 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--watch", type=int, default=0, help="poll every N seconds (0 = one-shot)")
     lv.add_argument("--simulate", type=int, default=0, help="offline demo: simulate N ADP picks")
     lv.set_defaults(func=cmd_live)
+
+    sv = sub.add_parser("serve", help="draft-day cockpit in the browser (needs nflverse extra)")
+    sv.add_argument("--league", required=True, help="league key, e.g. sleeper_boyfun")
+    sv.add_argument("--slot", type=int, default=None,
+                    help="override your draft slot (default: resolved once the draft opens)")
+    sv.add_argument("--draft-id", default=None, help="override (default: discovered each start)")
+    sv.add_argument("--user", default=None, help="your Sleeper display name, for slot resolution")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8080)
+    sv.set_defaults(func=cmd_serve)
 
     cs = sub.add_parser(
         "cheatsheet", help="printable pre-draft cheat sheet: CSV + HTML (needs nflverse extra)"

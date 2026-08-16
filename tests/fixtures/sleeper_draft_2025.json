@@ -1,0 +1,162 @@
+{
+  "draft": {
+    "draft_id": "1259582887355756544",
+    "draft_order": {
+      "1207143554028146689": 8,
+      "1259661518341935104": 4,
+      "1259689986941276160": 3,
+      "1262103563899777024": 7,
+      "1265690148721405952": 5,
+      "1266254884148088833": 9,
+      "736819185145036800": 2,
+      "739154300705570816": 6,
+      "739157354486063104": 10,
+      "810044896697221120": 1
+    },
+    "season": "2025",
+    "settings": {
+      "alpha_sort": 0,
+      "autopause_enabled": 0,
+      "autopause_end_time": 840,
+      "autopause_start_time": 120,
+      "autostart": 0,
+      "cpu_autopick": 1,
+      "enforce_position_limits": 1,
+      "nomination_timer": 60,
+      "pick_timer": 60,
+      "player_type": 0,
+      "reversal_round": 0,
+      "rounds": 18,
+      "slots_bn": 8,
+      "slots_def": 1,
+      "slots_flex": 1,
+      "slots_k": 1,
+      "slots_qb": 1,
+      "slots_rb": 2,
+      "slots_super_flex": 1,
+      "slots_te": 1,
+      "slots_wr": 2,
+      "teams": 10
+    },
+    "slot_to_roster_id": {
+      "1": 4,
+      "10": 1,
+      "2": 2,
+      "3": 6,
+      "4": 3,
+      "5": 8,
+      "6": 5,
+      "7": 7,
+      "8": 10,
+      "9": 9
+    },
+    "status": "complete",
+    "type": "snake"
+  },
+  "me": {
+    "display_name": "eyanric",
+    "expected_roster_id": 6,
+    "expected_slot": 3,
+    "user_id": "1259689986941276160"
+  },
+  "rosters": [
+    {
+      "co_owners": null,
+      "owner_id": "739157354486063104",
+      "roster_id": 1
+    },
+    {
+      "co_owners": null,
+      "owner_id": "736819185145036800",
+      "roster_id": 2
+    },
+    {
+      "co_owners": null,
+      "owner_id": "1259661518341935104",
+      "roster_id": 3
+    },
+    {
+      "co_owners": [
+        "786462139304026112"
+      ],
+      "owner_id": "810044896697221120",
+      "roster_id": 4
+    },
+    {
+      "co_owners": null,
+      "owner_id": "739154300705570816",
+      "roster_id": 5
+    },
+    {
+      "co_owners": null,
+      "owner_id": "1259689986941276160",
+      "roster_id": 6
+    },
+    {
+      "co_owners": null,
+      "owner_id": "1262103563899777024",
+      "roster_id": 7
+    },
+    {
+      "co_owners": null,
+      "owner_id": "1265690148721405952",
+      "roster_id": 8
+    },
+    {
+      "co_owners": null,
+      "owner_id": "1266254884148088833",
+      "roster_id": 9
+    },
+    {
+      "co_owners": null,
+      "owner_id": "1207143554028146689",
+      "roster_id": 10
+    }
+  ],
+  "users": [
+    {
+      "display_name": "JSquirrelmann",
+      "user_id": "736819185145036800"
+    },
+    {
+      "display_name": "BenGundersen",
+      "user_id": "739154300705570816"
+    },
+    {
+      "display_name": "OnADrewsday",
+      "user_id": "739157354486063104"
+    },
+    {
+      "display_name": "Andywew",
+      "user_id": "786462139304026112"
+    },
+    {
+      "display_name": "cullenteas",
+      "user_id": "810044896697221120"
+    },
+    {
+      "display_name": "DaddyArcher",
+      "user_id": "1207143554028146689"
+    },
+    {
+      "display_name": "JesusJungle",
+      "user_id": "1259661518341935104"
+    },
+    {
+      "display_name": "eyanric",
+      "user_id": "1259689986941276160"
+    },
+    {
+      "display_name": "Edgar1800",
+      "user_id": "1262103563899777024"
+    },
+    {
+      "display_name": "kevinjames427",
+      "user_id": "1265690148721405952"
+    },
+    {
+      "display_name": "VarunKam",
+      "user_id": "1266254884148088833"
+    }
+  ]
+}

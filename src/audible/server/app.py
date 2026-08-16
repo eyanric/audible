@@ -1,0 +1,114 @@
+"""FastAPI cockpit. One page, one poll loop, served from memory.
+
+Two independent cadences, deliberately uncoupled: the service polls Sleeper every 5s in a
+background thread, and the browser polls ``/api/state`` every 2s. A request never waits on an
+upstream call, so a slow or failing Sleeper cannot make the page hang -- it only makes the
+staleness indicator climb, which is exactly the information the user needs.
+"""
+
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+
+from ..config.schema import LeagueConfig
+from ..draft.service import CockpitService
+from .state import build_state
+
+log = logging.getLogger("audible.cockpit")
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+INDEX = STATIC_DIR / "index.html"
+
+# Beyond this the cached board is too old to bet a pick on; /healthz starts failing.
+BOARD_MAX_AGE_S = 12 * 3600
+
+
+class PlayerRef(BaseModel):
+    player_id: str | None = None
+
+
+def create_app(service: CockpitService, *, warm: bool = True) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        service.restore()
+        if warm:
+            service.warm_board()
+            service.start()
+        yield
+        service.stop()
+
+    app = FastAPI(title="audible cockpit", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+    @app.get("/")
+    def index() -> FileResponse:
+        return FileResponse(INDEX, media_type="text/html")
+
+    @app.get("/api/state")
+    def api_state() -> JSONResponse:
+        return JSONResponse(build_state(service))
+
+    @app.post("/api/taken")
+    def api_taken(ref: PlayerRef) -> JSONResponse:
+        if ref.player_id:
+            service.mark_taken(ref.player_id)
+        return JSONResponse(build_state(service))
+
+    @app.post("/api/taken/undo")
+    def api_taken_undo(ref: PlayerRef) -> JSONResponse:
+        service.undo_taken(ref.player_id)
+        return JSONResponse(build_state(service))
+
+    @app.get("/healthz")
+    def healthz() -> JSONResponse:
+        """Liveness is not the question -- a live process serving a stale board is the danger."""
+        board = service.board
+        age = service.health.age_s()
+        problems: list[str] = []
+        if board is None:
+            problems.append(service.board_error or "board not built")
+        elif not board.entries:
+            problems.append("board is empty")
+        if age is not None and age > BOARD_MAX_AGE_S:
+            problems.append(f"last successful poll {age:.0f}s ago")
+
+        body: dict[str, Any] = {
+            "ok": not problems,
+            "problems": problems,
+            "players": len(board.entries) if board else 0,
+            "sync_age_s": round(age, 1) if age is not None else None,
+            "sync_status": service.health.status(),
+            "draft_id": service.session.draft_id,
+            "picks": len(service.session.picks),
+        }
+        return JSONResponse(body, status_code=200 if not problems else 503)
+
+    return app
+
+
+def serve(
+    config: LeagueConfig,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8080,
+    draft_id: str | None = None,
+    slot: int | None = None,
+    user_name: str | None = None,
+) -> None:
+    import uvicorn
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s | %(message)s"
+    )
+    service = CockpitService(
+        config, draft_id=draft_id, slot_override=slot, user_name=user_name
+    )
+    app = create_app(service)
+    log.info("cockpit for [%s] %s -> http://%s:%d", config.key, config.name, host, port)
+    uvicorn.run(app, host=host, port=port, log_level="warning")

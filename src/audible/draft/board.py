@@ -61,6 +61,12 @@ class DraftEntry:
     consensus: float
     vorp: float
     vorp_rank: int
+    # The three ranks stay three numbers, deliberately. Consensus is the projection of record,
+    # VORP applies this league's replacement baselines, and opportunity is the overlay that
+    # disagrees with both. Collapsing them hides the disagreement, which is the signal.
+    consensus_rank: int
+    opp_rank: int
+    deviation: bool  # opportunity departs from consensus by more than DEVIATION_BAND ranks
     scarcity: float
     scarcity_rank: int
     adp: float | None
@@ -79,6 +85,11 @@ class DraftBoard:
 # catalog (7158/7861 on adp_2qb, 2026-08-15) carries it, so treating it as a real ADP inflates
 # every rank and makes `value` meaningless for anyone deep on the board.
 _ADP_UNDRAFTED = 999.0
+
+# How far the opportunity overlay may diverge from consensus before we flag it. The overlay
+# does not drive the ranking (consensus won the out-of-sample gate), so this raises a marker
+# rather than clamping a number -- the disagreement is shown, never silently resolved.
+DEVIATION_BAND = 18
 
 
 def _adp_for(stats: dict[str, float], adp_market: str) -> float | None:
@@ -208,6 +219,20 @@ def build_board(
     adp_pairs.sort(key=lambda pair: pair[1])
     adp_rank = {pid: i + 1 for i, (pid, _) in enumerate(adp_pairs)}
 
+    # The other two of the three displayed ranks. The opportunity view only exists for matched
+    # offense; everyone else falls back to consensus so the column is never empty and the two
+    # ranks stay comparable over one population.
+    def _ranked(score: dict[str, float]) -> dict[str, int]:
+        return {
+            pid: i + 1
+            for i, (pid, _) in enumerate(sorted(score.items(), key=lambda kv: (-kv[1], kv[0])))
+        }
+
+    consensus_rank = _ranked({pid: m.consensus for pid, m in meta.items()})
+    opp_rank = _ranked({
+        pid: (m.modeled if m.modeled > 0 else m.consensus) for pid, m in meta.items()
+    })
+
     # League-aware value metric (learned from the backtest): VORP for deep/scarce formats,
     # scarcity/VONA for shallow/flat ones.
     value_rank = scarcity_rank if config.value_metric == "scarcity" else vorp_rank
@@ -232,7 +257,10 @@ def build_board(
                 eligible_positions=e.projection.eligible_positions,
                 team=e.projection.team, model=m.model, points=m.points,
                 modeled_xfp=m.modeled, carried=m.carried, consensus=m.consensus,
-                vorp=e.vorp, vorp_rank=vorp_rank[pid], scarcity=scarcity[pid],
+                vorp=e.vorp, vorp_rank=vorp_rank[pid],
+                consensus_rank=consensus_rank[pid], opp_rank=opp_rank[pid],
+                deviation=abs(opp_rank[pid] - consensus_rank[pid]) > DEVIATION_BAND,
+                scarcity=scarcity[pid],
                 scarcity_rank=scarcity_rank[pid], adp=m.adp, adp_rank=ar,
                 value=(ar - market_value_rank[pid]) if ar is not None else None, flags=m.flags,
             )
