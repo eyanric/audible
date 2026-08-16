@@ -11,8 +11,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 # Dependencies first, from the lockfile only, so a source edit does not re-resolve or
-# re-download polars on every build.
-COPY pyproject.toml uv.lock ./
+# re-download polars on every build. README.md rides along because pyproject declares
+# `readme = "README.md"` and hatchling reads it when the project itself is installed below --
+# without it the second sync fails on a file that has nothing to do with the build.
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev --extra nflverse
 
