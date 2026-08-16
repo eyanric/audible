@@ -127,9 +127,13 @@ def serve(
     token = os.environ.get("MCP_AUTH_TOKEN") or None
     app = create_app(service, mcp_token=token)
     log.info("cockpit for [%s] %s -> http://%s:%d", config.key, config.name, host, port)
+    # No app-level bearer is the EXPECTED state, not a problem: the public route is gated by
+    # mcp-auth-proxy (GitHub OAuth) at the edge, and the LAN address is deliberately open, same
+    # trust model as everything else on this network. A permanent scary warning during normal
+    # operation only teaches you to stop reading the logs.
     log.info(
         "MCP at http://%s:%d/mcp  (%s)", host, port,
-        "bearer auth from MCP_AUTH_TOKEN" if token
-        else "UNAUTHENTICATED - set MCP_AUTH_TOKEN before exposing this beyond localhost",
+        "app-level bearer configured from MCP_AUTH_TOKEN" if token
+        else "no app-level bearer; auth is expected at the proxy (LAN access is open)",
     )
     uvicorn.run(app, host=host, port=port, log_level="warning")

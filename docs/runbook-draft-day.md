@@ -178,6 +178,7 @@ curl localhost:8080/api/state | head    # full state
 |---|---|
 | local | `http://localhost:8080` |
 | cluster | `http://192.168.1.110` |
-| MCP | `<base>/mcp`, bearer `MCP_AUTH_TOKEN` |
+| MCP (LAN) | `<base>/mcp` — open, no auth, same as the UI |
+| MCP (public) | `https://mcp-audible.havenhomelab.org` — GitHub OAuth at the proxy |
 | league | `sleeper_boyfun` (10-team, superflex, 1 IDP_FLEX, 18 rounds) |
 | draft | snake, 60s pick timer |
