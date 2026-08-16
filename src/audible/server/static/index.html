@@ -101,7 +101,10 @@ button,input{font:inherit;color:inherit}
   border:1px solid var(--line);color:var(--txt-2);padding:1px 5px;border-radius:2px;white-space:nowrap;
 }
 
-.t-mid{display:flex;align-items:baseline;justify-content:center;gap:14px;text-align:center}
+/* fixed height: switching between the number and a word state must not
+   resize the header and shove the whole board up or down */
+.t-mid{display:flex;align-items:baseline;justify-content:center;gap:14px;text-align:center;min-height:66px}
+#top.lastknown .t-mid{opacity:.5}
 #clockLabel{font-family:var(--f-display);font-size:15px;font-weight:600;font-stretch:87.5%;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-2)}
 #clockNum{
   font-family:var(--f-display);font-weight:600;
@@ -202,7 +205,8 @@ button,input{font:inherit;color:inherit}
 .slot-top{display:flex;align-items:center;gap:8px}
 .slot-name{
   font-family:var(--f-display);font-size:12.5px;font-weight:600;font-stretch:87.5%;
-  letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3);min-width:44px;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3);
+  flex:0 0 46px;overflow:hidden;text-overflow:ellipsis;
 }
 .slot.need .slot-name{color:var(--txt)}
 .slot-dots{font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;color:var(--txt-3)}
@@ -259,9 +263,11 @@ col.w-act{width:24px}
 .c-cons{color:var(--txt-2)}
 .c-vorp{color:var(--txt)}
 .c-flags{font-family:var(--f-cond);font-size:10.5px;color:var(--txt-3);letter-spacing:.02em}
+/* most of the board fills a need once the roster opens up, so this stays
+   quiet on purpose — its absence is the signal, not its presence */
 .need-tag{
-  font-family:var(--f-cond);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
-  border:1px solid #3b4453;color:var(--txt-2);border-radius:2px;padding:0 3px;margin-left:6px;vertical-align:1px;
+  font-family:var(--f-cond);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--txt-3);margin-left:7px;vertical-align:1px;
 }
 .need-tag[hidden]{display:none}
 .c-opp.dev{color:var(--txt)}
@@ -317,7 +323,7 @@ col.w-act{width:24px}
 [hidden]{display:none !important}
 
 /* not ready / not started panel */
-#notReady{padding:18px 20px;max-width:640px}
+#notReady{padding:18px 20px}
 #notReady h2{font-family:var(--f-display);font-size:17px;font-weight:600;font-stretch:87.5%;letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px;color:var(--txt)}
 #notReady p{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--txt-2);max-width:60ch}
 #notReady .quiet{color:var(--txt-3);font-size:12px}
@@ -378,7 +384,11 @@ col.w-act{width:24px}
 }
 @media (max-width:520px){
   col.w-team,.c-team,th.h-team{display:none}
+  col.w-pos{width:38px}
+  col.w-r{width:38px}
+  col.w-surv{width:44px}
   #clockNum{font-size:56px}
+  .t-mid{min-height:0}
 }
 </style>
 </head>
@@ -426,6 +436,7 @@ col.w-act{width:24px}
         <span class="ptitle">Your team</span>
         <span id="starterState" class="spacer open"></span>
       </div>
+      <div class="calm" id="rosterCalm" hidden>No roster yet.</div>
       <div class="pbody grow" id="rosterList"></div>
       <div class="pfoot">
         <div id="slotLine">draft slot unresolved</div>
@@ -532,8 +543,8 @@ col.w-act{width:24px}
         <span class="ptitle">Recent picks</span>
         <span class="phint spacer" id="picksHint"></span>
       </div>
-      <div class="pbody grow" id="picksList"></div>
       <div class="calm" id="picksCalm" hidden>No picks yet.</div>
+      <div class="pbody grow" id="picksList"></div>
     </div>
   </section>
 
@@ -555,6 +566,13 @@ var GRAB_CAP = 5;
 var BASE_TABS = ["ALL", "QB", "RB", "WR", "TE", "K", "LB"];   // keys 0-6
 var EXTRA_TABS = ["DL", "DB", "DEF"];                          // keys 7-9, only when present
 var KNOWN_POS = ["QB","RB","WR","TE","K","DEF","DL","LB","DB"];
+
+/* long slot names blow out the left column and knock the fill markers
+   out of alignment; the full name stays in the title attribute */
+var SLOT_LABEL = {
+  SUPER_FLEX: "SFLX", SUPERFLEX: "SFLX", IDP_FLEX: "IDP", REC_FLEX: "W/T",
+  "D/ST": "DST", DEF: "DST", BN: "BENCH"
+};
 
 /* ───────────────────────── dom helpers ─────────────────────── */
 
@@ -580,6 +598,10 @@ function setAttr(node, k, v) {
 function setHidden(node, on) {
   on = !!on;
   if (node.hidden !== on) node.hidden = on;
+}
+
+function setClassName(node, v) {
+  if (node.className !== v) node.className = v;
 }
 
 function setPos(node, pos) {
@@ -632,6 +654,15 @@ function fmtAge(s) {
   var m = Math.floor(s / 60), r = Math.floor(s % 60);
   if (m < 60) return m + "m " + (r < 10 ? "0" : "") + r + "s ago";
   return Math.floor(m / 60) + "h " + (m % 60) + "m ago";
+}
+
+/* the server sends roster occupants as {name, position}; the position is
+   only worth the pixels when the slot does not already imply it */
+function playerLabel(p, slot) {
+  if (p == null) return "";
+  if (typeof p === "string") return p;
+  var n = p.name || "";
+  return (p.position && p.position !== slot) ? (n + " · " + p.position) : n;
 }
 
 function clockNow() {
@@ -729,10 +760,12 @@ function updatePlayerRow(rec, p) {
     ? "Opportunity disagrees with consensus"
     : null);
 
+  // deliberately narrow bands: if half the column is coloured the run
+  // warnings stop registering
   var s = p.survival;
   setText(rec.surv, pct(s));
-  rec.surv.classList.toggle("low", s != null && s < 0.30);
-  rec.surv.classList.toggle("high", s != null && s >= 0.70);
+  rec.surv.classList.toggle("low", s != null && s < 0.15);
+  rec.surv.classList.toggle("high", s != null && s >= 0.80);
 
   var f = (p.flags && p.flags.length) ? p.flags.join(" ") : "";
   if (p.manual) f = f ? (f + " manual") : "manual";
@@ -946,7 +979,7 @@ function renderSync() {
     msg = "updated " + fmtAge(age);
   }
 
-  if (chip.className !== ("" + cls)) chip.className = cls;
+  setClassName(chip, cls);
   setText(text, msg);
 
   var tip = [];
@@ -964,10 +997,11 @@ function renderAlert() {
   var d = S.data;
   var kind = null, head = "", body = "";
 
-  if (d && d.ok === false) {
-    kind = "bad"; head = "Not ok";
-    body = d.message || "The server returned a failure with no message.";
-  } else if (S.fetchFail > 0) {
+  // ok:false and board_ready:false are owned by the centre panel, which
+  // states them at full size — repeating them up here is just noise
+  var panelOwns = !!(d && (d.ok === false || d.board_ready === false));
+
+  if (S.fetchFail > 0) {
     kind = "bad"; head = "Not updating";
     body = "The browser cannot reach the server (" + (S.lastFetchError || "unknown") + "). "
          + S.fetchFail + " failed " + (S.fetchFail === 1 ? "try" : "tries") + ". "
@@ -977,9 +1011,8 @@ function renderAlert() {
     body = "The server is up but its draft feed is failing"
          + (d.sync.last_error ? " (" + d.sync.last_error + ")" : "")
          + ". Showing last-known board from " + (d.sync.last_success || "earlier") + ".";
-  } else if (d && d.board_ready === false) {
-    kind = ""; head = "Board not ready";
-    body = d.message || "The value board has not been built yet.";
+  } else if (panelOwns) {
+    head = "";
   } else if (d && d.draft && d.draft.started === false) {
     kind = ""; head = "Not started";
     body = "The draft has not started. Board and roster shape are live; there is no clock yet.";
@@ -993,7 +1026,7 @@ function renderAlert() {
 
   if (!head) { setHidden(bar, true); return; }
   setHidden(bar, false);
-  bar.className = kind;
+  setClassName(bar, kind);
   setText(title, head);
   setText(msg, body);
 }
@@ -1004,6 +1037,7 @@ function renderRoster(d) {
   var roster = d.roster || {};
   var slots = roster.slots || [];
   var unfilled = roster.unfilled || [];
+  setHidden($("rosterCalm"), slots.length > 0);
 
   reconcile($("rosterList"), slots,
     function (s, i) { return (s.slot || "?") + "#" + i; },
@@ -1020,22 +1054,25 @@ function renderRoster(d) {
     },
     function (rec, s) {
       var total = s.total || 0, filled = s.filled || 0;
-      setText(rec.name, s.slot || "?");
+      setText(rec.name, SLOT_LABEL[s.slot] || s.slot || "?");
+      setAttr(rec.name, "title", s.slot || null);
       var dots = "";
       for (var i = 0; i < total; i++) dots += (i < filled) ? "●" : "○";
       setText(rec.dots, dots);
       var need = filled < total || unfilled.indexOf(s.slot) >= 0;
       rec.el.classList.toggle("need", need);
       setText(rec.open, need ? ((total - filled) + " open") : "");
-      setText(rec.players, (s.players && s.players.length) ? s.players.join(", ") : "");
+      var who = (s.players || []).map(function (p) { return playerLabel(p, s.slot); })
+        .filter(Boolean).join(", ");
+      setText(rec.players, who);
     });
 
   var st = $("starterState");
   if (roster.starters_complete === true) {
-    st.className = "spacer done";
+    setClassName(st, "spacer done");
     setText(st, "starters set");
   } else {
-    st.className = "spacer open";
+    setClassName(st, "spacer open");
     setText(st, unfilled.length ? (unfilled.length + " open") : "");
   }
 
@@ -1078,14 +1115,22 @@ function countMatches(list, q) {
 }
 
 function renderCentre(d) {
-  var ready = d.board_ready !== false;
+  var notOk = d.ok === false;
+  var ready = d.board_ready !== false && !notOk;
   setHidden($("grabPanel"), !ready);
   setHidden($("bestPanel"), !ready);
   setHidden($("notReady"), ready);
 
   if (!ready) {
-    setText($("nrMsg"), d.message || "The value board has not been built yet.");
+    setText($("nrTitle"), notOk ? "The board is not usable" : "Board not ready");
+    setText($("nrMsg"), d.message || (notOk
+      ? "The server reported a failure and sent no explanation."
+      : "The value board has not been built yet."));
+    setText($("nrHint"), notOk
+      ? "This page keeps polling and shows the board the moment the server has one."
+      : "This screen fills itself in as soon as the board is built. Nothing to click.");
     S.nav = [];
+    S.sel = null;
     return;
   }
 
@@ -1185,7 +1230,7 @@ function renderRight(d) {
       var txt = r.text || (r.position + " run — " + r.count + " of last " + r.window);
       setText(rec.t, txt);
       var loud = (r.position === "QB" && superflex && r.severity !== "low");
-      rec.el.className = "warnbox sev-" + (r.severity || "low") + (loud ? " loud" : "");
+      setClassName(rec.el, "warnbox sev-" + (r.severity || "low") + (loud ? " loud" : ""));
     });
 
   var cliffs = d.cliffs || [];
@@ -1201,8 +1246,16 @@ function renderRight(d) {
       return { el: el, chip: chip, t: t, g: g };
     },
     function (rec, c) {
-      setPos(rec.chip, c.position);
-      setText(rec.t, c.text || "");
+      // the server prefixes cliff text with "POS:" and also sends the position
+      // separately — show the chip, not the prefix
+      var known = KNOWN_POS.indexOf(c.position) >= 0;
+      setHidden(rec.chip, !known);
+      if (known) setPos(rec.chip, c.position);
+      var txt = c.text || "";
+      if (c.position && txt.indexOf(c.position + ":") === 0) {
+        txt = txt.slice(c.position.length + 1).replace(/^\s+/, "");
+      }
+      setText(rec.t, txt);
       setText(rec.g, c.gap != null ? ("−" + Math.round(c.gap)) : "");
     });
 
@@ -1237,7 +1290,7 @@ function renderRight(d) {
 function renderAction() {
   var note = $("actionNote"), btn = $("undoBtn");
   setText(note, S.actionMsg || "");
-  note.className = "note" + (S.actionErr ? " err" : "");
+  setClassName(note, "note" + (S.actionErr ? " err" : ""));
   setHidden(btn, S.takenStack.length === 0);
   if (S.takenStack.length) {
     var top = S.takenStack[S.takenStack.length - 1];
@@ -1250,6 +1303,7 @@ function renderAction() {
 function render(d) {
   var lastKnown = (S.fetchFail > 0) || (d.sync && d.sync.status === "failing");
   $("board").classList.toggle("lastknown", !!lastKnown);
+  $("top").classList.toggle("lastknown", !!lastKnown);
   renderTop(d);
   renderAlert();
   renderSync();
@@ -1287,7 +1341,10 @@ function poll() {
       S.lastFetchError = (err && err.message) ? err.message : String(err);
       console.error("[audible] /api/state poll failed:", err);
       // never blank the board — only the connection surfaces change
-      if (S.data) $("board").classList.add("lastknown");
+      if (S.data) {
+        $("board").classList.add("lastknown");
+        $("top").classList.add("lastknown");
+      }
       renderAlert();
       renderSync();
     })
