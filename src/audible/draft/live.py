@@ -111,7 +111,11 @@ class LiveView:
     roster_slots: list[tuple[str, DraftEntry | None]]  # every starting slot -> who fills it
     unfilled: list[str]  # my remaining starting slots
     starters_complete: bool
-    best_available: list[Candidate]  # ranked by league value
+    best_available: list[Candidate]  # the top slice, ranked by league value
+    # EVERY available player, ranked. Position filters and name search must run over this,
+    # not over the slice above: the top 60 by VORP holds 2 LBs and zero Ks, so filtering the
+    # slice reports 2 linebackers exist when 1,136 do. Truncation belongs after filtering.
+    ranked: list[Candidate]
     recommendations: list[Candidate]  # best available that fill a need, on the clock
     runs: list[str]
     cliffs: list[str]
@@ -199,7 +203,8 @@ def compute_view(
             fills_need=bool(e.eligible_positions & needs),
         )
 
-    best = [candidate(e) for e in available[:top]]
+    ranked = [candidate(e) for e in available]
+    best = ranked[:top]
     # Once every starting slot is placed the needs set empties, which would blank the
     # recommendation panel for the whole bench phase. Fall back to raw best-available there --
     # the tool still has an opinion about depth, it just no longer has a slot to justify it.
@@ -239,7 +244,7 @@ def compute_view(
         opponent_picks_until_horizon=opponent_picks,
         my_roster=[e.name for e in my_entries], roster_slots=roster_slots, unfilled=unfilled,
         starters_complete=starters_complete,
-        best_available=best, recommendations=recs, runs=runs, cliffs=cliffs,
+        best_available=best, ranked=ranked, recommendations=recs, runs=runs, cliffs=cliffs,
     )
 
 

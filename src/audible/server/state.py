@@ -15,7 +15,12 @@ from ..draft.live import Candidate, LiveView
 from ..draft.service import CockpitService
 
 GRAB_NOW_LIMIT = 5
-BEST_AVAILABLE_LIMIT = 60  # the page shows ~25; the rest feed search + position filters
+# The page shows ~25 rows; the rest feed name search and the position tabs.
+BEST_AVAILABLE_LIMIT = 60
+# ...but a global top-60 by VORP holds 2 LBs and zero Ks in League A, so a position tab built
+# from it would report that 2 linebackers exist when 1,136 do. Every rosterable position also
+# contributes its own depth, so filtering never sees a pre-truncated pool.
+PER_POSITION_DEPTH = 30
 RECENT_PICKS_LIMIT = 12
 RUN_WINDOW = 10
 
@@ -31,6 +36,10 @@ def _player(cand: Candidate) -> dict[str, Any]:
         "vorp_rank": e.vorp_rank,
         "opp_rank": e.opp_rank,
         "survival": round(cand.survival, 4),
+        # An unpriced player is AVAILABLE with unknown survival, not absent. survival reads
+        # 1.0 for him because the market queue cannot rank someone it does not price -- that
+        # is an absence of evidence, and the UI must not present it as evidence of safety.
+        "adp_known": e.adp is not None,
         "value": e.value,
         "points": round(e.points, 1),
         "grab_now": cand.grab_now,
@@ -38,6 +47,28 @@ def _player(cand: Candidate) -> dict[str, Any]:
         "deviation": e.deviation,
         "flags": list(e.flags),
     }
+
+
+def _served_pool(service: CockpitService, view: LiveView) -> list[Candidate]:
+    """The global top slice PLUS per-position depth, in value order, deduplicated.
+
+    Serving only a global top-N is what made the board look truncated: every position filter
+    and every name search downstream could only ever see those N rows. Sending all ~7,600
+    available players on a 2s poll is the other extreme, so each rosterable position also
+    contributes its own best PER_POSITION_DEPTH. A filter therefore never reads a pool that
+    was cut before it ran.
+    """
+    keep: set[str] = {c.entry.player_id for c in view.ranked[:BEST_AVAILABLE_LIMIT]}
+    for position in sorted(service.config.positions):
+        depth = 0
+        for cand in view.ranked:
+            if cand.entry.position != position:
+                continue
+            keep.add(cand.entry.player_id)
+            depth += 1
+            if depth >= PER_POSITION_DEPTH:
+                break
+    return [c for c in view.ranked if c.entry.player_id in keep]
 
 
 def _roster_slots(view: LiveView) -> list[dict[str, Any]]:
@@ -190,9 +221,7 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "starters_complete": view.starters_complete,
     }
     base["grab_now"] = [_player(c) for c in grab]
-    base["best_available"] = [
-        _player(c) for c in view.best_available[:BEST_AVAILABLE_LIMIT]
-    ]
+    base["best_available"] = [_player(c) for c in _served_pool(service, view)]
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)
     base["cliffs"] = _cliffs(view)

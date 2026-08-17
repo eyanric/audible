@@ -27,6 +27,7 @@ from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from pydantic import Field
 
 from ..draft.service import CockpitService
+from .state import _player as _state_player
 from .state import build_state
 
 # Responses are read on a 60-second clock, so they are capped hard. A dump of 60 players is
@@ -65,7 +66,10 @@ def _slim(player: dict[str, Any]) -> dict[str, Any]:
         "consensus_rank": player["consensus_rank"],
         "vorp_rank": player["vorp_rank"],
         "opportunity_rank": player["opp_rank"],
-        "survival_pct": round(player["survival"] * 100),
+        # None, not a number, when the market does not price him: survival is UNKNOWN there,
+        # and reporting 100% would read as "safe to wait" on no evidence at all.
+        "survival_pct": round(player["survival"] * 100) if player.get("adp_known") else None,
+        "priced_by_market": player.get("adp_known", True),
         "fills_a_need": player["fills_need"],
         "grab_now": player["grab_now"],
         "opportunity_disagrees": player["deviation"],
@@ -123,14 +127,24 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         s = state()
         if not s.get("board_ready"):
             return _not_ready(s)
-        rows = s["best_available"]
+        # Filter the FULL ranked pool, never the served slice. The slice is a global top-N by
+        # value, so filtering it answers "how many LBs are in the top 60" (2) when the question
+        # is "how many LBs are available" (1,136).
+        view = service.view()
+        rows = s["best_available"] if view is None else [
+            _state_player(c) for c in view.ranked
+        ]
         if position:
             want = position.strip().upper()
             rows = [p for p in rows if p["position"] == want]
+        priced = sum(1 for p in rows if p.get("adp_known"))
         return {
             "players": [_slim(p) for p in rows[:limit]],
             "returned": min(len(rows), limit),
             "available_matching": len(rows),
+            "of_which_priced_by_market": priced,
+            "note": ("Players the market does not price are still AVAILABLE; their survival "
+                     "is unknown, not high." if priced < len(rows) else None),
             "sync": _sync(s),
         }
 
@@ -192,7 +206,11 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         if not s.get("board_ready"):
             return _not_ready(s)
         q = name.strip().lower()
-        hits = [p for p in s["best_available"] if q in p["name"].lower()]
+        view = service.view()  # search the full pool, not the served slice
+        pool = s["best_available"] if view is None else [
+            _state_player(c) for c in view.ranked
+        ]
+        hits = [p for p in pool if q in p["name"].lower()]
         if not hits:
             gone = [p for p in s["recent_picks"] if q in str(p["name"]).lower()]
             return {
@@ -215,10 +233,14 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         s = state()
         if not s.get("board_ready"):
             return _not_ready(s)
+        view = service.view()  # full pool, so a deep player is comparable
+        pool = s["best_available"] if view is None else [
+            _state_player(c) for c in view.ranked
+        ]
         found, missing = [], []
         for n in names:
             q = n.strip().lower()
-            hit = next((p for p in s["best_available"] if q in p["name"].lower()), None)
+            hit = next((p for p in pool if q in p["name"].lower()), None)
             (found.append(_slim(hit)) if hit else missing.append(n))
         return {
             "players": found,
