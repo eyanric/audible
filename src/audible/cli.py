@@ -58,23 +58,67 @@ def cmd_configs(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_verify_scoring(args: argparse.Namespace) -> int:
-    from .adapters.sleeper import SleeperAdapter
-
-    cfg = _load(args.league)
-    if cfg.platform.value != "sleeper":
-        raise SystemExit("verify-scoring currently supports Sleeper leagues only")
-    with SleeperAdapter() as sleeper:
-        drift = sleeper.verify_scoring(cfg)
-        structure = sleeper.verify_structure(cfg)
-
+def _print_drift(cfg: LeagueConfig, drift: Sequence[tuple[str, float | None, float | None]],
+                 faithful: str) -> None:
     if drift:
         print(f"[{cfg.key}] SCORING DRIFT -- {len(drift)} key(s) differ (config vs live):")
         for key, cfg_val, live_val in drift:
             print(f"   {key:<18} config={cfg_val!s:<8} live={live_val!s}")
     else:
-        print(f"[{cfg.key}] config scoring is FAITHFUL to the live league "
-              f"({len(cfg.scoring)} keys match).")
+        print(f"[{cfg.key}] config scoring is FAITHFUL to the live league ({faithful}).")
+
+
+def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
+    """ESPN's weights are position-scoped, so the comparison has to be too.
+
+    ESPN encodes League B's receptions as base 0.0 with per-position overrides; our config
+    encodes the same rule as base 0.5 with an RB override. Comparing the two base tables
+    would report drift across the whole table where there is none -- so this reads
+    ``pointsOverrides`` and compares one position at a time.
+    """
+    from .adapters.espn import SPECIALIST_GAP, STAT_ID_TO_KEY, TRANSLATED_POSITIONS, EspnAdapter
+
+    with EspnAdapter() as espn:
+        drift = espn.verify_scoring(cfg)
+        live_rec = espn.live_reception_points(cfg)
+
+    checked = len(STAT_ID_TO_KEY) * len(cfg.positions & TRANSLATED_POSITIONS)
+    _print_drift(cfg, drift, f"{checked} position-scoped weights match")
+
+    # The league's one standing question: League B is still standard until the commissioner
+    # flips it, and until then every WR/TE number is priced for scoring nobody is playing.
+    mismatch = False
+    expected = cfg.expected_reception_points
+    if expected is not None:
+        rb_rec = cfg.scoring_for("RB").get("rec")
+        if live_rec is None:
+            mismatch = True
+            print(f"\n[{cfg.key}] !! RECEPTIONS ARE UNSCORED LIVE -- config expects {expected}.")
+        elif abs(live_rec - expected) > 1e-9:
+            mismatch = True
+            print(f"\n[{cfg.key}] !! PPR MISMATCH: config expects {expected}/reception, the live "
+                  f"league pays {live_rec}. The half-PPR flip has NOT landed -- every WR/TE "
+                  f"number on the board is priced for scoring this league is not using.")
+        else:
+            print(f"\n[{cfg.key}] receptions confirmed LIVE at {live_rec}/rec for WR/TE "
+                  f"(RB stays {rb_rec} by design, not drift).")
+
+    print(f"\n[{cfg.key}] roster-structure verification is Sleeper-only; not checked here.")
+    print(f"[{cfg.key}] known gap -- {SPECIALIST_GAP}")
+    return 1 if (drift or mismatch) else 0
+
+
+def cmd_verify_scoring(args: argparse.Namespace) -> int:
+    from .adapters.sleeper import SleeperAdapter
+
+    cfg = _load(args.league)
+    if cfg.platform.value == "espn":
+        return cmd_verify_scoring_espn(cfg)
+    with SleeperAdapter() as sleeper:
+        drift = sleeper.verify_scoring(cfg)
+        structure = sleeper.verify_structure(cfg)
+
+    _print_drift(cfg, drift, f"{len(cfg.scoring)} keys match")
 
     if structure:
         print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
@@ -98,16 +142,33 @@ def _print_top(entries: Sequence[VorpEntry], n: int) -> None:
         )
 
 
+def _print_scoring_paths(provider: object) -> None:
+    """Report how a vendor's universe was scored, when the adapter tracks it.
+
+    Only the ESPN adapter has two paths (translated stat line vs the vendor's own
+    projection), and a silent fallback is exactly the kind of thing that looks like data.
+    """
+    adapter = getattr(provider, "adapter", None)
+    counts: dict[str, int] | None = getattr(adapter, "source_counts", None)
+    if not counts:
+        return
+    ours = counts.get("stat_line", 0)
+    print(f"  {getattr(adapter, 'pool_size', 0)} players served; {ours} scored by us from "
+          f"translated stat lines.")
+    print(f"  Vendor's own projection used for {counts.get('vendor_specialist', 0)} K/D-ST "
+          f"(no translation exists) and {counts.get('vendor_untranslated', 0)} offensive "
+          f"players (unprojected or return-only; all far below replacement).")
+
+
 def cmd_vorp(args: argparse.Namespace) -> int:
     from .providers import build_consensus_provider
 
     cfg = _load(args.league)
-    if cfg.platform.value != "sleeper":
-        raise SystemExit("vorp currently supports Sleeper leagues only (ESPN adapter is Phase 1)")
 
     print(f"Pulling consensus projections for [{cfg.key}] {cfg.name} (season {cfg.season})...")
     with build_consensus_provider(cfg) as provider:
         players = provider.projections(cfg)
+        _print_scoring_paths(provider)
     entries, levels = compute_vorp(players, cfg)
     starters = sum(1 for e in entries if e.is_starter)
 
@@ -337,11 +398,14 @@ def _fmt_flags(flags: tuple[str, ...]) -> str:
 
 def cmd_draft(args: argparse.Namespace) -> int:
     from .draft import build_board
+    from .draft.board import SLEEPER_SOURCED_CAVEAT
 
     cfg = _load(args.league)
     print(f"Building draft board for [{cfg.key}] {cfg.name}")
     print(f"  ranking = consensus -> league-exact VORP; value = {cfg.value_metric} vs ADP")
     print("  opportunity (opp+/opp-/riser/vac) is an OVERLAY tilt, not the ranking")
+    if cfg.platform.value != "sleeper":
+        print(SLEEPER_SOURCED_CAVEAT)
     board = build_board(cfg)
 
     models: dict[str, int] = {}
@@ -609,8 +673,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from .adapters.espn import EspnAuthError, EspnDataError
+
     args = build_parser().parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except (EspnAuthError, EspnDataError) as exc:
+        # Cookie expiry is routine and the fix is a two-minute copy-paste. A traceback
+        # buries that; the message is the whole point.
+        print(f"\nERROR: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
