@@ -308,6 +308,12 @@ col.w-act{width:24px}
 #undoBtn[hidden]{display:none}
 
 /* tabs + search */
+/* The Enter target, named. Marking the wrong player because the top match was not the one
+   you pictured is the failure this prevents, and it costs one line of screen. */
+.enter-hint{
+  font-family:var(--f-cond);font-size:11px;font-weight:600;letter-spacing:.04em;
+  color:var(--txt-2);margin-left:8px;white-space:nowrap;
+}
 #tabs{display:flex;gap:2px}
 .tab{
   background:transparent;border:1px solid transparent;border-radius:2px;cursor:pointer;
@@ -451,9 +457,10 @@ col.w-act{width:24px}
         <div id="draftLine"></div>
         <div class="legend">
           <div><kbd>/</kbd>search</div>
+          <div><kbd>enter</kbd>mark top match</div>
           <div><kbd>&uarr;&darr;</kbd>move selection</div>
           <div><kbd>t</kbd>Mark taken</div>
-          <div><kbd>u</kbd>Undo</div>
+          <div><kbd>u</kbd> / <kbd>ctrl+z</kbd>Undo</div>
           <div><kbd>space</kbd>Pause updates</div>
           <div><kbd>0-6</kbd>position filter</div>
         </div>
@@ -492,7 +499,8 @@ col.w-act{width:24px}
         <span class="ptitle">Best available</span>
         <div id="tabs" role="group" aria-label="Position filter"></div>
         <span class="spacer"></span>
-        <input id="q" type="text" placeholder="Search players" aria-label="Search players by name" autocomplete="off" spellcheck="false">
+        <input id="q" type="text" placeholder="Search players — Enter marks the top match" aria-label="Search players by name; Enter marks the top match as taken" autocomplete="off" spellcheck="false">
+        <span id="enterHint" class="enter-hint" aria-live="polite" hidden></span>
       </div>
       <div class="pbody grow" id="bestScroll">
         <table class="ptable" aria-label="Best available">
@@ -1198,6 +1206,7 @@ function renderCentre(d) {
   var present = {};
   for (var i = 0; i < best.length; i++) present[best[i].position] = true;
   buildTabs(present);
+  renderEnterHint();
 }
 
 /* ───────────────────────── right column ────────────────────── */
@@ -1370,6 +1379,24 @@ function post(path, id) {
   });
 }
 
+/* The pick is called out loud and you have seconds. Typing three letters and pressing
+   Enter is the whole interaction: no leaving the box, no arrow-keying, no mouse. The
+   target is the first row of the FILTERED best-available list -- not S.nav[0], which
+   starts with the grab-now rows and ignores the query entirely. */
+function enterTarget() {
+  if (!S.query) return null;
+  var first = $("bestBody").firstElementChild;
+  if (!first) return null;
+  var nameEl = first.querySelector(".pname");
+  return { id: first.getAttribute("data-id"), name: nameEl ? nameEl.textContent : "" };
+}
+
+function renderEnterHint() {
+  var t = enterTarget();
+  setHidden($("enterHint"), !t);
+  if (t) setText($("enterHint"), "↵ marks " + t.name);
+}
+
 function markTaken(id, name) {
   if (id == null) return;
   var label = name || id;
@@ -1431,9 +1458,33 @@ function isTyping(t) {
 }
 
 document.addEventListener("keydown", function (e) {
+  // Undo has to be reachable without leaving the search box, or a mis-heard name costs
+  // you the row you were about to type next. Ctrl+Z is the idiom; the field was cleared
+  // programmatically after the mark, so there is no native edit history worth keeping.
+  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === "z" || e.key === "Z")) {
+    undoTaken();
+    e.preventDefault();
+    return;
+  }
   if (e.ctrlKey || e.altKey || e.metaKey) return;
 
   if (isTyping(e.target)) {
+    if (e.key === "Enter") {
+      var target = enterTarget();
+      if (target) {
+        markTaken(target.id, target.name);
+        // Clear and stay put: the next pick is seconds away and the box must be ready
+        // for it. Leaving the query in place would filter the board to a player who is
+        // no longer on it.
+        var box = $("q");
+        box.value = "";
+        S.query = "";
+        if (S.data) render(S.data);
+        box.focus();
+      }
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape") {
       var q = $("q");
       if (q.value !== "") { q.value = ""; S.query = ""; if (S.data) render(S.data); }
@@ -1490,6 +1541,7 @@ $("undoBtn").addEventListener("click", function () { undoTaken(); });
 $("q").addEventListener("input", function () {
   S.query = this.value;
   if (S.data) render(S.data);
+  renderEnterHint();
 });
 
 /* the age readout ticks on its own so the page can never look

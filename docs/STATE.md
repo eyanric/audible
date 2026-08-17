@@ -14,18 +14,88 @@ Rules for editing:
 
 ---
 
+## DRAFT: Friday 28 August, 8:30. ESPN league 6012.
+
+Everything below serves that date. **Code freeze Thursday 27 August** — no merges, no
+rebuilds, no config edits after it.
+
+| by | what | state |
+|---|---|---|
+| Mon 17 | Build failure diagnosed | **done** — it was the smoke test, not the build |
+| Tue 18 | Data on disk; offline board proven; PR #10 merged | **done** |
+| Wed 19 | Throwaway league created, `leagueId` supplied | **needs Eric** |
+| Thu 20 | Latency measured and reported as a number | blocked on the above |
+| Fri 21 | Manual entry hardened to the 3-second standard | **built**, unmeasured — see below |
+| Sat 22 | Sleeper mock rehearsal, three rounds | **needs Eric** |
+| Mon 24 | ESPN runbook rewritten, fallback ladder walked | not started |
+| Wed 26 | Digest pinned, final image exercised | not started |
+| Thu 27 | **Freeze.** Paper board printed | — |
+
 ## Where the project is
 
 | | |
 |---|---|
-| Phase | 2a complete (ESPN adapter). **2b complete (ESPN sync)** — the cockpit runs against League B. |
+| Phase | 2b complete. ESPN adapter, ESPN sync, and an offline-capable board. |
 | Leagues | A = Sleeper `sleeper_boyfun` (10-team, superflex, IDP). B = ESPN `espn_davis_drive` (8-team, 1-QB, no IDP). |
 | Board source | Sleeper stat lines for **both** leagues, scored through each league's own weights. League B's `draft` output carries a header saying so. |
-| Live sync | Both platforms, one poll loop, behind `draft/sync.py`. `serve --league espn_davis_drive` verified: `ok:true`, 3,300 players, 0 picks pre-draft, seat 8 derived. |
+| Live sync | Both platforms, one poll loop, behind `draft/sync.py`. Verified: `ok:true`, 3,300 players, 0 picks pre-draft, seat 8 derived. |
+| Data | **On disk.** Board builds with the network unplugged — see below. |
 | Not started | Phase 3, Phase 4. |
 
 **`live` is Sleeper-only** and says so — it polls the adapter directly rather than going
 through the cockpit. League B's live surface is `serve`.
+
+---
+
+## The board builds offline — the property that matters on the 28th
+
+Every board input used to be a third-party URL fetched fresh on every process start, because
+nflreadpy caches **in memory only**. On 2026-08-17 one of those URLs started returning a 404
+page and the board stopped building entirely.
+
+Now: **the network is an update mechanism, not a dependency.**
+
+- `FrameCache` (`adapters/cache.py`) — parquet on disk plus a manifest of source, fetch time,
+  checksum, rows. **Deliberately no TTL.** A time-to-live expires on its own schedule, which on
+  draft night means the one restart that matters is the one that decides to go to the network.
+  Present means used.
+- Every nflverse loader routes through it. A fetch that fails with a cached copy present is not
+  an error — the copy is the answer. A fetch that fails with **no** cache still raises, because
+  silence is the one unacceptable outcome.
+- Sleeper projections are cached too. They were not, and they *are* the projections — no amount
+  of nflverse caching could have produced an offline board without them. The players catalog
+  keeps its TTL for freshness but serves stale rather than failing.
+- **`audible refresh-data`** is the one command that is supposed to need the network. It
+  refreshes by building each league's board, so the cache holds exactly the sources `serve`
+  will ask for at the seasons it will ask for them.
+- `/healthz` reports source count, age, and whether inputs came from disk or network.
+
+**Verified with outbound sockets blocked** (`getaddrinfo`, `connect`, `connect_ex`):
+
+```
+espn_davis_drive  3300 players  DEF=32 K=157 QB=355 RB=744 TE=649 WR=1363
+sleeper_boyfun    7621 players  + DB=1778 DL=1439 LB=1136
+#1 Jahmyr Gibbs in both — identical to the online build
+serve: ok:true, data.origin "disk", sync_status "failing"
+```
+
+**Run `audible refresh-data` on the 27th before the freeze.** The volume must map to
+`/app/data/cache` in the container.
+
+---
+
+## The `image` workflow failure — resolved
+
+It was the **smoke test**, not the build. Steps 1–6 were always green; step 7 ran the full
+455s of its 90×5s health loop because `/healthz` never went green — the board could not build
+inside the container after the DynastyProcess 404. PR #9's smoke test passed in **17 seconds**
+before that URL broke; PR #10's never got there after.
+
+The smoke test now tests the **image**: the container must start, answer `/healthz` with the
+contract's keys, and render the index. Board readiness from a cold cache is **reported, not
+gating** — it is a live-network question, and a gate that reddens during someone else's outage
+is one you learn to ignore. Now green in 18s. The board path is covered deterministically and
+offline in `tests/test_datacache.py` instead.
 
 ---
 
@@ -166,17 +236,17 @@ with a 404 HTML page. Measured 2026-08-17: that URL returns 404 with 305 KB of e
 while `https://raw.githubusercontent.com/dynastyprocess/data/master/files/…` returns 200 with
 the 2.6 MB CSV. 0.1.5 is the latest release — there is nothing to upgrade to.
 
-This stops `build_board` dead for **both** leagues, because the crosswalk is the first thing
-it builds. `adapters/nflverse.py` now tries nflreadpy first and falls back to the raw host for
-the two affected loaders (`load_id_map`, `load_rankings`). Primary-first means it resumes using
-upstream on its own once fixed; **delete the workaround block then.**
+`adapters/nflverse.py` tries nflreadpy first and falls back to the raw host for the two
+affected loaders. Primary-first means it resumes using upstream on its own once fixed;
+**delete the workaround block then.** The disk cache above is the real protection — the
+fallback still needs the network to cooperate, and on draft night nothing may.
 
 The fallback reads every column as a string on purpose — this is an ID spine, and a
 `sleeper_id` inferred as a float becomes `"4034.0"` the moment anything stringifies it, failing
 the join silently for every player instead of loudly for none.
 
-**nflreadpy caches in memory only** (`CacheMode.MEMORY`), so every process start re-downloads.
-Repeated board builds in one session will earn a `429` from GitHub raw; it clears in minutes.
+**nflreadpy caches in memory only** (`CacheMode.MEMORY`). That is why the disk cache exists;
+without it every process start re-downloads and repeated builds earn a `429` from GitHub raw.
 
 ---
 
@@ -224,13 +294,25 @@ Repeated board builds in one session will earn a `429` from GitHub raw; it clear
   anyone using generic half-PPR rankings, correctly valued by ESPN's board and by ours. Which
   opponents sit in which camp determines whether that is exploitable.
 
-- **The `image` workflow is red and undiagnosed** (as of PR #10). It fails at "Set up job",
-  step 1, before any step runs — twice, in 56s and 70s. `.github/workflows/image.yml` is
-  byte-identical to the version that passed on PR #9 two hours earlier; the referenced docker
-  actions still resolve; the `ci` job passes on the same runner label. The job log was not
-  readable without GitHub auth (`gh` unauthenticated, no Actions-logs tool on the MCP server).
-  **Get the "Set up job" error before trusting the Docker image path.** Delete this entry once
-  it is understood.
+- **Manual entry is built but unmeasured.** `/` → type → **Enter** marks the top filtered
+  match; the target is named on screen first; the query clears and focus stays put; Ctrl+Z
+  undoes without leaving the box. Verified live that marking advances the clock and undo is a
+  true inverse. **The three-second standard has not been measured** — that needs a human at a
+  keyboard, and it belongs to the rehearsal. On branch `feat/manual-entry`, not yet merged.
 
-- **Needs Eric:** the `image` failure above; draft date when set; the manual-pick re-run is
-  still outstanding. Only the first blocks anything, and only the Docker path.
+- **Blocking, needs Eric:**
+  1. **Throwaway ESPN LM league + `leagueId`.** Until the sync latency is a number, we do not
+     know whether sync or manual entry is the primary input on the night. Under ~15s → sync
+     leads. Over ~30s or batchy → manual entry leads. This is the last unmade design decision.
+  2. **The manual-pick re-run and a Sleeper mock**, three rounds, cockpit open. Free, and it
+     exercises sync, staleness, grab-now, snake math and the UI — all shared with ESPN. The
+     tool has never been used in a live draft by a human.
+
+- **Still to do before the freeze:** ESPN runbook (it still assumes Sleeper) with the fallback
+  ladder sync → manual → `audible live` → paper; digest pinned Wed 26; paper board printed
+  Thu 27.
+
+- **Gate 32 opponent-anchoring analysis** — only if everything above lands early. Correlate
+  each manager's 2023–2025 pick sequence against ESPN's per-season ranks. The surviving edge
+  is the Henry archetype: pure rushing backs, undervalued by anyone on generic half-PPR
+  rankings, correctly valued by ESPN's board and by ours.
