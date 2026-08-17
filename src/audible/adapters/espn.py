@@ -255,12 +255,26 @@ class EspnAdapter:
     name = "espn"
 
     def __init__(
-        self, swid: str | None = None, espn_s2: str | None = None, timeout: float = 30.0
+        self,
+        swid: str | None = None,
+        espn_s2: str | None = None,
+        timeout: float = 30.0,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._swid = swid if swid is not None else _cookie("ESPN_SWID")
         self._espn_s2 = espn_s2 if espn_s2 is not None else _cookie("ESPN_S2")
+        # Cookies live on the client, not the request: httpx deprecated per-request cookies
+        # because persistence across a redirect is ambiguous.
+        cookies = (
+            {"SWID": self._swid, "espn_s2": self._espn_s2}
+            if self._swid and self._espn_s2
+            else {}
+        )
         self._client = httpx.Client(
-            timeout=timeout, headers={"User-Agent": "audible/0.1 (+personal)"}
+            timeout=timeout,
+            headers={"User-Agent": "audible/0.1 (+personal)"},
+            cookies=cookies,
+            transport=transport,
         )
         # Observability for the two things that silently go wrong: an empty pool, and how
         # many players were scored by us versus handed back from ESPN's own projection.
@@ -290,7 +304,6 @@ class EspnAdapter:
             self._league_url(config),
             params=[("view", view) for view in views],
             headers=headers,
-            cookies={"SWID": self._swid, "espn_s2": self._espn_s2},
         )
         if resp.status_code in (401, 403):
             raise EspnAuthError(_AUTH_EXPIRED)
