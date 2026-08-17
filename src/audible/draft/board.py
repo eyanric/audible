@@ -112,8 +112,12 @@ def _project_line(
     dc_by_gsis: dict[str, DraftCapital],
     dc_by_name: dict[str, DraftCapital],
 ) -> _Proj:
-    scoring = config.scoring
     primary = line.primary_position
+    # Position-scoped: League B pays receptions to WR/TE but not RB, so the weights a player
+    # is scored against depend on what he is. Flat-scoring leagues get `config.scoring` back
+    # unchanged. The opportunity overlay below uses the same resolved table, or it would
+    # disagree with consensus for a reason that has nothing to do with opportunity.
+    scoring = config.scoring_for(primary)
     consensus = score_stat_line(line.stats, scoring)
     adp = _adp_for(line.stats, config.adp_market)
     flags: list[str] = []

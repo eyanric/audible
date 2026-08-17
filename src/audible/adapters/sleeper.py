@@ -233,7 +233,7 @@ class SleeperAdapter:
                 primary_position=line.primary_position,
                 eligible_positions=line.eligible_positions,
                 team=line.team,
-                points=score_stat_line(line.stats, config.scoring),
+                points=score_stat_line(line.stats, config.scoring_for(line.primary_position)),
                 stats=line.stats,
             )
             for line in self.raw_player_lines(config)

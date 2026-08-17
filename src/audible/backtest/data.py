@@ -42,7 +42,7 @@ def season_actuals(adapter: object, season: int, config: LeagueConfig) -> dict[s
                 player_id=player_id,
                 name=entry.get("full_name") or entry.get("team") or player_id,
                 primary=primary,
-                points=score_stat_line(numeric, config.scoring),
+                points=score_stat_line(numeric, config.scoring_for(primary)),
                 games=int(numeric.get("gp", 0)),
                 stats=numeric,
             )

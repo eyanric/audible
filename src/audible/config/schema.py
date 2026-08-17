@@ -44,6 +44,18 @@ class LeagueConfig(BaseModel):
     slot_eligibility: dict[str, tuple[str, ...]]
     # Raw scoring weights keyed by stat key (Sleeper stat vocabulary).
     scoring: dict[str, float]
+    # Per-position overrides layered on `scoring`, keyed by position then stat key. Empty for
+    # every Sleeper league, which scores a stat identically for everyone.
+    #
+    # League B needs it: the commissioner pays 0.5 per reception to WR and TE and 0.0 to RB,
+    # deliberately (confirmed 2026-08-17). A flat table cannot express that, and the difference
+    # is worth ~30 points a season on a pass-catching back -- enough to reorder RB against WR.
+    #
+    # Semantics match ESPN's, which was verified rather than assumed: a position listed for a
+    # stat takes the override, a position NOT listed falls back to the base weight. Measured on
+    # 12 players who record stats where the two rules differ: fallback-to-base matched 12/12,
+    # fallback-to-zero 0/12.
+    scoring_by_position: dict[str, dict[str, float]] = Field(default_factory=dict)
 
     # League context / quirks (optional metadata).
     median_match: bool = False
@@ -97,6 +109,21 @@ class LeagueConfig(BaseModel):
         for eligible in self.slot_eligibility.values():
             out.update(eligible)
         return frozenset(out)
+
+    def scoring_for(self, position: str | None = None) -> dict[str, float]:
+        """The effective scoring weights for *position*: base, with that position's overrides.
+
+        Resolution lives here rather than in the engine because league shape is data, and
+        `score_stat_line` stays a pure function of one weights table. A league with no
+        overrides -- every Sleeper league -- returns `scoring` unchanged, so nothing that
+        predates position-scoped scoring changes behaviour or identity.
+        """
+        if not self.scoring_by_position or position is None:
+            return self.scoring
+        overrides = self.scoring_by_position.get(position)
+        if not overrides:
+            return self.scoring
+        return {**self.scoring, **overrides}
 
     def slot_counts(self) -> dict[str, int]:
         """How many of each starting slot the league demands per team."""

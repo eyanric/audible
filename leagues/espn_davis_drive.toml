@@ -19,8 +19,8 @@ num_teams = 8
 # Starting lineup (9). 1-QB, no IDP, team D/ST only (normalized to DEF internally).
 starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 
-expected_reception_points = 0.5  # drift guard: warn if live ESPN REC != this
-notes = "Target half-PPR; live league still 0-PPR until commish flips it. Shallow 8-team, 1-QB."
+expected_reception_points = 0.5  # drift guard: the WR/TE reception value (see [scoring_by_position])
+notes = "Shallow 8-team, 16-round, 1-QB. Half-PPR for WR/TE, ZERO PPR for RB -- deliberate."
 # Backtest edged scarcity/VONA over VORP here (+28 vs +24), BUT the current VONA impl has a
 # junk-tail pathology on flat positions (inflates mid-QB value -> QB-dominated board). Until
 # it's reimplemented replacement-bounded, ship on VORP (robust). Tracked as a known issue.
@@ -47,7 +47,7 @@ pass_2pt = 2
 rush_yd = 0.1
 rush_td = 6
 rush_2pt = 2
-rec = 0.5
+rec = 0.5          # base; RB is overridden to 0.0 below
 rec_yd = 0.1
 rec_td = 6
 rec_2pt = 2
@@ -73,3 +73,19 @@ pts_allow_7_13 = 3
 pts_allow_14_20 = 1
 pts_allow_28_34 = -1
 pts_allow_35p = -4
+
+# Per-position overrides layered on [scoring]. A position listed here takes the override;
+# anything not listed falls back to the base weight above.
+#
+# DELIBERATE, CONFIRMED BY THE COMMISSIONER 2026-08-17: running backs score ZERO per
+# reception while WR and TE score 0.5. This is not drift and must not be "fixed" -- an
+# earlier handoff flagged it as a possible commissioner slip and it is not one.
+#
+# Verified against the live API the same day: statId 53 (REC) carries points 0.0 with
+# pointsOverrides {QB: 0.5, WR: 0.5, TE: 0.5}, RB absent. Recomputing 2025 actual stat lines
+# under this model matched ESPN's own reported season totals to the decimal for 18 of 18
+# players spanning QB/RB/WR/TE/K/D-ST.
+#
+# Worth ~30 points a season on a pass-catching back, which is enough to reorder RB vs WR.
+[scoring_by_position]
+RB = { rec = 0.0 }

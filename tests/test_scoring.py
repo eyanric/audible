@@ -60,3 +60,47 @@ def test_recompute_differs_from_standard_on_int(
     standard["pass_int"] = -1.0
     standard_pts = score_stat_line(stats, standard)
     assert abs((standard_pts - ours) - stats["pass_int"]) < 1e-9
+
+
+# --- position-scoped scoring (Gate 17) ----------------------------------------------------
+
+
+def test_sleeper_scoring_is_untouched_by_the_position_layer(
+    sleeper_config: LeagueConfig,
+) -> None:
+    """Every Sleeper league scores a stat identically for everyone. Adding per-position
+    overrides for League B must not change League A's numbers or even its identity."""
+    assert sleeper_config.scoring_by_position == {}
+    assert sleeper_config.scoring_for("RB") is sleeper_config.scoring
+    assert sleeper_config.scoring_for(None) is sleeper_config.scoring
+    assert sleeper_config.scoring_for("nonsense") is sleeper_config.scoring
+
+
+def test_espn_pays_receptions_to_receivers_but_not_backs(
+    espn_config: LeagueConfig,
+) -> None:
+    """Confirmed by the commissioner 2026-08-17 and verified against the live API: WR and TE
+    score 0.5 per reception, RB scores zero."""
+    assert espn_config.scoring_for("WR")["rec"] == 0.5
+    assert espn_config.scoring_for("TE")["rec"] == 0.5
+    assert espn_config.scoring_for("RB")["rec"] == 0.0
+
+
+def test_an_override_changes_only_its_own_stat(espn_config: LeagueConfig) -> None:
+    """A position listed for one stat still takes the BASE weight for every other stat --
+    the fallback semantics measured against ESPN (12/12 vs 0/12 for fallback-to-zero)."""
+    rb = espn_config.scoring_for("RB")
+    base = espn_config.scoring
+    assert rb["rec"] != base["rec"]
+    for key in base:
+        if key != "rec":
+            assert rb[key] == base[key], key
+
+
+def test_the_reception_rule_is_worth_real_points(espn_config: LeagueConfig) -> None:
+    """A 60-catch back must score 30 points less than a 60-catch receiver on the same line --
+    enough to reorder RB against WR, which is why a flat table could not express it."""
+    line = {"rec": 60.0, "rec_yd": 500.0, "rush_yd": 900.0, "rush_td": 6.0}
+    rb = score_stat_line(line, espn_config.scoring_for("RB"))
+    wr = score_stat_line(line, espn_config.scoring_for("WR"))
+    assert wr - rb == 30.0
