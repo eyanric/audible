@@ -20,7 +20,8 @@ from dataclasses import dataclass
 from typing import Any
 
 # Where a resolved slot came from, so the UI can be honest about how much to trust it.
-SOURCE_DRAFT_ORDER = "draft_order"
+SOURCE_DRAFT_ORDER = "draft_order"  # Sleeper, authoritative once the draft opens
+SOURCE_PICK_ORDER = "pick_order"  # ESPN draftSettings.pickOrder, re-read every poll
 SOURCE_OVERRIDE = "override"
 SOURCE_UNRESOLVED = "unresolved"
 

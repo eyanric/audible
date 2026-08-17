@@ -20,6 +20,7 @@ from audible.draft.identity import (
 )
 from audible.draft.live import Pick
 from audible.draft.service import CockpitService, SyncHealth
+from audible.draft.sync import SleeperSync
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -271,7 +272,7 @@ def test_a_failed_poll_holds_last_known_state(
         def get_draft(self, draft_id: str):
             return {"settings": {"rounds": 18}, "status": "drafting", "type": "snake"}
 
-    svc._adapter = Boom()  # type: ignore[assignment]
+    svc._sync = SleeperSync(sleeper_config, adapter=Boom())
     assert svc.poll_once() is False
     assert svc.session.picks  # last-known state retained
     assert svc.health.fail_streak == 1

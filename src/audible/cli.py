@@ -68,6 +68,17 @@ def _print_drift(cfg: LeagueConfig, drift: Sequence[tuple[str, float | None, flo
         print(f"[{cfg.key}] config scoring is FAITHFUL to the live league ({faithful}).")
 
 
+def _print_structure(cfg: LeagueConfig, structure: Sequence[tuple[str, int, int]]) -> None:
+    if structure:
+        print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
+        print("   Replacement baselines are derived from this, so EVERY value number is wrong:")
+        for slot, cfg_n, live_n in structure:
+            print(f"   {slot:<12} config={cfg_n:<4} live={live_n}")
+    else:
+        print(f"\n[{cfg.key}] roster structure is FAITHFUL "
+              f"({len(cfg.starting_slots)} starting slots match).")
+
+
 def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     """ESPN's weights are position-scoped, so the comparison has to be too.
 
@@ -81,6 +92,7 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     with EspnAdapter() as espn:
         drift = espn.verify_scoring(cfg)
         live_rec = espn.live_reception_points(cfg)
+        structure = espn.verify_structure(cfg)
 
     checked = len(STAT_ID_TO_KEY) * len(cfg.positions & TRANSLATED_POSITIONS)
     _print_drift(cfg, drift, f"{checked} position-scoped weights match")
@@ -103,9 +115,9 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
             print(f"\n[{cfg.key}] receptions confirmed LIVE at {live_rec}/rec for WR/TE "
                   f"(RB stays {rb_rec} by design, not drift).")
 
-    print(f"\n[{cfg.key}] roster-structure verification is Sleeper-only; not checked here.")
-    print(f"[{cfg.key}] known gap -- {SPECIALIST_GAP}")
-    return 1 if (drift or mismatch) else 0
+    _print_structure(cfg, structure)
+    print(f"\n[{cfg.key}] known gap -- {SPECIALIST_GAP}")
+    return 1 if (drift or mismatch or structure) else 0
 
 
 def cmd_verify_scoring(args: argparse.Namespace) -> int:
@@ -119,16 +131,7 @@ def cmd_verify_scoring(args: argparse.Namespace) -> int:
         structure = sleeper.verify_structure(cfg)
 
     _print_drift(cfg, drift, f"{len(cfg.scoring)} keys match")
-
-    if structure:
-        print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
-        print("   Replacement baselines are derived from this, so EVERY value number is wrong:")
-        for slot, cfg_n, live_n in structure:
-            print(f"   {slot:<12} config={cfg_n:<4} live={live_n}")
-    else:
-        print(f"[{cfg.key}] roster structure is FAITHFUL "
-              f"({len(cfg.starting_slots)} starting slots match).")
-
+    _print_structure(cfg, structure)
     return 1 if (drift or structure) else 0
 
 
@@ -264,7 +267,10 @@ def cmd_live(args: argparse.Namespace) -> int:
     draft_id = args.draft_id
     if not args.simulate:
         if cfg.platform.value != "sleeper":
-            raise SystemExit("live sync is Sleeper-only; for ESPN use --simulate / manual mark-off")
+            raise SystemExit(
+                "`live` polls Sleeper directly and is Sleeper-only. League B's live sync runs "
+                "in the cockpit: `audible serve --league espn_davis_drive`."
+            )
         adapter = SleeperAdapter()
         draft_id = draft_id or str(adapter.get_league(cfg.league_id).get("draft_id"))
         settings = adapter.get_draft(draft_id).get("settings", {})
@@ -301,8 +307,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
     cfg = _load(args.league)
-    if cfg.platform.value != "sleeper":
-        raise SystemExit("the cockpit's live sync is Sleeper-only; for ESPN use mark-taken")
     serve(
         cfg, host=args.host, port=args.port, draft_id=args.draft_id,
         slot=args.slot, user_name=args.user,

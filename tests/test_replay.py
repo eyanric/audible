@@ -15,6 +15,7 @@ from audible.config import LeagueConfig
 from audible.draft.board import DraftBoard, DraftEntry
 from audible.draft.live import Pick, my_slot_on_clock
 from audible.draft.service import CockpitService
+from audible.draft.sync import SleeperSync
 from audible.server.state import build_state
 
 TEAMS, ROUNDS = 10, 18
@@ -169,7 +170,7 @@ def test_draft_id_is_rediscovered_when_the_pinned_id_is_wrong(
             return [{"player_id": "p001", "pick_no": 1, "round": 1, "draft_slot": 1}]
 
     adapter = Adapter()
-    svc._adapter = adapter  # type: ignore[assignment]
+    svc._sync = SleeperSync(sleeper_config, adapter=adapter)
 
     assert svc.poll_once() is True
     assert svc.session.draft_id == "fresh-id"
