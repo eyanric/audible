@@ -19,6 +19,12 @@ class ConsensusProvider:
     def __init__(self, adapter: PlatformAdapter) -> None:
         self._adapter = adapter
 
+    @property
+    def adapter(self) -> PlatformAdapter:
+        """The wrapped platform adapter, for the diagnostics only it can answer for --
+        how many players a vendor served, and which scoring path each one took."""
+        return self._adapter
+
     def projections(self, config: LeagueConfig) -> list[PlayerProjection]:
         return self._adapter.player_projections(config)
 

@@ -35,6 +35,19 @@ IDP = frozenset({"DL", "LB", "DB"})
 
 ANNUAL_GAMES = 17  # annualize a player's per-game opportunity rate to a full season (overlay only)
 
+# `build_board` reads Sleeper stat lines for EVERY league and scores them through that
+# league's own weights. For League B that means the projections are Sleeper's even though
+# the scoring is ESPN's, and the two vocabularies do not line up everywhere. Shown on the
+# board rather than kept in a doc, because a number you cannot see the caveat on is a number
+# you will trust. Delete this constant and its one caller when `build_board` reads from the
+# platform adapter.
+SLEEPER_SOURCED_CAVEAT = (
+    "!! SLEEPER-SOURCED BOARD -- projections are Sleeper's stat lines scored through this\n"
+    "   league's own weights, not ESPN's. QB runs ~2% high (ESPN pays passing yards in\n"
+    "   25-yard buckets, the Sleeper line is scored 0.04/yd continuously); D/ST\n"
+    "   yards-allowed and kicker miss distance are unmodelled."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class _Proj:
