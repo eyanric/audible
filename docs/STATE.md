@@ -224,5 +224,13 @@ Repeated board builds in one session will earn a `429` from GitHub raw; it clear
   anyone using generic half-PPR rankings, correctly valued by ESPN's board and by ours. Which
   opponents sit in which camp determines whether that is exploitable.
 
-- **Needs Eric:** draft date when set; the manual-pick re-run is still outstanding. Neither
-  blocks anything.
+- **The `image` workflow is red and undiagnosed** (as of PR #10). It fails at "Set up job",
+  step 1, before any step runs — twice, in 56s and 70s. `.github/workflows/image.yml` is
+  byte-identical to the version that passed on PR #9 two hours earlier; the referenced docker
+  actions still resolve; the `ci` job passes on the same runner label. The job log was not
+  readable without GitHub auth (`gh` unauthenticated, no Actions-logs tool on the MCP server).
+  **Get the "Set up job" error before trusting the Docker image path.** Delete this entry once
+  it is understood.
+
+- **Needs Eric:** the `image` failure above; draft date when set; the manual-pick re-run is
+  still outstanding. Only the first blocks anything, and only the Docker path.
