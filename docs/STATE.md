@@ -19,17 +19,24 @@ Rules for editing:
 Everything below serves that date. **Code freeze Thursday 27 August** — no merges, no
 rebuilds, no config edits after it.
 
-| by | what | state |
+Two tracks. **Track A never slips for Track B.**
+
+| by | track A | track B |
 |---|---|---|
-| Mon 17 | Build failure diagnosed | **done** — it was the smoke test, not the build |
-| Tue 18 | Data on disk; offline board proven; PR #10 merged | **done** |
-| Wed 19 | Throwaway league created, `leagueId` supplied | **needs Eric** |
-| Thu 20 | Latency measured and reported as a number | blocked on the above |
-| Fri 21 | Manual entry hardened to the 3-second standard | **built**, unmeasured — see below |
-| Sat 22 | Sleeper mock rehearsal, three rounds | **needs Eric** |
-| Mon 24 | ESPN runbook rewritten, fallback ladder walked | not started |
-| Wed 26 | Digest pinned, final image exercised | not started |
-| Thu 27 | **Freeze.** Paper board printed | — |
+| Mon 17 | build failure diagnosed — **done** | — |
+| Tue 18 | data on disk, offline board proven — **done** | **B1 anchoring — done** |
+| Wed 20 | latency outcome — **blocked, see below** | B2 evaluation harness + 384-pick run |
+| Fri 22 | Sleeper mock rehearsal — **needs Eric** | B3 corpus harvest + provenance |
+| Sun 24 | ESPN runbook — not started | B3 analysis + B4 wins conversion |
+| Tue 26 | digest pinned, offline re-proven | B5, B6 |
+| Wed 27 | **freeze**, paper board | B7 if it stands up |
+
+**A1 latency is blocked and it is not a scheduling problem.** Temp league `102010124` read
+read-only this session: `drafted: false`, `inProgress: false`, **0 real picks** — the draft has
+not been run. `scripts/espn_latency.py` exists and `data/cache/latency.jsonl` is empty, so
+nothing has been measured. Latency cannot be reconstructed after the fact; it needs the script
+running *while* picks happen. Until then the sync-vs-manual mode decision is unmade, and
+manual entry is the safe assumption.
 
 ## Where the project is
 
@@ -81,6 +88,48 @@ serve: ok:true, data.origin "disk", sync_status "failing"
 
 **Run `audible refresh-data` on the 27th before the freeze.** The volume must map to
 `/app/data/cache` in the container.
+
+---
+
+## B1 — opponent anchoring: settled, and the answer is "no edge here"
+
+`audible anchoring espn_davis_drive`. 384 picks over 2023–25, 79.9% usable.
+
+| seat | disc | sp(STD) | sp(PPR) | mad(STD) | mad(PPR) | edge | ±1.96se | reads like |
+|---|---|---|---|---|---|---|---|---|
+| PM | 12 | +0.914 | +0.780 | 14.1 | 22.9 | +26.3 | 20.1 | espn |
+| FAT | 14 | +0.853 | +0.728 | 19.6 | 27.9 | +24.4 | 11.2 | espn |
+| WCW | 13 | +0.806 | +0.752 | 23.3 | 29.4 | +18.1 | 16.3 | espn |
+| Cnk | 13 | +0.884 | +0.792 | 15.4 | 19.8 | +12.7 | 10.7 | espn |
+| JEFF | 16 | +0.847 | +0.723 | 18.4 | 22.6 | +8.2 | 15.5 | unclassified |
+| Ryan | 15 | +0.858 | +0.826 | 19.9 | 23.0 | +7.5 | 11.4 | unclassified |
+| BTD | 17 | +0.778 | +0.769 | 20.4 | 23.9 | +6.1 | 10.4 | unclassified |
+
+`edge` = mean(|PPR rank − pick|) − mean(|STANDARD rank − pick|) over picks where the boards
+disagree by ≥10 ranks. Positive ⇒ the seat tracks ESPN's board.
+
+**Verdict: no seat is PPR-anchored. All 7 of 7 lean toward ESPN's board (sign test
+p = 0.016).** Individually most seats are underpowered at ~13 discriminating picks; the
+unanimity is not, and that is the level the finding is stated at.
+
+**What this means for the 28th:** the RB-reception split is *not* an exploitable ranking edge
+against this room. Every opponent's behaviour is consistent with reading ESPN's own board,
+which already prices non-receiving backs correctly. Do not plan to steal Henry-types late —
+this room is not undervaluing them. The scoring findings still hold (they rest on arithmetic,
+not on this), but they do not convert into a draft-day exploit here.
+
+**Two defects this found, both fixed:**
+
+1. **ESPN's rank tail is a placeholder, not an ordering.** Only ~155 players per season hold a
+   STANDARD rank ≤200 and ~280 hold one ≤400; ~800 more carry values running to **2687**. A
+   player can sit at STANDARD 57 / PPR 2554 — that is one board declining to rank him, not the
+   boards disagreeing. Left in, a few of these dominated every average (mean divergence 85.2
+   vs median 10.0; standard errors of 250+ where the effects are ~20). **`RANK_HORIZON = 200`**
+   now excludes them and the excluded count is reported. This is another instance of the B6
+   silent-empty class: a field that looks like data and is not.
+2. **A zero standard error read as no signal instead of a perfect one.** Every discriminating
+   pick pointing the same way by the same margin is the strongest possible result, and the
+   guard rejected exactly those.
 
 ---
 
@@ -301,9 +350,11 @@ without it every process start re-downloads and repeated builds earn a `429` fro
   keyboard, and it belongs to the rehearsal. On branch `feat/manual-entry`, not yet merged.
 
 - **Blocking, needs Eric:**
-  1. **Throwaway ESPN LM league + `leagueId`.** Until the sync latency is a number, we do not
-     know whether sync or manual entry is the primary input on the night. Under ~15s → sync
-     leads. Over ~30s or batchy → manual entry leads. This is the last unmade design decision.
+  1. **Run the temp draft in league `102010124` with `scripts/espn_latency.py` already
+     running.** The league exists and is configured; nobody has drafted in it, so there is
+     nothing to measure. Latency cannot be reconstructed afterwards — the script has to be
+     watching while picks happen. Two or three rounds is enough. Under ~15s → sync leads;
+     over ~30s or batchy → manual entry leads. Until then, assume manual entry.
   2. **The manual-pick re-run and a Sleeper mock**, three rounds, cockpit open. Free, and it
      exercises sync, staleness, grab-now, snake math and the UI — all shared with ESPN. The
      tool has never been used in a live draft by a human.
@@ -312,7 +363,12 @@ without it every process start re-downloads and repeated builds earn a `429` fro
   ladder sync → manual → `audible live` → paper; digest pinned Wed 26; paper board printed
   Thu 27.
 
-- **Gate 32 opponent-anchoring analysis** — only if everything above lands early. Correlate
-  each manager's 2023–2025 pick sequence against ESPN's per-season ranks. The surviving edge
-  is the Henry archetype: pure rushing backs, undervalued by anyone on generic half-PPR
-  rankings, correctly valued by ESPN's board and by ours.
+- **Track B, next:** B2 (384-pick evaluation, leak-free), then B3 (corpus widening — this is
+  what makes the interval tight enough to act on; 384 observations detect a large edge and
+  nothing subtle), B4 (Eric's picks + wins conversion), B5 (tendencies), B6 (silent-empty
+  guard — B1 just produced a fifth occurrence, the rank tail), B7 (Phase 4 metrics, only
+  after B2/B3 report).
+
+  **B1 is done and its answer constrains the rest:** there is no ranking edge against this
+  room from the scoring split, so B2/B3 are measuring whether the board is better *in
+  general*, not whether it exploits these seven managers.
