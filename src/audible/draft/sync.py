@@ -197,8 +197,9 @@ class EspnIdBridge:
     cannot name him. Those are counted and logged, never silently absorbed.
     """
 
-    def __init__(self) -> None:
-        self._map: dict[str, str] | None = None
+    def __init__(self, id_map: dict[str, str] | None = None) -> None:
+        # A preset map skips the catalog read entirely -- which is how tests stay offline.
+        self._map: dict[str, str] | None = id_map
         self.unmatched: set[str] = set()
 
     def _load(self) -> dict[str, str]:
