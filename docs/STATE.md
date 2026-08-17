@@ -18,10 +18,14 @@ Rules for editing:
 
 | | |
 |---|---|
-| Phase | 2a complete (ESPN adapter). ESPN sync landing now. |
+| Phase | 2a complete (ESPN adapter). **2b complete (ESPN sync)** — the cockpit runs against League B. |
 | Leagues | A = Sleeper `sleeper_boyfun` (10-team, superflex, IDP). B = ESPN `espn_davis_drive` (8-team, 1-QB, no IDP). |
 | Board source | Sleeper stat lines for **both** leagues, scored through each league's own weights. League B's `draft` output carries a header saying so. |
+| Live sync | Both platforms, one poll loop, behind `draft/sync.py`. `serve --league espn_davis_drive` verified: `ok:true`, 3,300 players, 0 picks pre-draft, seat 8 derived. |
 | Not started | Phase 3, Phase 4. |
+
+**`live` is Sleeper-only** and says so — it polls the adapter directly rather than going
+through the cockpit. League B's live surface is `serve`.
 
 ---
 
@@ -115,16 +119,26 @@ where there is none.
   `[2, 3, 6, 4, 1, 5, 7, 8]`, which matches the round-1 slate exactly. It is **not** an identity
   map, so it is real commissioner-set data rather than a Sleeper-style placeholder. Type `SNAKE`,
   `orderType: MANUAL`, 90s per selection.
-- Eric's team is derived from `ESPN_SWID` against `teams[].owners` — **team id 8**
-  ("Butt Stuff Hurts"), which is **draft slot 8**. No flag required.
+- Eric's team is derived from `ESPN_SWID` against `teams[].owners` — **team id 8**, which is
+  **draft slot 8**. No flag required. Match `owners`, not just `primaryOwner`: at least one
+  team in this league is co-owned.
 - Rounds = **16**, agreeing two ways: `max(roundId)` over the slate, and
-  `sum(lineupSlotCounts) − IR`.
+  `sum(lineupSlotCounts) − IR`. The sync uses the second, so the clock does not depend on what
+  ESPN serves in the slate once a draft is under way.
+- **One request per tick.** `mDraftDetail` + `mTeam` + `mSettings` ride one conditional GET, so
+  everything — state, picks, seats, rounds, structure — comes out of that single response.
+  Reading rounds back through the adapter's standalone helper silently added a second,
+  unconditional `mSettings` request on every 5s tick; there is a test pinning this at one.
 
 ### Roster structure
 
 `settings.rosterSettings.lineupSlotCounts`, by ESPN lineup-slot id:
 `0:QB=1, 2:RB=2, 4:WR=2, 6:TE=1, 23:FLEX=1, 16:D/ST=1, 17:K=1` = **9 starters**, plus
 `20:BE=7` and `21:IR=3`. Matches `leagues/espn_davis_drive.toml` exactly.
+
+`verify-scoring espn_davis_drive` checks this live and reports **faithful** as of 2026-08-17.
+An ESPN lineup-slot id we do not map, carrying a non-zero count, reports as `slot#<id>` rather
+than being skipped — a starting slot with no name is exactly the drift worth being loud about.
 
 ---
 
@@ -144,6 +158,28 @@ where there is none.
 
 ---
 
+## Known breakage being worked around
+
+**nflreadpy 0.1.5 cannot reach DynastyProcess.** It hardcodes
+`https://github.com/dynastyprocess/data/raw/master/files/`, and GitHub now answers that path
+with a 404 HTML page. Measured 2026-08-17: that URL returns 404 with 305 KB of error page,
+while `https://raw.githubusercontent.com/dynastyprocess/data/master/files/…` returns 200 with
+the 2.6 MB CSV. 0.1.5 is the latest release — there is nothing to upgrade to.
+
+This stops `build_board` dead for **both** leagues, because the crosswalk is the first thing
+it builds. `adapters/nflverse.py` now tries nflreadpy first and falls back to the raw host for
+the two affected loaders (`load_id_map`, `load_rankings`). Primary-first means it resumes using
+upstream on its own once fixed; **delete the workaround block then.**
+
+The fallback reads every column as a string on purpose — this is an ID spine, and a
+`sleeper_id` inferred as a float becomes `"4034.0"` the moment anything stringifies it, failing
+the join silently for every player instead of loudly for none.
+
+**nflreadpy caches in memory only** (`CacheMode.MEMORY`), so every process start re-downloads.
+Repeated board builds in one session will earn a `429` from GitHub raw; it clears in minutes.
+
+---
+
 ## Standing decisions
 
 - **`leagues/*.toml` does not change** to chase a translation gap. Flag it here instead.
@@ -153,7 +189,20 @@ where there is none.
   "unlimited players join my roster", "undo leaves them there", and "no other team ever
   appears" from a single line.
 - **Never invent a draft slot.** Unresolved is an explicit state; `slot = 0` meant "me" and
-  silently attributed the whole room to one roster.
+  silently attributed the whole room to one roster. Both platforms now derive the seat rather
+  than taking a flag, and both return `None` with source `unresolved` when they cannot.
+- **One poll loop, one `DraftSession`.** Everything platform-shaped lives behind
+  `DraftSync.poll(draft_id, want_meta=, slot_locked=) -> DraftUpdate` in `draft/sync.py`.
+  `DraftUpdate` uses `None` for "unchanged": a poll that only fetched picks must not blank the
+  draft status it never asked about. Sleeper honours the `want_meta` / `slot_locked` hints
+  (three endpoints, and `draft_order` is immutable once open); ESPN ignores both, because its
+  whole draft is one response and re-resolving costs nothing — which also means a pre-draft
+  pick order the commissioner reshuffles gets followed rather than cached.
+- **ESPN picks arrive in ESPN's id space; the board is in Sleeper's.** `EspnIdBridge`
+  translates via the Sleeper catalog's `espn_id`. An id that will not translate keeps its ESPN
+  value rather than being dropped — the pick really happened, so the clock must move and the
+  player must count as taken — and those are counted and logged. This becomes an identity map,
+  and the class goes away, when `build_board` reads from the platform adapter.
 - **Consensus is the projection of record.** The opportunity model lost out-of-sample at every
   position; it rides as a flag overlay, never as a multiplier.
 - **`value_metric = "vorp"` for League B**, not scarcity/VONA — VONA edged it in backtest
