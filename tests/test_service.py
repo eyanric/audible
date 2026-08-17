@@ -19,7 +19,7 @@ from audible.draft.identity import (
     user_id_for_name,
 )
 from audible.draft.live import Pick
-from audible.draft.service import CockpitService, DraftSession, SyncHealth
+from audible.draft.service import CockpitService, SyncHealth
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -110,7 +110,9 @@ def test_state_survives_a_restart(tmp_path: Path, sleeper_config: LeagueConfig) 
     assert len(revived.session.picks) == 40
     assert revived.session.picks[-1].pick_no == 40
     assert revived.session.slot == 3
-    assert revived.session.manual_taken == {"manual-1": 1}
+    assert [p.player_id for p in revived.session.manual_picks] == ["manual-1"]
+    assert revived.session.manual_picks[0].source == "manual"
+    assert revived.session.manual_picks[0].pick_no == 41  # it followed the synced picks
 
 
 def test_restore_ignores_another_league(tmp_path: Path, sleeper_config: LeagueConfig,
@@ -135,7 +137,7 @@ def test_mark_taken_is_idempotent_and_reversible(
     assert svc.mark_taken("x") is True
     assert svc.mark_taken("x") is False  # idempotent
     assert svc.undo_taken("x") == "x"
-    assert svc.session.manual_taken == {}
+    assert svc.session.manual_picks == []
     assert svc.undo_taken("x") is None
 
 
@@ -144,28 +146,102 @@ def test_undo_reverses_the_most_recent_mark(tmp_path: Path, sleeper_config: Leag
     svc.mark_taken("a")
     svc.mark_taken("b")
     assert svc.undo_taken() == "b"
-    assert set(svc.session.manual_taken) == {"a"}
+    assert [p.player_id for p in svc.session.manual_picks] == ["a"]
 
 
-def test_manual_marks_never_move_the_clock(sleeper_config: LeagueConfig) -> None:
-    """Manual picks remove a player from the pool; they must not advance the draft clock,
-    which comes only from real picks."""
-    session = DraftSession(league_key="k")
-    session.picks = [Pick(pick_no=n, round=1, draft_slot=n, player_id=f"p{n}") for n in (1, 2, 3)]
-    session.manual_seq, session.manual_taken = 1, {"ghost": 1}
+def test_a_manual_mark_is_a_real_pick(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """DELIBERATE REVERSAL of the previous behaviour, and the fix for the whole gate.
 
-    effective = session.effective_picks()
-    assert {p.player_id for p in effective} == {"p1", "p2", "p3", "ghost"}
+    Manual marks used to carry pick_no=0 and draft_slot=0 so they could not advance the
+    clock. That stopped the clock drifting and attributed every mark to slot 0 -- which is
+    me whenever my slot is unresolved -- producing "unlimited players join my roster", "undo
+    leaves them there", and "no other team ever appears" from one line.
 
-    real_max = max(p.pick_no for p in session.picks)
-    ghost = next(p for p in effective if p.player_id == "ghost")
-    # pick_no 0: the clock is max(pick_no)+1, so any synthetic number would advance the draft
-    # every time you tapped a name.
-    assert ghost.pick_no == 0
-    assert max(p.pick_no for p in effective) == real_max
-    # ...and it sorts ahead of the real picks, so it can't masquerade as a recent pick in the
-    # positional-run window, which is the tail of this list.
-    assert effective[0].player_id == "ghost"
+    Mirroring a draft by hand means pick 4 happened, some team made it, and the clock is now
+    at 5. That is what gets recorded.
+    """
+    svc = _service(tmp_path, sleeper_config)
+    svc.session.rounds = 18
+    svc.session.picks = [
+        Pick(pick_no=n, round=1, draft_slot=n, player_id=f"p{n}") for n in (1, 2, 3)
+    ]
+    assert svc.mark_taken("hand") is True
+
+    entered = svc.session.manual_picks[0]
+    assert entered.pick_no == 4  # follows the synced picks
+    assert entered.round == 1
+    assert entered.draft_slot == 4  # 10-team snake: pick 4 belongs to slot 4, not to slot 0
+    assert entered.source == "manual"
+
+    effective = svc.session.effective_picks()
+    assert [p.pick_no for p in effective] == [1, 2, 3, 4]  # one contiguous stream
+    assert max(p.pick_no for p in effective) == 4  # the clock moved, because the pick happened
+
+
+def test_manual_picks_are_attributed_around_the_table(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """The headline symptom: twelve marks must land on twelve different teams, not all on me."""
+    svc = _service(tmp_path, sleeper_config)
+    svc.session.rounds = 18
+    for i in range(12):
+        assert svc.mark_taken(f"p{i}") is True
+
+    slots = [p.draft_slot for p in svc.session.manual_picks]
+    assert slots == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 9]  # snake, including the turn
+    assert len(set(slots)) == 10, "every team must receive picks, not just one"
+
+
+def test_undo_restores_state_exactly(tmp_path: Path, sleeper_config: LeagueConfig) -> None:
+    """Undo must be a true inverse -- board, clock and numbering identical to before."""
+    svc = _service(tmp_path, sleeper_config)
+    svc.session.rounds = 18
+    svc.mark_taken("a")
+    before = [(p.pick_no, p.draft_slot, p.player_id) for p in svc.session.effective_picks()]
+
+    svc.mark_taken("b")
+    assert svc.undo_taken() == "b"
+    after = [(p.pick_no, p.draft_slot, p.player_id) for p in svc.session.effective_picks()]
+    assert after == before
+
+
+def test_undoing_from_the_middle_leaves_no_hole(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    svc = _service(tmp_path, sleeper_config)
+    svc.session.rounds = 18
+    for pid in ("a", "b", "c"):
+        svc.mark_taken(pid)
+    assert svc.undo_taken("b") == "b"
+
+    picks = svc.session.manual_picks
+    assert [p.player_id for p in picks] == ["a", "c"]
+    assert [p.pick_no for p in picks] == [1, 2], "numbering must stay contiguous"
+    assert [p.draft_slot for p in picks] == [1, 2]
+
+
+def test_sync_supersedes_a_manual_pick_for_the_same_player(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """Regaining sync after mirroring by hand must not double-count anyone."""
+    svc = _service(tmp_path, sleeper_config)
+    svc.session.rounds = 18
+    svc.mark_taken("star")
+    svc.mark_taken("other")
+
+    # Sync catches up and reports `star` at pick 1, taken by a different slot than we guessed.
+    svc.session.picks = [Pick(pick_no=1, round=1, draft_slot=7, player_id="star")]
+    svc._reconcile_manual()
+
+    ids = [p.player_id for p in svc.session.manual_picks]
+    assert ids == ["other"], "the synced player must be dropped from the manual list"
+    effective = svc.session.effective_picks()
+    assert [p.player_id for p in effective].count("star") == 1, "no double count"
+    star = next(p for p in effective if p.player_id == "star")
+    assert star.draft_slot == 7 and star.source == "sync", "sync wins on disagreement"
+    assert [p.pick_no for p in effective] == [1, 2]
 
 
 # --- sync health ---------------------------------------------------------------------------

@@ -184,15 +184,19 @@ async def test_mark_taken_is_local_idempotent_and_reversible(
 
     undo = await _call(service, "undo_taken", player_id="p050")
     assert undo["undone"] == "p050"
-    assert service.session.manual_taken == {}
+    assert service.session.manual_picks == []
 
 
 @pytest.mark.anyio
-async def test_mark_taken_never_moves_the_clock(service: CockpitService) -> None:
+async def test_mark_taken_advances_the_clock(service: CockpitService) -> None:
+    """Reversal of the old contract, deliberately: a hand-entered pick IS a pick, so the
+    clock moves. Claude must see pick 5 after mirroring pick 4, or it reasons about a draft
+    that has stopped."""
     before = (await _call(service, "draft_status"))["current_pick"]
     await _call(service, "mark_taken", player_id="p060")
     after = (await _call(service, "draft_status"))["current_pick"]
-    assert before == after == 4
+    assert before == 4
+    assert after == 5
 
 
 @pytest.mark.anyio

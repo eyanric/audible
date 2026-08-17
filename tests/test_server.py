@@ -203,13 +203,19 @@ def test_mark_taken_and_undo_round_trip(client: TestClient) -> None:
     assert "p007" in {p["id"] for p in undone["best_available"]}
 
 
-def test_mark_taken_does_not_move_the_clock(client: TestClient, service: CockpitService) -> None:
+def test_mark_taken_advances_the_clock(client: TestClient, service: CockpitService) -> None:
+    """Reversal of the old contract, deliberately -- see test_service. A hand-entered pick is
+    a pick: it is numbered, attributed to the team on the clock, and it moves the draft on."""
     service.session.picks = [
         Pick(pick_no=n, round=1, draft_slot=n, player_id=f"p{n:03d}") for n in range(1, 4)
     ]
     before = client.get("/api/state").json()["clock"]["current_pick"]
-    after = client.post("/api/taken", json={"player_id": "p050"}).json()["clock"]["current_pick"]
-    assert before == after == 4
+    body = client.post("/api/taken", json={"player_id": "p050"}).json()
+    assert before == 4
+    assert body["clock"]["current_pick"] == 5
+    # ...and it landed on slot 4, whose pick it was -- not on slot 0.
+    marked = next(p for p in body["recent_picks"] if p["name"].endswith("050"))
+    assert marked["slot"] == 4
 
 
 def test_board_not_ready_explains_itself(
@@ -277,3 +283,40 @@ def test_index_page_is_served(client: TestClient) -> None:
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+
+
+def test_other_teams_appear_as_manual_picks_land(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """Reported symptom: "no other teams ever appear". With every pick attributed to slot 0
+    there was only ever one team."""
+    svc = CockpitService(sleeper_config, state_dir=tmp_path, slot_override=4)
+    svc.board = DraftBoard("sleeper_boyfun", [_entry(i) for i in range(1, 60)])
+    svc.session.draft_status = "drafting"
+    svc.session.slot, svc.session.slot_source = 4, "override"
+    for i in range(1, 13):
+        svc.mark_taken(f"p{i:03d}")
+
+    teams = build_state(svc)["teams"]
+    assert len(teams) == 10
+    populated = [t for t in teams if t["picks"]]
+    assert len(populated) == 10, "all ten teams should hold a pick after 12 marks"
+    mine = next(t for t in teams if t["is_me"])
+    assert mine["slot"] == 4
+    assert len(mine["picks"]) == 1, "I own exactly my own pick, not all twelve"
+
+
+def test_unresolved_slot_claims_nobody(tmp_path: Path, sleeper_config: LeagueConfig) -> None:
+    """Absence of information must not render as slot 0 -- the same class of error as
+    survival=1.0 for an unpriced player."""
+    svc = CockpitService(sleeper_config, state_dir=tmp_path)  # no override
+    svc.board = DraftBoard("sleeper_boyfun", [_entry(i) for i in range(1, 60)])
+    svc.session.draft_status = "drafting"
+    for i in range(1, 13):
+        svc.mark_taken(f"p{i:03d}")
+
+    state = build_state(svc)
+    assert state["clock"]["my_slot"] is None
+    assert state["clock"]["my_slot_source"] == "unresolved"
+    assert sum(s["filled"] for s in state["roster"]["slots"]) == 0
+    assert not any(t["is_me"] for t in state["teams"])
