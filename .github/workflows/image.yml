@@ -53,7 +53,19 @@ jobs:
           cache-to: type=gha,mode=max
 
       # A build that succeeds but produces an image that cannot start is worse than a failed
-      # build, because it ships. Boot it and require /healthz to answer.
+      # build, because it ships. This boots the artifact and proves it starts, serves, and
+      # routes. It deliberately does NOT require a green board.
+      #
+      # It used to. On 2026-08-17 that went red for a reason that had nothing to do with the
+      # image: nflreadpy's DynastyProcess URL began returning a 404 page, the board could not
+      # build, and the job burned its whole 450s health loop waiting. A gate that goes red
+      # during a third party's outage is a gate you learn to ignore -- and while it was red it
+      # was hiding the only question this job exists to answer: does the artifact we are about
+      # to pin for draft night actually run?
+      #
+      # Board-building is covered where it can be deterministic: tests/test_datacache.py pins
+      # disk-first loading and the fall-back-to-cache path offline, and `audible refresh-data`
+      # is what fills that cache before the draft. See docs/STATE.md.
       - name: smoke test the image
         run: |
           set -euo pipefail
@@ -63,20 +75,51 @@ jobs:
             IMAGE=audible:smoke
           fi
           docker run -d --name audible-smoke -p 8080:8080 "$IMAGE"
-          # The board build pulls nflverse data, so allow a generous warm-up. /healthz is
-          # expected to 503 until the board is present -- that is the point of the probe.
-          for i in $(seq 1 90); do
+
+          # 1. It must answer HTTP. 503 counts: the board is still warming, but the app is up,
+          #    which is exactly the "cannot start" failure this job is here to catch.
+          answered=0
+          for i in $(seq 1 24); do
             code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz || true)
             echo "attempt $i: /healthz -> ${code:-none}"
-            if [ "$code" = "200" ]; then echo "image is healthy"; break; fi
-            if [ "$i" = "90" ]; then
-              echo "::error::image never became healthy"; docker logs audible-smoke; exit 1
+            case "${code:-}" in
+              200|503) answered=1; break ;;
+            esac
+            if [ -z "$(docker ps -q --filter name=audible-smoke --filter status=running)" ]; then
+              echo "::error::container exited before serving"; docker logs audible-smoke; exit 1
             fi
             sleep 5
           done
-          curl -s http://127.0.0.1:8080/healthz
-          echo
-          curl -s -o /dev/null -w 'index: %{http_code}\n' http://127.0.0.1:8080/
+          if [ "$answered" != "1" ]; then
+            echo "::error::no HTTP response from /healthz in 120s"
+            docker logs audible-smoke; exit 1
+          fi
+
+          # 2. The body must be the contract the cockpit codes against, not just any 200.
+          body=$(curl -s http://127.0.0.1:8080/healthz)
+          echo "$body"
+          echo "$body" | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)
+          missing = [k for k in ("ok", "problems", "players", "sync_status", "data") if k not in d]
+          if missing:
+              sys.exit(f"/healthz is missing {missing}")
+          '
+
+          # 3. The page itself has to render, or the cockpit is a JSON API nobody can read.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)
+          echo "index: $code"
+          [ "$code" = "200" ] || { echo "::error::index returned $code"; exit 1; }
+
+          # 4. Reported, NOT gating: did the board reach ready from a cold cache? This is a
+          #    live-network question, so it is information for the log, never a red build.
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz || true)
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          echo "board-ready after cold start: ${code} (not gating)"
+          curl -s http://127.0.0.1:8080/healthz; echo
           docker rm -f audible-smoke
 
       - name: report digest

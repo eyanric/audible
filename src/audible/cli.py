@@ -396,6 +396,48 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refresh_data(args: argparse.Namespace) -> int:
+    """Pull every input the board needs and write it to disk.
+
+    This is the only command that is *supposed* to depend on the network. Everything else
+    reads what this leaves behind, which is what makes an offline board build possible --
+    and draft night survivable when a third-party URL 404s at 8:35pm, as one already did.
+
+    It refreshes by building each league's board, so the cache ends up holding exactly the
+    sources `serve` will ask for, at exactly the seasons it will ask for them. A list of
+    keys maintained by hand would drift from that the first time the board changed.
+    """
+    from .adapters import nflverse, sleeper
+    from .adapters.cache import FrameCache
+    from .adapters.sleeper import SleeperAdapter
+    from .draft import build_board
+
+    leagues = load_all_leagues()
+    targets = [leagues[args.league]] if args.league else list(leagues.values())
+
+    print("Refreshing the on-disk data cache (this is the network-dependent step)...")
+    with SleeperAdapter() as adapter:
+        catalog = adapter.get_players_catalog(force=True)
+    print(f"  sleeper players catalog: {len(catalog)} players")
+
+    sleeper.PROJECTIONS_REFRESH = True
+    try:
+        with nflverse.refreshing():
+            for cfg in targets:
+                board = build_board(cfg)
+                print(f"  [{cfg.key}] board rebuilt: {len(board.entries)} players")
+    finally:
+        sleeper.PROJECTIONS_REFRESH = False
+
+    entries = FrameCache().manifest()
+    print(f"\n{len(entries)} nflverse source(s) on disk:")
+    for key, entry in sorted(entries.items()):
+        print(f"  {key:<28} {entry.rows:>8} rows  {entry.source}")
+    print(f"\nCache root: {FrameCache().root.parent}")
+    print("`serve` will now build a board from disk, with or without a network.")
+    return 0
+
+
 def _fmt_flags(flags: tuple[str, ...]) -> str:
     return " ".join(flags)
 
@@ -651,6 +693,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dr.add_argument("--movers", type=int, default=15, help="how many targets/fades to show")
     dr.set_defaults(func=cmd_draft)
+
+    rd = sub.add_parser(
+        "refresh-data", help="pull every board input to disk so serve can run offline"
+    )
+    rd.add_argument("league", nargs="?", default=None, help="one league (default: all)")
+    rd.set_defaults(func=cmd_refresh_data)
 
     bt = sub.add_parser("backtest", help="out-of-sample honesty gate (needs nflverse extra)")
     bt.add_argument("league")

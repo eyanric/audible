@@ -12,6 +12,7 @@ league's own scoring weights.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -21,6 +22,12 @@ from ..config.schema import LeagueConfig
 from ..models.player import PlayerProjection, RawPlayerLine
 from ..scoring.engine import score_stat_line
 from .cache import JsonCache
+
+log = logging.getLogger("audible.sleeper")
+
+# Set by `audible refresh-data` so a deliberate refresh goes to the network. Everything else
+# reads the disk copy -- see adapters/cache.py for why this is not a TTL.
+PROJECTIONS_REFRESH = False
 
 BASE_APP = "https://api.sleeper.app/v1"
 BASE_COM = "https://api.sleeper.com"
@@ -125,13 +132,32 @@ class SleeperAdapter:
             cached = self._cache.get(PLAYERS_CACHE_KEY, PLAYERS_TTL_S)
             if cached is not None:
                 return cached
-        catalog: dict[str, Any] = self._get(f"{BASE_APP}/players/nfl")
+        try:
+            catalog: dict[str, Any] = self._get(f"{BASE_APP}/players/nfl")
+        except Exception as exc:  # noqa: BLE001 -- a week-old catalog beats no board at all
+            stale = self._cache.get_stale(PLAYERS_CACHE_KEY)
+            if stale is None:
+                raise
+            log.warning("players catalog fetch failed (%s); using the cached copy", exc)
+            return stale
         self._cache.set(PLAYERS_CACHE_KEY, catalog)
         return catalog
 
     def get_projections(
         self, season: int, position: str, week: int | None = None
     ) -> list[dict[str, Any]]:
+        """Projections, cached to disk.
+
+        Cached for the same reason the nflverse sources are: on draft night the network is
+        an update mechanism, not a dependency. Without this the board cannot be built offline
+        no matter how much else is cached -- these ARE the projections.
+        """
+        key = f"sleeper_projections_{season}_{position}" + (f"_w{week}" if week else "")
+        if not PROJECTIONS_REFRESH:
+            cached = self._cache.get_stale(key)
+            if cached is not None:
+                return cached
+
         suffix = f"/{week}" if week is not None else ""
         url = f"{BASE_COM}/projections/nfl/{season}{suffix}"
         params: _Params = [
@@ -139,7 +165,16 @@ class SleeperAdapter:
             ("position[]", position),
             ("order_by", "pts_half_ppr"),
         ]
-        return self._get(url, params=params)
+        try:
+            rows: list[dict[str, Any]] = self._get(url, params=params)
+        except Exception as exc:  # noqa: BLE001 -- fall back to any copy we already hold
+            stale = self._cache.get_stale(key)
+            if stale is None:
+                raise
+            log.warning("projections fetch failed for %s (%s); using the cached copy", key, exc)
+            return stale
+        self._cache.set(key, rows)
+        return rows
 
     def get_stats(
         self, season: int, position: str, week: int | None = None
