@@ -164,6 +164,32 @@ def espn_slot_by_team(settings: dict[str, Any]) -> dict[int, int]:
     return {int(team_id): slot for slot, team_id in enumerate(order, start=1)}
 
 
+def espn_rounds(settings: dict[str, Any]) -> int | None:
+    """How many rounds the draft runs: every roster slot that is drafted, IR excluded.
+
+    Read from the settings block the draft poll ALREADY fetched. Calling the adapter's
+    standalone ``draft_rounds`` here would fire a second, unconditional request on every tick
+    -- which is exactly what the single-request design exists to avoid.
+
+    Derived from roster structure rather than from the pick slate, so the clock stays right
+    whatever ESPN chooses to serve in ``draftDetail.picks`` once a draft is under way.
+    """
+    from ..adapters.espn import IR_LINEUP_SLOT
+
+    counts = (settings.get("rosterSettings") or {}).get("lineupSlotCounts") or {}
+    total = 0
+    ir = 0
+    for slot_id, count in counts.items():
+        try:
+            slot, number = int(slot_id), int(count)
+        except (TypeError, ValueError):
+            continue
+        total += number
+        if slot == IR_LINEUP_SLOT:
+            ir = number
+    return (total - ir) or None
+
+
 def espn_my_team_id(teams: list[dict[str, Any]], swid: str | None) -> int | None:
     """Which team is mine, by matching my SWID cookie against ``teams[].owners``.
 
@@ -308,11 +334,10 @@ class EspnSync:
         settings = payload.get("settings") or {}
         slot_by_team = espn_slot_by_team(settings)
 
-        try:
-            rounds = self._adapter.draft_rounds(self._config)
-        except Exception:  # noqa: BLE001 -- fall back to the slate rather than lose the clock
-            rounds = max((int(r.get("roundId") or 0) for r in detail.get("picks") or []),
-                         default=0) or None
+        # Everything below comes out of the ONE response above -- no second request per tick.
+        rounds = espn_rounds(settings) or max(
+            (int(r.get("roundId") or 0) for r in detail.get("picks") or []), default=0
+        ) or None
 
         return DraftUpdate(
             # ESPN has no separate draft id -- the league IS the draft.

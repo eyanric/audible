@@ -305,3 +305,28 @@ def test_verify_structure_catches_drift(
     assert drift["K"] == (1, 0)
     assert drift["slot#11"] == (0, 1), "an unmapped starting slot must be loud, not skipped"
     assert "QB" not in drift and "FLEX" not in drift
+
+
+def test_a_poll_makes_exactly_one_request(
+    detail: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """The whole draft rides one conditional GET. Reading rounds through the adapter's
+    standalone helper fired a second, unconditional mSettings request on every tick -- caught
+    in the live log, where the 5s poll showed a 304 immediately followed by a 200.
+    """
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=detail, headers={"etag": 'W/"abc"'})
+
+    sync = EspnSync(
+        espn_config,
+        adapter=EspnAdapter(swid=detail["_my_swid"], espn_s2="s2",
+                            transport=httpx.MockTransport(handler)),
+        bridge=EspnIdBridge({}),
+    )
+    update = sync.poll(None, want_meta=True, slot_locked=False)
+
+    assert len(seen) == 1, f"one poll, one request -- made {len(seen)}"
+    assert update.rounds == 16, "and it still knows the round count"
