@@ -118,5 +118,5 @@ def idp_projection(
             w = weights.get(stat, 0.1)
             shrunk = w * prior_rate + (1.0 - w) * pos_mean.get(stat, 0.0)
             projected[stat] = shrunk * EXPECTED_GAMES
-        out[player_id] = score_stat_line(projected, config.scoring)
+        out[player_id] = score_stat_line(projected, config.scoring_for(p.position))
     return out
