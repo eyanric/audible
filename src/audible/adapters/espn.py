@@ -40,6 +40,12 @@ BASE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons"
 # 400/400 for 2023-2025 and are ABSENT for 2021-2022 -- sorting by a rank type that
 # isn't there returns arbitrary order silently, which is why the pool assertion below
 # is not optional.
+#
+# ESPN serves four types on every player (STANDARD, PPR, ELIMINATION, SUPERFLEX). Do not
+# read STANDARD as a zero-PPR ranking: measured over the 2026 pool it is the SAME ordering
+# as PPR at the top and diverges only for non-receiving backs (Derrick Henry STANDARD #10
+# vs PPR #19). STANDARD is still the right one here -- this league pays RBs nothing per
+# reception -- but anything treating it as a 0-PPR market baseline will be wrong.
 RANK_TYPE = "STANDARD"
 
 # ESPN defaultPositionId -> our position bucket. League B rosters no IDP, so the six
