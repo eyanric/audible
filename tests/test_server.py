@@ -13,6 +13,7 @@ from audible.draft.board import DraftBoard, DraftEntry
 from audible.draft.live import Pick
 from audible.draft.service import CockpitService
 from audible.server import create_app
+from audible.server.state import build_state
 
 POSITIONS = ["RB", "WR", "QB", "WR", "RB", "TE", "WR", "QB", "LB", "K"]
 
@@ -133,6 +134,59 @@ def test_survival_is_ranked_not_raw_adp(client: TestClient, service: CockpitServ
     top = body["best_available"][0]
     assert top["survival"] < 0.5, "the best remaining player by ADP must read as at-risk"
     assert top["grab_now"] is True
+
+
+def test_every_rosterable_position_is_servable(
+    client: TestClient, service: CockpitService
+) -> None:
+    """Gate 13. A global top-N by value held 2 LBs and ZERO Ks out of 7,621 available, so
+    every position filter downstream read a pool that had already been cut. Each rosterable
+    position the board actually holds must reach the payload."""
+    body = client.get("/api/state").json()
+    served = {p["position"] for p in body["best_available"]}
+    on_board = {e.position for e in service.board.entries}
+    missing = on_board - served
+    assert not missing, f"positions on the board but never served: {sorted(missing)}"
+
+
+def test_position_depth_survives_a_lopsided_board(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """The real shape of the bug: one position dominating the value ranking must not squeeze
+    the others out of the payload entirely."""
+    entries = [_entry(i) for i in range(1, 400)]
+    # Make every LB rank below every other position, as tackle-scoring IDP does in practice.
+    entries.sort(key=lambda e: (e.position == "LB", e.vorp_rank))
+    svc = CockpitService(sleeper_config, state_dir=tmp_path, slot_override=4)
+    svc.board = DraftBoard("sleeper_boyfun", entries)
+    svc.session.draft_status = "drafting"
+
+    served = build_state(svc)["best_available"]
+    lbs = [p for p in served if p["position"] == "LB"]
+    assert len(lbs) >= 10, f"only {len(lbs)} LBs served from a board holding many"
+
+
+def test_unpriced_players_are_available_not_absent(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """"Unpriced" must mean unknown survival, never high survival -- and never omitted."""
+    import dataclasses
+
+    entries = [
+        e if i % 3 else dataclasses.replace(e, adp=None, adp_rank=None)
+        for i, e in enumerate(_entry(i) for i in range(1, 60))
+    ]
+    svc = CockpitService(sleeper_config, state_dir=tmp_path, slot_override=4)
+    svc.board = DraftBoard("sleeper_boyfun", entries)
+    svc.session.draft_status = "drafting"
+    svc.session.picks = [
+        Pick(pick_no=n, round=1, draft_slot=n, player_id=f"p{n:03d}") for n in range(1, 4)
+    ]
+
+    served = build_state(svc)["best_available"]
+    unpriced = [p for p in served if not p["adp_known"]]
+    assert unpriced, "unpriced players must still be served"
+    assert all(p["adp_known"] is False for p in unpriced)
 
 
 def test_mark_taken_and_undo_round_trip(client: TestClient) -> None:
