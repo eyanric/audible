@@ -26,6 +26,10 @@ class Pick:
     round: int
     draft_slot: int
     player_id: str
+    # Where the pick came from. Carried for display and for undo ONLY -- nothing downstream
+    # may branch on it. A pick entered by hand because sync is unavailable is a pick: the
+    # player is gone, some team owns him, and the clock moved.
+    source: str = "sync"
 
 
 def parse_picks(raw: list[dict[str, Any]]) -> list[Pick]:
@@ -128,7 +132,7 @@ def _ordered_positions(config: LeagueConfig) -> list[str]:
 def compute_view(
     board: DraftBoard,
     picks: list[Pick],
-    my_slot: int,
+    my_slot: int | None,
     config: LeagueConfig,
     rounds: int,
     *,

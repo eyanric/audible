@@ -71,6 +71,34 @@ def _served_pool(service: CockpitService, view: LiveView) -> list[Candidate]:
     return [c for c in view.ranked if c.entry.player_id in keep]
 
 
+def _teams(service: CockpitService) -> list[dict[str, Any]]:
+    """Every team's picks so far, by draft slot.
+
+    Exists because "no other teams ever appear" was a reported symptom: with every pick
+    attributed to slot 0 there was only ever one team. Now that attribution is right, the
+    payload has to show it, or the fix is invisible.
+    """
+    board = service.board
+    by_id = {e.player_id: e for e in board.entries} if board else {}
+    mine = service.session.slot
+    rosters: dict[int, list[dict[str, Any]]] = {
+        slot: [] for slot in range(1, service.config.num_teams + 1)
+    }
+    for p in service.session.effective_picks():
+        if p.draft_slot in rosters:
+            entry = by_id.get(p.player_id)
+            rosters[p.draft_slot].append({
+                "pick_no": p.pick_no,
+                "name": entry.name if entry else p.player_id,
+                "position": entry.position if entry else "?",
+                "source": p.source,
+            })
+    return [
+        {"slot": slot, "is_me": (mine is not None and slot == mine), "picks": picks}
+        for slot, picks in sorted(rosters.items())
+    ]
+
+
 def _roster_slots(view: LiveView) -> list[dict[str, Any]]:
     """Every starting slot and exactly who fills it, grouped by slot name in config order."""
     grouped: dict[str, dict[str, Any]] = {}
@@ -86,7 +114,9 @@ def _roster_slots(view: LiveView) -> list[dict[str, Any]]:
 def _recent_picks(service: CockpitService) -> list[dict[str, Any]]:
     board = service.board
     by_id = {e.player_id: e for e in board.entries} if board else {}
-    picks = sorted(service.session.picks, key=lambda p: p.pick_no)[-RECENT_PICKS_LIMIT:]
+    # effective_picks, not session.picks: a hand-entered pick must appear in the feed and
+    # in the run window exactly like a synced one, or the two are distinguishable downstream.
+    picks = service.session.effective_picks()[-RECENT_PICKS_LIMIT:]
     rows: list[dict[str, Any]] = []
     for p in reversed(picks):
         entry = by_id.get(p.player_id)
@@ -105,7 +135,7 @@ def _counts_last10(service: CockpitService) -> dict[str, int]:
     board = service.board
     by_id = {e.player_id: e for e in board.entries} if board else {}
     counts: dict[str, int] = {}
-    for p in sorted(service.session.picks, key=lambda p: p.pick_no)[-RUN_WINDOW:]:
+    for p in service.session.effective_picks()[-RUN_WINDOW:]:
         entry = by_id.get(p.player_id)
         if entry is not None:
             counts[entry.position] = counts.get(entry.position, 0) + 1
@@ -222,6 +252,7 @@ def build_state(service: CockpitService) -> dict[str, Any]:
     }
     base["grab_now"] = [_player(c) for c in grab]
     base["best_available"] = [_player(c) for c in _served_pool(service, view)]
+    base["teams"] = _teams(service)
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)
     base["cliffs"] = _cliffs(view)

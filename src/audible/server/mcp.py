@@ -295,7 +295,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             "player_id": player_id,
             "changed": changed,
             "note": "already marked" if not changed else "marked unavailable locally",
-            "manual_overrides": len(service.session.manual_taken),
+            "manual_picks_entered": len(service.session.manual_picks),
             "sync": _sync(s),
         }
 
@@ -307,7 +307,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         return {
             "undone": undone,
             "note": "nothing to undo" if undone is None else f"{undone} is available again",
-            "manual_overrides": len(service.session.manual_taken),
+            "manual_picks_entered": len(service.session.manual_picks),
             "sync": _sync(s),
         }
 

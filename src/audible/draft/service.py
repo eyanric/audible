@@ -29,7 +29,7 @@ from ..adapters.sleeper import SleeperAdapter
 from ..config.schema import LeagueConfig
 from .board import DraftBoard, build_board
 from .identity import SOURCE_DRAFT_ORDER, SOURCE_UNRESOLVED, Identity, resolve_slot
-from .live import LiveView, Pick, compute_view, parse_picks
+from .live import LiveView, Pick, compute_view, my_slot_on_clock, parse_picks
 
 log = logging.getLogger("audible.cockpit")
 
@@ -66,6 +66,18 @@ class SyncHealth:
         return "stale" if age >= STALE_AFTER_S else "live"
 
 
+def _pick_json(p: Pick) -> dict[str, Any]:
+    return {"pick_no": p.pick_no, "round": p.round, "draft_slot": p.draft_slot,
+            "player_id": p.player_id, "source": p.source}
+
+
+def _pick_from_json(d: dict[str, Any], default_source: str) -> Pick:
+    return Pick(
+        pick_no=int(d["pick_no"]), round=int(d["round"]), draft_slot=int(d["draft_slot"]),
+        player_id=str(d["player_id"]), source=str(d.get("source") or default_source),
+    )
+
+
 @dataclass
 class DraftSession:
     """Everything mutable about one draft. Serialisable so a crash costs nothing."""
@@ -76,8 +88,9 @@ class DraftSession:
     draft_status: str = "pre_draft"
     draft_type: str = "snake"
     picks: list[Pick] = field(default_factory=list)
-    manual_taken: dict[str, int] = field(default_factory=dict)  # player_id -> order marked
-    manual_seq: int = 0
+    # Picks entered by hand, in the order they were entered. They are REAL picks -- numbered,
+    # attributed to whichever slot is on the clock, and moving the clock -- not ghosts.
+    manual_picks: list[Pick] = field(default_factory=list)
     slot: int | None = None
     slot_source: str = SOURCE_UNRESOLVED
     user_id: str | None = None
@@ -87,12 +100,8 @@ class DraftSession:
         return {
             "league_key": self.league_key, "draft_id": self.draft_id, "rounds": self.rounds,
             "draft_status": self.draft_status, "draft_type": self.draft_type,
-            "picks": [
-                {"pick_no": p.pick_no, "round": p.round, "draft_slot": p.draft_slot,
-                 "player_id": p.player_id}
-                for p in self.picks
-            ],
-            "manual_taken": self.manual_taken, "manual_seq": self.manual_seq,
+            "picks": [_pick_json(p) for p in self.picks],
+            "manual_picks": [_pick_json(p) for p in self.manual_picks],
             "slot": self.slot, "slot_source": self.slot_source,
             "user_id": self.user_id, "roster_id": self.roster_id,
         }
@@ -104,13 +113,10 @@ class DraftSession:
         session.rounds = int(data.get("rounds", 18))
         session.draft_status = data.get("draft_status", "pre_draft")
         session.draft_type = data.get("draft_type", "snake")
-        session.picks = [
-            Pick(pick_no=p["pick_no"], round=p["round"], draft_slot=p["draft_slot"],
-                 player_id=p["player_id"])
-            for p in data.get("picks", [])
+        session.picks = [_pick_from_json(p, "sync") for p in data.get("picks", [])]
+        session.manual_picks = [
+            _pick_from_json(p, "manual") for p in data.get("manual_picks", [])
         ]
-        session.manual_taken = {str(k): int(v) for k, v in (data.get("manual_taken") or {}).items()}
-        session.manual_seq = int(data.get("manual_seq", 0))
         session.slot = data.get("slot")
         session.slot_source = data.get("slot_source", SOURCE_UNRESOLVED)
         session.user_id = data.get("user_id")
@@ -118,20 +124,19 @@ class DraftSession:
         return session
 
     def effective_picks(self) -> list[Pick]:
-        """Real picks plus manual marks, as one stream the decision layer can consume.
+        """Synced and manual picks as one stream, in pick order.
 
-        Manual entries carry ``pick_no = 0`` and sort ahead of every real pick. Both details
-        matter: the clock is ``max(pick_no) + 1``, so a non-zero synthetic number would advance
-        the draft every time you tapped a name, and the positional-run window is the tail of
-        this list, so a manual mark must not masquerade as a recent pick.
+        Deliberately indistinguishable downstream. An earlier version numbered manual marks
+        ``pick_no = 0, draft_slot = 0`` so they could not move the clock -- which fixed the
+        clock but attributed every mark to slot 0, i.e. to me whenever my slot was unresolved.
+        One line produced "unlimited players join my roster", "undo leaves them there" and
+        "no other team ever appears". Manual picks are now numbered and attributed like any
+        other, and the clock advances because the pick really happened.
         """
-        if not self.manual_taken:
-            return self.picks
-        ghosts = [
-            Pick(pick_no=0, round=0, draft_slot=0, player_id=pid)
-            for pid, _ in sorted(self.manual_taken.items(), key=lambda kv: kv[1])
-        ]
-        return ghosts + self.picks
+        return sorted(self.picks + self.manual_picks, key=lambda p: p.pick_no)
+
+    def taken_ids(self) -> set[str]:
+        return {p.player_id for p in self.picks} | {p.player_id for p in self.manual_picks}
 
 
 class CockpitService:
@@ -165,7 +170,8 @@ class CockpitService:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._adapter: SleeperAdapter | None = None
-        self._view_cache: tuple[int, int, LiveView] | None = None
+        self._view_cache: tuple[int, LiveView] | None = None
+        self._state_version = 0
 
     # --- persistence -------------------------------------------------------
     @property
@@ -270,11 +276,15 @@ class CockpitService:
             picks = parse_picks(raw)
             with self._lock:
                 self.session.picks = picks
+                # Sync is authoritative: drop any hand-entered pick it now covers, and
+                # renumber the rest to follow it. Without this, regaining sync after
+                # mirroring by hand double-counts every player entered twice.
+                self._reconcile_manual()
                 self.health.last_success = time.time()
                 self.health.last_error = None
                 self.health.fail_streak = 0
                 self.health.poll_count += 1
-                self._view_cache = None
+                self._invalidate()
             self.save()
             return True
         except Exception as exc:  # noqa: BLE001 -- a failed poll must never kill the cockpit
@@ -313,49 +323,102 @@ class CockpitService:
             self._adapter.close()
             self._adapter = None
 
-    # --- manual overrides --------------------------------------------------
+    # --- manual picks ------------------------------------------------------
+    def _renumber_manual(self) -> None:
+        """Number manual picks contiguously after the last synced pick.
+
+        Called after any change to either stream so the combined sequence never has a hole or
+        a duplicate. Slot comes from the same snake math validated 180/180 against the real
+        2025 draft, so a hand-entered pick lands on whichever team is genuinely on the clock.
+        """
+        teams, rounds = self.config.num_teams, self.session.rounds
+        base = max((p.pick_no for p in self.session.picks), default=0)
+        renumbered: list[Pick] = []
+        for offset, pick in enumerate(self.session.manual_picks, start=1):
+            number = base + offset
+            slot = my_slot_on_clock(number, teams, rounds)
+            if slot is None:
+                break  # past the end of the draft; there is no such pick to record
+            renumbered.append(Pick(
+                pick_no=number, round=(number - 1) // teams + 1, draft_slot=slot,
+                player_id=pick.player_id, source="manual",
+            ))
+        self.session.manual_picks = renumbered
+
+    def _reconcile_manual(self) -> None:
+        """Sync is authoritative; supersede any manual pick it now covers.
+
+        Two cases, both real when mirroring a draft by hand and then regaining sync:
+        the same player arrives from sync (drop the manual duplicate), and sync disagrees
+        about who took him (sync wins -- it is the platform's own record). Anything sync has
+        not yet reached is kept and renumbered to follow it, so hand-entered picks made while
+        the feed was down are not lost.
+        """
+        synced = {p.player_id for p in self.session.picks}
+        self.session.manual_picks = [
+            p for p in self.session.manual_picks if p.player_id not in synced
+        ]
+        self._renumber_manual()
+
     def mark_taken(self, player_id: str) -> bool:
-        """Locally mark a player unavailable. Idempotent; never touches any platform."""
+        """Record a pick made by whoever is on the clock. Never touches any platform.
+
+        This is a PICK, not a note that someone is unavailable: it is numbered, attributed,
+        and it advances the clock, because that is what happened in the room.
+        """
         with self._lock:
-            if player_id in self.session.manual_taken:
+            if player_id in self.session.taken_ids():
                 return False
-            self.session.manual_seq += 1
-            self.session.manual_taken[player_id] = self.session.manual_seq
-            self._view_cache = None
+            self.session.manual_picks.append(
+                Pick(pick_no=0, round=0, draft_slot=0, player_id=player_id, source="manual")
+            )
+            self._renumber_manual()
+            if not any(p.player_id == player_id for p in self.session.manual_picks):
+                return False  # the draft is full; there is no pick left to record
+            self._invalidate()
         self.save()
         return True
 
     def undo_taken(self, player_id: str | None = None) -> str | None:
-        """Reverse a mark. With no id, reverses the most recent one."""
+        """Reverse a manual pick and roll the clock back. With no id, the most recent one."""
         with self._lock:
-            if not self.session.manual_taken:
+            manual = self.session.manual_picks
+            if not manual:
                 return None
             if player_id is None:
-                player_id = max(self.session.manual_taken.items(), key=lambda kv: kv[1])[0]
-            if player_id not in self.session.manual_taken:
+                player_id = manual[-1].player_id
+            if not any(p.player_id == player_id for p in manual):
                 return None
-            del self.session.manual_taken[player_id]
-            self._view_cache = None
+            self.session.manual_picks = [p for p in manual if p.player_id != player_id]
+            self._renumber_manual()
+            self._invalidate()
         self.save()
         return player_id
 
     # --- the view ----------------------------------------------------------
+    def _invalidate(self) -> None:
+        """Bump the state version. Callers must already hold the lock."""
+        self._state_version += 1
+        self._view_cache = None
+
     def view(self) -> LiveView | None:
-        """The computed decision surface, memoised until state changes."""
+        """The computed decision surface, memoised until state actually changes.
+
+        Keyed on a monotonic version rather than on collection sizes: mark A, undo, mark B
+        leaves (len(picks), len(manual)) identical with different contents, so a size-based
+        key is a collision waiting for the next refactor to stop invalidating explicitly.
+        """
         if self.board is None:
             return None
         with self._lock:
-            key = (len(self.session.picks), len(self.session.manual_taken))
+            version = self._state_version
             cached = self._view_cache
-            if cached is not None and cached[0] == key[0] and cached[1] == key[1]:
-                return cached[2]
+            if cached is not None and cached[0] == version:
+                return cached[1]
             picks = self.session.effective_picks()
-            slot = self.session.slot
+            slot = self.session.slot  # may be None -- unresolved is a state, not slot 0
             rounds = self.session.rounds
-        view = compute_view(
-            self.board, picks, slot if slot is not None else 0, self.config, rounds,
-            top=self._top,
-        )
+        view = compute_view(self.board, picks, slot, self.config, rounds, top=self._top)
         with self._lock:
-            self._view_cache = (key[0], key[1], view)
+            self._view_cache = (version, view)
         return view

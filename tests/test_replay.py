@@ -126,7 +126,9 @@ def test_restart_midway_loses_nothing(tmp_path: Path, sleeper_config: LeagueConf
     assert revived.restore() is True
     after = build_state(revived)
 
-    assert after["clock"]["current_pick"] == before["clock"]["current_pick"] == 41
+    # 42, not 41: the hand-entered p300 became pick 41, so the clock is on 42. Manual picks
+    # are real picks now, and a restart must restore the advanced clock too.
+    assert after["clock"]["current_pick"] == before["clock"]["current_pick"] == 42
     assert [p["id"] for p in after["best_available"]] == [
         p["id"] for p in before["best_available"]
     ]
