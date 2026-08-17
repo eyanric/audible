@@ -117,6 +117,21 @@ PRO_TEAM_BY_ID: dict[int, str] = {
 # The pool saturates at 1,026; ask for well past it so saturation is observed, not imposed.
 POOL_LIMIT = 2000
 
+# ESPN lineup-slot id -> the slot name our config uses. Only the ids League B actually rosters
+# are mapped; a non-zero count on any other id is reported as unknown rather than ignored,
+# because a slot we quietly skip is a slot whose drift never shows up.
+LINEUP_SLOT_TO_NAME: dict[int, str] = {
+    0: "QB", 2: "RB", 4: "WR", 6: "TE", 16: "DEF", 17: "K", 23: "FLEX",
+}
+# Bench and IR never demand a weekly starter -- the same exclusion the Sleeper guard makes.
+NON_STARTER_LINEUP_SLOTS = frozenset({20, 21})
+IR_LINEUP_SLOT = 21
+
+# Pre-draft, mDraftDetail serves a COMPLETE placeholder slate -- 128 entries for an 8-team,
+# 16-round draft -- every one with playerId -1. Counting rows instead of real picks reports a
+# finished draft before the first selection is made.
+UNDRAFTED_PLAYER_ID = -1
+
 _AUTH_EXPIRED = (
     "ESPN credentials expired, re-pull cookies. fantasy.espn.com -> DevTools -> "
     "Application -> Cookies: copy SWID (keep the curly braces) and espn_s2 into .env."
@@ -286,6 +301,15 @@ class EspnAdapter:
         # many players were scored by us versus handed back from ESPN's own projection.
         self.pool_size: int = 0
         self.source_counts: dict[str, int] = {}
+        # Conditional-request state for the draft poll (see get_draft_detail).
+        self._draft_etag: str | None = None
+        self._draft_last: dict[str, Any] | None = None
+
+    @property
+    def swid(self) -> str | None:
+        """The authenticated SWID. It already says who I am, so identity is derived from it
+        rather than configured -- a ``--slot`` flag would only be a second place to be wrong."""
+        return self._swid
 
     def close(self) -> None:
         self._client.close()
@@ -300,19 +324,25 @@ class EspnAdapter:
     def _league_url(self, config: LeagueConfig) -> str:
         return f"{BASE}/{config.season}/segments/0/leagues/{config.league_id}"
 
-    def _get(
-        self, config: LeagueConfig, views: list[str], *, fantasy_filter: str | None = None
-    ) -> Any:
+    def _request(
+        self, config: LeagueConfig, views: list[str], *, headers: dict[str, str] | None = None
+    ) -> httpx.Response:
         if not self._swid or not self._espn_s2:
             raise EspnAuthError(_AUTH_MISSING)
-        headers = {"X-Fantasy-Filter": fantasy_filter} if fantasy_filter is not None else {}
         resp = self._client.get(
             self._league_url(config),
             params=[("view", view) for view in views],
-            headers=headers,
+            headers=headers or {},
         )
         if resp.status_code in (401, 403):
             raise EspnAuthError(_AUTH_EXPIRED)
+        return resp
+
+    def _get(
+        self, config: LeagueConfig, views: list[str], *, fantasy_filter: str | None = None
+    ) -> Any:
+        headers = {"X-Fantasy-Filter": fantasy_filter} if fantasy_filter is not None else {}
+        resp = self._request(config, views, headers=headers)
         resp.raise_for_status()
         return resp.json()
 
@@ -344,6 +374,36 @@ class EspnAdapter:
             )
         self.pool_size = len(players)
         return list(players)
+
+    # --- the live draft -----------------------------------------------------------------
+    DRAFT_VIEWS = ["mDraftDetail", "mTeam", "mSettings"]
+
+    def get_draft_detail(self, config: LeagueConfig) -> dict[str, Any]:
+        """The whole live-draft picture in ONE conditional GET.
+
+        Draft state, the pick slate, the teams (for identity) and the settings (for pick order
+        and roster structure) all ride a single response, so the poll loop makes one request
+        per tick rather than four.
+
+        Conditional, and deliberately WITHOUT a cache-buster. Measured on this endpoint:
+        ``x-cache: Miss from cloudfront``, ``cache-control: must-revalidate``, no ``age``
+        header -- nothing is serving us a stale copy, and a repeat request with
+        ``If-None-Match`` comes back 304 with an empty body. This is the OPPOSITE of Sleeper's
+        ``/picks``, which is edge-cached at ``s-maxage=30`` and measured 57s stale against a
+        60s pick timer, and so must carry a buster. Neither behaviour generalises to the
+        other platform; do not copy this decision across.
+        """
+        headers = {"If-None-Match": self._draft_etag} if self._draft_etag else {}
+        resp = self._request(config, self.DRAFT_VIEWS, headers=headers)
+        if resp.status_code == 304 and self._draft_last is not None:
+            return self._draft_last
+        resp.raise_for_status()
+        payload: dict[str, Any] = resp.json()
+        etag = resp.headers.get("etag")
+        if etag:
+            self._draft_etag = etag
+        self._draft_last = payload
+        return payload
 
     # --- normalisation ------------------------------------------------------------------
     def _pool_entries(self, config: LeagueConfig) -> list[_PoolEntry]:
@@ -470,6 +530,60 @@ class EspnAdapter:
                 ):
                     drift.append((f"{key}[{position}]", cfg_value, live_value))
         return drift
+
+    def lineup_slot_counts(self, config: LeagueConfig) -> dict[int, int]:
+        """``settings.rosterSettings.lineupSlotCounts``, keyed by int lineup-slot id."""
+        counts = (self.get_settings(config).get("rosterSettings") or {}).get("lineupSlotCounts")
+        if not counts:
+            raise EspnDataError(
+                "ESPN returned no lineupSlotCounts; roster structure cannot be verified."
+            )
+        out: dict[int, int] = {}
+        for slot_id, count in counts.items():
+            number = _number(count)
+            if number is None:
+                continue
+            try:
+                out[int(slot_id)] = int(number)  # JSON object keys arrive as strings
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int, int]]:
+        """Compare the committed starting lineup against the live league's lineup slots.
+
+        Returns one ``(slot, config_count, live_count)`` per mismatched slot; empty means the
+        structure is faithful. This is the structural twin of :meth:`verify_scoring`, and it is
+        the check that caught League A's June-to-August drift -- a config claiming slots the
+        league does not have silently corrupts every replacement baseline the value engine
+        derives, and therefore every number on the board.
+
+        An ESPN lineup-slot id we do not map is reported as ``slot#<id>`` rather than skipped:
+        a starting slot this league rosters and we have no name for is exactly the drift worth
+        being loud about.
+        """
+        live_counts: dict[str, int] = {}
+        for slot_id, count in self.lineup_slot_counts(config).items():
+            if slot_id in NON_STARTER_LINEUP_SLOTS or count <= 0:
+                continue
+            name = LINEUP_SLOT_TO_NAME.get(slot_id, f"slot#{slot_id}")
+            live_counts[name] = live_counts.get(name, 0) + count
+
+        cfg_counts = config.slot_counts()
+        return [
+            (slot, cfg_counts.get(slot, 0), live_counts.get(slot, 0))
+            for slot in sorted(set(cfg_counts) | set(live_counts))
+            if cfg_counts.get(slot, 0) != live_counts.get(slot, 0)
+        ]
+
+    def draft_rounds(self, config: LeagueConfig) -> int:
+        """How many rounds the draft runs: every roster slot that is drafted, IR excluded.
+
+        Derived from roster structure rather than from the pick slate, so it stays right
+        whatever ESPN chooses to serve in ``draftDetail.picks`` once a draft is under way.
+        """
+        counts = self.lineup_slot_counts(config)
+        return sum(counts.values()) - counts.get(IR_LINEUP_SLOT, 0)
 
     def live_reception_points(self, config: LeagueConfig, position: str = "WR") -> float | None:
         """The live per-reception value for *position* (statId 53), or None if unscored.

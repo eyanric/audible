@@ -93,6 +93,13 @@ def create_app(
         if age is not None and age > BOARD_MAX_AGE_S:
             problems.append(f"last successful poll {age:.0f}s ago")
 
+        # Where the board's inputs came from and how old they are. On draft night a board
+        # built from a three-week-old cache is a different thing to trust than one built
+        # ten minutes ago, and the difference must be visible without reading logs.
+        from ..adapters.nflverse import cache_summary
+
+        data = cache_summary()
+
         body: dict[str, Any] = {
             "ok": not problems,
             "problems": problems,
@@ -101,6 +108,18 @@ def create_app(
             "sync_status": service.health.status(),
             "draft_id": service.session.draft_id,
             "picks": len(service.session.picks),
+            "data": {
+                "sources": data["keys"],
+                "oldest_age_s": data["oldest_age_s"],
+                "newest_age_s": data["newest_age_s"],
+                "from_disk": data["from_disk"],
+                "from_network": data["from_network"],
+                "origin": (
+                    "disk" if data["from_network"] == 0 and data["from_disk"] else
+                    "network" if data["from_disk"] == 0 and data["from_network"] else
+                    "mixed" if data["from_disk"] or data["from_network"] else "none"
+                ),
+            },
         }
         return JSONResponse(body, status_code=200 if not problems else 503)
 

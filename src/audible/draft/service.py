@@ -25,11 +25,11 @@ from pathlib import Path
 from typing import Any
 
 from ..adapters.cache import DEFAULT_CACHE_DIR
-from ..adapters.sleeper import SleeperAdapter
 from ..config.schema import LeagueConfig
 from .board import DraftBoard, build_board
-from .identity import SOURCE_DRAFT_ORDER, SOURCE_UNRESOLVED, Identity, resolve_slot
-from .live import LiveView, Pick, compute_view, my_slot_on_clock, parse_picks
+from .identity import SOURCE_DRAFT_ORDER, SOURCE_UNRESOLVED
+from .live import LiveView, Pick, compute_view, my_slot_on_clock
+from .sync import DraftSync, DraftUpdate, build_sync
 
 log = logging.getLogger("audible.cockpit")
 
@@ -152,6 +152,7 @@ class CockpitService:
         state_dir: Path | None = None,
         poll_interval_s: float = POLL_INTERVAL_S,
         top: int = 60,
+        sync: DraftSync | None = None,
     ) -> None:
         self.config = config
         self._slot_override = slot_override
@@ -169,7 +170,8 @@ class CockpitService:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._adapter: SleeperAdapter | None = None
+        # The platform seam. Injected in tests; built from the config's platform at start().
+        self._sync: DraftSync | None = sync
         self._view_cache: tuple[int, LiveView] | None = None
         self._state_version = 0
 
@@ -213,73 +215,55 @@ class CockpitService:
             self.board_error = f"{type(exc).__name__}: {exc}"
             log.exception("board build failed")
 
-    # --- draft discovery ---------------------------------------------------
-    def _discover_draft(self, adapter: SleeperAdapter) -> None:
-        """Find the draft and refresh its settings + my slot.
-
-        Re-discovery is not an error path: if the commissioner deletes and recreates the draft
-        while scheduling it, the id changes underneath us and a pinned id starts 404ing.
-        """
-        drafts = adapter.get_league_drafts(self.config.league_id)
-        if not drafts:
-            raise RuntimeError(f"league {self.config.league_id} has no drafts")
-        self.session.draft_id = str(drafts[0]["draft_id"])
-
-    def _refresh_draft_meta(self, adapter: SleeperAdapter) -> None:
-        assert self.session.draft_id is not None
-        draft = adapter.get_draft(self.session.draft_id)
-        settings = draft.get("settings") or {}
-        self.session.rounds = int(settings.get("rounds", self.session.rounds))
-        self.session.draft_status = str(draft.get("status") or self.session.draft_status)
-        self.session.draft_type = str(draft.get("type") or self.session.draft_type)
-
-        # Slot resolution. draft_order is authoritative and immutable once the draft opens, so
-        # that answer sticks; anything else is re-attempted until the draft actually opens.
-        if self.session.slot_source == SOURCE_DRAFT_ORDER:
-            return
-        user_id = self.session.user_id
-        if user_id is None and self._user_name:
-            from .identity import user_id_for_name
-            user_id = user_id_for_name(adapter.get_users(self.config.league_id), self._user_name)
-        rosters = adapter.get_rosters(self.config.league_id) if user_id else []
-        ident: Identity = resolve_slot(draft, rosters, user_id, override=self._slot_override)
-        self.session.user_id = ident.user_id
-        self.session.roster_id = ident.roster_id
-        self.session.slot = ident.slot
-        self.session.slot_source = ident.source
-
     # --- polling -----------------------------------------------------------
+    def _apply(self, update: DraftUpdate) -> None:
+        """Fold one poll's truth into the session. Caller holds the lock.
+
+        Every field but ``picks`` is optional: a poll that only asked for picks must not blank
+        out the draft status, the round count or my slot just because it did not fetch them.
+        """
+        session = self.session
+        if update.draft_id is not None:
+            session.draft_id = update.draft_id
+        if update.rounds is not None:
+            session.rounds = update.rounds
+        if update.status is not None:
+            session.draft_status = update.status
+        if update.draft_type is not None:
+            session.draft_type = update.draft_type
+        if update.identity is not None:
+            session.user_id = update.identity.user_id
+            session.roster_id = update.identity.roster_id
+            session.slot = update.identity.slot
+            session.slot_source = update.identity.source
+        session.picks = update.picks
+        # Sync is authoritative: drop any hand-entered pick it now covers, and renumber the
+        # rest to follow it. Without this, regaining sync after mirroring by hand
+        # double-counts every player entered twice.
+        self._reconcile_manual()
+
     def poll_once(self) -> bool:
         """One upstream refresh. Returns True on success. Never raises."""
-        adapter = self._adapter
-        if adapter is None:
+        sync = self._sync
+        if sync is None:
             return False
         try:
             with self._lock:
-                need_meta = (
+                want_meta = (
                     self.session.draft_id is None
                     or self.health.poll_count % 12 == 0  # ~once a minute
                     or self.session.slot is None
                 )
-            if self.session.draft_id is None:
-                self._discover_draft(adapter)
-            if need_meta:
-                try:
-                    self._refresh_draft_meta(adapter)
-                except Exception:  # noqa: BLE001 -- a stale id is recoverable; re-discover
-                    log.warning("draft metadata refresh failed; re-discovering draft id")
-                    self._discover_draft(adapter)
-                    self._refresh_draft_meta(adapter)
+                # Sleeper's draft_order is immutable once the draft opens, so that answer
+                # sticks and the two requests behind it stop being made. ESPN ignores this --
+                # its whole draft rides one response, so re-resolving costs nothing.
+                slot_locked = self.session.slot_source == SOURCE_DRAFT_ORDER
+                draft_id = self.session.draft_id
 
-            assert self.session.draft_id is not None
-            raw = adapter.get_draft_picks(self.session.draft_id)
-            picks = parse_picks(raw)
+            update = sync.poll(draft_id, want_meta=want_meta, slot_locked=slot_locked)
+
             with self._lock:
-                self.session.picks = picks
-                # Sync is authoritative: drop any hand-entered pick it now covers, and
-                # renumber the rest to follow it. Without this, regaining sync after
-                # mirroring by hand double-counts every player entered twice.
-                self._reconcile_manual()
+                self._apply(update)
                 self.health.last_success = time.time()
                 self.health.last_error = None
                 self.health.fail_streak = 0
@@ -310,7 +294,10 @@ class CockpitService:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("poll loop already started")  # one loop, exactly one
-        self._adapter = SleeperAdapter()
+        if self._sync is None:
+            self._sync = build_sync(
+                self.config, slot_override=self._slot_override, user_name=self._user_name
+            )
         self._thread = threading.Thread(target=self._run, name="audible-poll", daemon=True)
         self._thread.start()
 
@@ -319,9 +306,9 @@ class CockpitService:
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             self._thread = None
-        if self._adapter is not None:
-            self._adapter.close()
-            self._adapter = None
+        if self._sync is not None:
+            self._sync.close()
+            self._sync = None
 
     # --- manual picks ------------------------------------------------------
     def _renumber_manual(self) -> None:

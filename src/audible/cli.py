@@ -68,6 +68,17 @@ def _print_drift(cfg: LeagueConfig, drift: Sequence[tuple[str, float | None, flo
         print(f"[{cfg.key}] config scoring is FAITHFUL to the live league ({faithful}).")
 
 
+def _print_structure(cfg: LeagueConfig, structure: Sequence[tuple[str, int, int]]) -> None:
+    if structure:
+        print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
+        print("   Replacement baselines are derived from this, so EVERY value number is wrong:")
+        for slot, cfg_n, live_n in structure:
+            print(f"   {slot:<12} config={cfg_n:<4} live={live_n}")
+    else:
+        print(f"\n[{cfg.key}] roster structure is FAITHFUL "
+              f"({len(cfg.starting_slots)} starting slots match).")
+
+
 def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     """ESPN's weights are position-scoped, so the comparison has to be too.
 
@@ -81,6 +92,7 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     with EspnAdapter() as espn:
         drift = espn.verify_scoring(cfg)
         live_rec = espn.live_reception_points(cfg)
+        structure = espn.verify_structure(cfg)
 
     checked = len(STAT_ID_TO_KEY) * len(cfg.positions & TRANSLATED_POSITIONS)
     _print_drift(cfg, drift, f"{checked} position-scoped weights match")
@@ -103,9 +115,9 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
             print(f"\n[{cfg.key}] receptions confirmed LIVE at {live_rec}/rec for WR/TE "
                   f"(RB stays {rb_rec} by design, not drift).")
 
-    print(f"\n[{cfg.key}] roster-structure verification is Sleeper-only; not checked here.")
-    print(f"[{cfg.key}] known gap -- {SPECIALIST_GAP}")
-    return 1 if (drift or mismatch) else 0
+    _print_structure(cfg, structure)
+    print(f"\n[{cfg.key}] known gap -- {SPECIALIST_GAP}")
+    return 1 if (drift or mismatch or structure) else 0
 
 
 def cmd_verify_scoring(args: argparse.Namespace) -> int:
@@ -119,16 +131,7 @@ def cmd_verify_scoring(args: argparse.Namespace) -> int:
         structure = sleeper.verify_structure(cfg)
 
     _print_drift(cfg, drift, f"{len(cfg.scoring)} keys match")
-
-    if structure:
-        print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
-        print("   Replacement baselines are derived from this, so EVERY value number is wrong:")
-        for slot, cfg_n, live_n in structure:
-            print(f"   {slot:<12} config={cfg_n:<4} live={live_n}")
-    else:
-        print(f"[{cfg.key}] roster structure is FAITHFUL "
-              f"({len(cfg.starting_slots)} starting slots match).")
-
+    _print_structure(cfg, structure)
     return 1 if (drift or structure) else 0
 
 
@@ -264,7 +267,10 @@ def cmd_live(args: argparse.Namespace) -> int:
     draft_id = args.draft_id
     if not args.simulate:
         if cfg.platform.value != "sleeper":
-            raise SystemExit("live sync is Sleeper-only; for ESPN use --simulate / manual mark-off")
+            raise SystemExit(
+                "`live` polls Sleeper directly and is Sleeper-only. League B's live sync runs "
+                "in the cockpit: `audible serve --league espn_davis_drive`."
+            )
         adapter = SleeperAdapter()
         draft_id = draft_id or str(adapter.get_league(cfg.league_id).get("draft_id"))
         settings = adapter.get_draft(draft_id).get("settings", {})
@@ -301,8 +307,6 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
     cfg = _load(args.league)
-    if cfg.platform.value != "sleeper":
-        raise SystemExit("the cockpit's live sync is Sleeper-only; for ESPN use mark-taken")
     serve(
         cfg, host=args.host, port=args.port, draft_id=args.draft_id,
         slot=args.slot, user_name=args.user,
@@ -389,6 +393,48 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         status = "skipped (exists)" if r.skipped else f"{r.rows} rows -> {r.path}"
         print(f"  {r.source:<22} {status}")
     print(f"\nArchive root: {SNAPSHOTS_DIR}")
+    return 0
+
+
+def cmd_refresh_data(args: argparse.Namespace) -> int:
+    """Pull every input the board needs and write it to disk.
+
+    This is the only command that is *supposed* to depend on the network. Everything else
+    reads what this leaves behind, which is what makes an offline board build possible --
+    and draft night survivable when a third-party URL 404s at 8:35pm, as one already did.
+
+    It refreshes by building each league's board, so the cache ends up holding exactly the
+    sources `serve` will ask for, at exactly the seasons it will ask for them. A list of
+    keys maintained by hand would drift from that the first time the board changed.
+    """
+    from .adapters import nflverse, sleeper
+    from .adapters.cache import FrameCache
+    from .adapters.sleeper import SleeperAdapter
+    from .draft import build_board
+
+    leagues = load_all_leagues()
+    targets = [leagues[args.league]] if args.league else list(leagues.values())
+
+    print("Refreshing the on-disk data cache (this is the network-dependent step)...")
+    with SleeperAdapter() as adapter:
+        catalog = adapter.get_players_catalog(force=True)
+    print(f"  sleeper players catalog: {len(catalog)} players")
+
+    sleeper.PROJECTIONS_REFRESH = True
+    try:
+        with nflverse.refreshing():
+            for cfg in targets:
+                board = build_board(cfg)
+                print(f"  [{cfg.key}] board rebuilt: {len(board.entries)} players")
+    finally:
+        sleeper.PROJECTIONS_REFRESH = False
+
+    entries = FrameCache().manifest()
+    print(f"\n{len(entries)} nflverse source(s) on disk:")
+    for key, entry in sorted(entries.items()):
+        print(f"  {key:<28} {entry.rows:>8} rows  {entry.source}")
+    print(f"\nCache root: {FrameCache().root.parent}")
+    print("`serve` will now build a board from disk, with or without a network.")
     return 0
 
 
@@ -647,6 +693,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dr.add_argument("--movers", type=int, default=15, help="how many targets/fades to show")
     dr.set_defaults(func=cmd_draft)
+
+    rd = sub.add_parser(
+        "refresh-data", help="pull every board input to disk so serve can run offline"
+    )
+    rd.add_argument("league", nargs="?", default=None, help="one league (default: all)")
+    rd.set_defaults(func=cmd_refresh_data)
 
     bt = sub.add_parser("backtest", help="out-of-sample honesty gate (needs nflverse extra)")
     bt.add_argument("league")
