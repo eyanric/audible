@@ -396,6 +396,71 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_anchoring(args: argparse.Namespace) -> int:
+    from .adapters.espn import EspnAdapter
+    from .analysis.anchoring import (
+        DIVERGENCE_MIN,
+        MIN_DIVERGENT,
+        RANK_HORIZON,
+        build_report,
+    )
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "espn":
+        raise SystemExit("anchoring reads ESPN's per-season served ranks; ESPN leagues only")
+
+    print(f"Opponent anchoring -- [{cfg.key}] {cfg.name}")
+    with EspnAdapter() as espn:
+        report = build_report(espn, cfg, me=args.me)
+
+    print(f"  seasons: {', '.join(str(s) for s in report.seasons)}"
+          + (f"  (excluded: {', '.join(str(s) for s in report.excluded_seasons)} "
+             f"-- ESPN serves no ranks)" if report.excluded_seasons else ""))
+    print(f"  {report.total_picks} picks, {report.coverage:.1%} usable "
+          f"({report.unranked_picks} outside the board's dense range)")
+    print(f"  ranks past {RANK_HORIZON:.0f} excluded: ESPN's tail runs to 2687 and is a "
+          f"placeholder, not an ordering")
+    print(f"  a pick counts as discriminating when the two boards differ by "
+          f">= {DIVERGENCE_MIN:.0f} ranks; a seat needs {MIN_DIVERGENT} of them to be labelled")
+
+    print(f"\n{'seat':<6} {'picks':>5} {'ranked':>7} {'disc':>5} "
+          f"{'sp(STD)':>8} {'sp(PPR)':>8} {'mad(STD)':>9} {'mad(PPR)':>9} "
+          f"{'edge':>7} {'±1.96se':>8}  reads like")
+    for s in report.seats:
+        print(f"{s.abbrev[:6]:<6} {s.picks:>5} {s.ranked_picks:>7} {s.divergent:>5} "
+              f"{s.spearman_standard:>+8.3f} {s.spearman_ppr:>+8.3f} "
+              f"{s.mad_standard:>9.1f} {s.mad_ppr:>9.1f} "
+              f"{s.edge:>+7.1f} {1.96 * s.stderr:>8.1f}  {s.label}")
+
+    print("\n  edge = mean(|PPR rank - pick|) - mean(|STANDARD rank - pick|) over "
+          "discriminating picks.")
+    print("  positive => the seat's choices track ESPN's own board; negative => a PPR board.")
+
+    positive, n_seats, p = report.room_lean()
+    print(f"\n  room lean: {positive}/{n_seats} seats toward ESPN's board "
+          f"(sign test p = {p:.3f})")
+
+    exploitable = report.exploitable()
+    print("\nVERDICT")
+    if exploitable:
+        seats = ", ".join(f"{s.abbrev} ({s.edge:+.1f})" for s in exploitable)
+        print(f"  {len(exploitable)} seat(s) read as PPR-anchored: {seats}")
+        print("  These undervalue pure rushing backs -- a PPR board pays receiving backs for")
+        print("  catches this league pays RBs nothing for. That is the archetype to take late.")
+    else:
+        print("  No seat resolves as PPR-anchored at 95%.")
+        print("  On this room, the RB-reception split is NOT an exploitable ranking edge:")
+        print("  ESPN's STANDARD board already prices the archetype correctly, and every")
+        print("  opponent's behaviour is consistent with reading it.")
+    unclassified = [s for s in report.seats if s.label == "unclassified"]
+    if unclassified:
+        thin = [s for s in unclassified if s.divergent < MIN_DIVERGENT]
+        print(f"  {len(unclassified)} seat(s) unclassified"
+              + (f" ({len(thin)} for want of discriminating picks)" if thin else "")
+              + " -- reported as such rather than forced.")
+    return 0
+
+
 def cmd_refresh_data(args: argparse.Namespace) -> int:
     """Pull every input the board needs and write it to disk.
 
@@ -693,6 +758,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dr.add_argument("--movers", type=int, default=15, help="how many targets/fades to show")
     dr.set_defaults(func=cmd_draft)
+
+    an = sub.add_parser(
+        "anchoring", help="which board is each opponent drafting off? (B1)"
+    )
+    an.add_argument("league")
+    an.add_argument("--me", type=int, default=8,
+                    help="my ESPN teamId, excluded from the table (default 8)")
+    an.set_defaults(func=cmd_anchoring)
 
     rd = sub.add_parser(
         "refresh-data", help="pull every board input to disk so serve can run offline"

@@ -33,6 +33,7 @@ import httpx
 from ..config.schema import LeagueConfig
 from ..models.player import PlayerProjection, RawPlayerLine
 from ..scoring.engine import score_stat_line
+from .cache import JsonCache
 
 BASE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons"
 
@@ -281,9 +282,11 @@ class EspnAdapter:
         espn_s2: str | None = None,
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
+        cache: JsonCache | None = None,
     ) -> None:
         self._swid = swid if swid is not None else _cookie("ESPN_SWID")
         self._espn_s2 = espn_s2 if espn_s2 is not None else _cookie("ESPN_S2")
+        self._cache = cache if cache is not None else JsonCache()
         # Cookies live on the client, not the request: httpx deprecated per-request cookies
         # because persistence across a redirect is ambiguous.
         cookies = (
@@ -404,6 +407,95 @@ class EspnAdapter:
             self._draft_etag = etag
         self._draft_last = payload
         return payload
+
+    # --- completed seasons (the anchoring corpus) ---------------------------------------
+    # Cached without a TTL: a finished draft and its served ranks are immutable. Re-fetching
+    # them is pure cost, and on a metered afternoon it is how you earn a 429.
+
+    def _season_config(self, config: LeagueConfig, season: int) -> LeagueConfig:
+        return config.model_copy(update={"season": season})
+
+    def get_season_draft(self, config: LeagueConfig, season: int) -> list[dict[str, Any]]:
+        """Every real pick from a completed season, in pick order.
+
+        Placeholder rows (``playerId: -1``) are filtered here for the same reason the live
+        sync filters them: a pre-draft slate is a full grid of every pick that will ever
+        exist, and counting rows reads as a finished draft.
+        """
+        key = f"espn_draft_{config.league_id}_{season}"
+        cached = self._cache.get_stale(key)
+        if cached is not None:
+            return cached
+
+        payload = self._get(self._season_config(config, season), ["mDraftDetail"])
+        detail = payload.get("draftDetail") or {}
+        picks = [
+            {
+                "overall": int(row.get("overallPickNumber") or 0),
+                "round": int(row.get("roundId") or 0),
+                "team_id": _int(row.get("teamId")),
+                "player_id": str(row.get("playerId")),
+            }
+            for row in (detail.get("picks") or [])
+            if row.get("playerId") is not None
+            and int(row["playerId"]) != UNDRAFTED_PLAYER_ID
+        ]
+        picks.sort(key=lambda p: p["overall"])
+        self._cache.set(key, picks)
+        return picks
+
+    def get_season_ranks(self, config: LeagueConfig, season: int) -> dict[str, dict[str, Any]]:
+        """``playerId -> {standard, ppr, name, position}`` as ESPN served them THAT season.
+
+        Period-appropriate by construction: these are the ranks the room actually saw, not a
+        present-day board projected backwards.
+
+        Returns ``{}`` for a season ESPN serves no ranks for. 2021 and 2022 are exactly that
+        -- 400 players, zero ranks -- and sorting by an absent rank type returns arbitrary
+        order with no error, so an empty answer here is the guard, not a gap.
+        """
+        key = f"espn_ranks_{config.league_id}_{season}"
+        cached = self._cache.get_stale(key)
+        if cached is not None:
+            return cached
+
+        payload = self._get(
+            self._season_config(config, season),
+            ["kona_player_info"],
+            fantasy_filter=pool_filter(),
+        )
+        ranks: dict[str, dict[str, Any]] = {}
+        for row in payload.get("players") or []:
+            player = row.get("player") or {}
+            by_type = player.get("draftRanksByRankType") or {}
+            standard = _number((by_type.get("STANDARD") or {}).get("rank"))
+            ppr = _number((by_type.get("PPR") or {}).get("rank"))
+            if standard is None and ppr is None:
+                continue
+            ranks[str(player.get("id"))] = {
+                "standard": standard,
+                "ppr": ppr,
+                "name": player.get("fullName"),
+                "position": POSITION_ID_TO_BUCKET.get(_int(player.get("defaultPositionId"))),
+            }
+        self._cache.set(key, ranks)
+        return ranks
+
+    def get_season_teams(self, config: LeagueConfig, season: int) -> dict[int, str]:
+        """``teamId -> abbrev`` for a season. Abbrevs only: owner SWIDs stay out of anything
+        that gets written down."""
+        key = f"espn_teams_{config.league_id}_{season}"
+        cached = self._cache.get_stale(key)
+        if cached is not None:
+            return {int(k): v for k, v in cached.items()}
+
+        payload = self._get(self._season_config(config, season), ["mTeam"])
+        teams = {
+            str(_int(t.get("id"))): str(t.get("abbrev") or t.get("id"))
+            for t in (payload.get("teams") or [])
+        }
+        self._cache.set(key, teams)
+        return {int(k): v for k, v in teams.items()}
 
     # --- normalisation ------------------------------------------------------------------
     def _pool_entries(self, config: LeagueConfig) -> list[_PoolEntry]:
