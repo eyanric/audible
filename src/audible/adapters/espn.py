@@ -481,6 +481,71 @@ class EspnAdapter:
         self._cache.set(key, ranks)
         return ranks
 
+    def get_season_actuals(self, config: LeagueConfig, season: int) -> dict[str, float]:
+        """``playerId -> realized season points``, scored under THAT season's league rules.
+
+        Read from ESPN's own actual stat set (``statSourceId 0``, ``statSplitTypeId 0``), not
+        recomputed here. ESPN applies the league's settings for the season being queried, so
+        this is the league's own arithmetic on the league's own scoring -- which is what a
+        draft-quality measure needs, and it sidesteps our K and D/ST translation gap entirely.
+        """
+        key = f"espn_actuals_{config.league_id}_{season}"
+        cached = self._cache.get_stale(key)
+        if cached is not None:
+            return cached
+
+        payload = self._get(
+            self._season_config(config, season),
+            ["kona_player_info"],
+            fantasy_filter=pool_filter(),
+        )
+        actuals: dict[str, float] = {}
+        for row in payload.get("players") or []:
+            player = row.get("player") or {}
+            for stat_set in player.get("stats") or []:
+                if (
+                    stat_set.get("seasonId") == season
+                    and stat_set.get("statSourceId") == 0
+                    and stat_set.get("statSplitTypeId") == 0
+                ):
+                    points = _number(stat_set.get("appliedTotal"))
+                    if points is not None:
+                        actuals[str(player.get("id"))] = points
+                    break
+        self._cache.set(key, actuals)
+        return actuals
+
+    def get_season_standings(self, config: LeagueConfig, season: int) -> list[dict[str, Any]]:
+        """Final outcomes per team: standing, record, points for.
+
+        ``owner`` is the primary-owner GUID, carried because ESPN reuses ``teamId`` across
+        seasons and a seat is a person, not a slot. It is a join key only -- never displayed
+        and never written down. Display names live in ``members`` and are not read at all.
+        """
+        key = f"espn_standings_{config.league_id}_{season}"
+        cached = self._cache.get_stale(key)
+        if cached is not None:
+            return cached
+
+        payload = self._get(self._season_config(config, season), ["mTeam"])
+        rows: list[dict[str, Any]] = []
+        for team in payload.get("teams") or []:
+            overall = (team.get("record") or {}).get("overall") or {}
+            rows.append({
+                "team_id": _int(team.get("id")),
+                "abbrev": str(team.get("abbrev") or team.get("id")),
+                "owner": str(team.get("primaryOwner") or ""),
+                # rankFinal reads 0 on every season of this league; rankCalculatedFinal is
+                # the one that carries the actual finishing order.
+                "standing": _int(team.get("rankCalculatedFinal")),
+                "playoff_seed": _int(team.get("playoffSeed")),
+                "wins": _int(overall.get("wins")),
+                "losses": _int(overall.get("losses")),
+                "points_for": _number(overall.get("pointsFor")) or 0.0,
+            })
+        self._cache.set(key, rows)
+        return rows
+
     def get_season_teams(self, config: LeagueConfig, season: int) -> dict[int, str]:
         """``teamId -> abbrev`` for a season. Abbrevs only: owner SWIDs stay out of anything
         that gets written down."""
