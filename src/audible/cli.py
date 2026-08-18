@@ -558,6 +558,89 @@ def cmd_rank_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_draft_quality(args: argparse.Namespace) -> int:
+    from .adapters.espn import EspnAdapter
+    from .analysis.draftquality import build_report
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "espn":
+        raise SystemExit("draft-quality reads ESPN season history; ESPN leagues only")
+
+    print(f"Draft quality -- [{cfg.key}] {cfg.name}")
+    with EspnAdapter() as espn:
+        report = build_report(espn, cfg)
+
+    print(f"  seasons: {', '.join(str(s) for s in report.seasons)}")
+    print(f"  {report.total_picks} picks, {report.coverage:.1%} with a realized season total "
+          f"({report.unscored_picks} unscored, counted not zeroed)")
+    print("  points = sum of realized points of everyone the seat DRAFTED, that season's scoring")
+    print("  ignores waivers, trades and start/sit -- it measures the draft, not the season\n")
+
+    print("C1 -- per season (rank 1 = best draft)")
+    for season in report.seasons:
+        rows = sorted(
+            (s for s in report.seat_seasons if s.season == season), key=lambda s: s.draft_rank
+        )
+        print(f"\n  {season}   {'seat':<6} {'pts':>8} {'n':>4}  {'draft#':>6} {'finish':>7} "
+              f"{'W-L':>6} {'pts for':>8}")
+        for s in rows:
+            print(f"        {s.abbrev[:6]:<6} {s.points:>8.0f} {s.scored:>4}  {s.draft_rank:>6} "
+                  f"{s.standing:>7} {f'{s.wins}-{s.losses}':>6} {s.points_for:>8.0f}")
+
+    print("\nC1 -- across seasons (mean draft rank, lower is better)")
+    print(f"  {'seat':<6} {'n':>3} {'mean':>6} {'sd':>6} {'best':>5} {'worst':>6} "
+          f"{'mean finish':>12}")
+    for c in report.careers:
+        print(f"  {c.abbrev[:6]:<6} {c.seasons:>3} {c.mean_draft_rank:>6.2f} "
+              f"{c.stdev_draft_rank:>6.2f} {c.best:>5} {c.worst:>6} {c.mean_standing:>12.2f}")
+
+    print("\nC2 -- does drafting well predict finishing well?")
+    print(f"  {'scope':<10} {'rho(draft, finish)':>20} {'rho(draft, points for)':>24} {'n':>5}")
+    for scope in [str(s) for s in report.seasons] + ["pooled"]:
+        st = report.corr_standing.get(scope)
+        pt = report.corr_points.get(scope)
+        if st is None or pt is None:
+            continue
+        print(f"  {scope:<10} {st[0]:>+20.3f} {pt[0]:>+24.3f} {st[1]:>5}")
+    print("\n  Both are Spearman over ranks where 1 is best, so POSITIVE means drafting well")
+    print("  goes with finishing well. Zero means the draft did not decide the season.")
+
+    fin_mean, fin_hw, n_seasons = report.season_level("standing")
+    pts_mean, pts_hw, _ = report.season_level("points")
+    print("\n  The pooled row counts one season's evidence eight times: within a season the")
+    print("  eight draft ranks are a permutation and so are the finishes, so the seats are")
+    print("  not independent. Seasons are. Treating each season as ONE observation:")
+    print(f"    rho(draft, finish)     = {fin_mean:+.3f}  95% CI "
+          f"[{fin_mean - fin_hw:+.3f}, {fin_mean + fin_hw:+.3f}]  (n={n_seasons} seasons)")
+    print(f"    rho(draft, points for) = {pts_mean:+.3f}  95% CI "
+          f"[{pts_mean - pts_hw:+.3f}, {pts_mean + pts_hw:+.3f}]  (n={n_seasons} seasons)")
+
+    print("\nWHAT IT SIZES")
+    crosses_zero = (fin_mean - fin_hw) <= 0 <= (fin_mean + fin_hw)
+    if crosses_zero:
+        print(f"  Drafting well LOOKS like it goes with finishing well ({fin_mean:+.3f}), but")
+        print("  with five seasons the interval crosses zero -- this cannot distinguish a real")
+        print("  moderate relationship from none at all. The per-season numbers show why: they")
+        print("  run from -0.17 to +0.98. One season carries the mean.")
+        print("")
+        print("  So this does NOT establish that draft edge decides seasons here, and it does")
+        print("  not establish that it doesn't. It is underpowered, and five seasons of an")
+        print("  eight-team league is all the data that exists. Widening the corpus (B3) is")
+        print("  the only way to sharpen it, and that can run after the draft.")
+    elif fin_mean > 0:
+        print(f"  Drafting well goes with finishing well: {fin_mean:+.3f}, interval clear of")
+        print("  zero. Draft edge is worth having in this league.")
+    else:
+        print(f"  Drafting well goes with finishing WORSE: {fin_mean:+.3f}, interval clear of")
+        print("  zero. That is strange enough to audit before believing.")
+    if pts_mean > fin_mean:
+        print("")
+        print(f"  Note the draft tracks POINTS ({pts_mean:+.3f}) more closely than it tracks")
+        print(f"  STANDINGS ({fin_mean:+.3f}). A better draft scores more; converting that into")
+        print("  wins runs through a schedule nobody controls.")
+    return 0
+
+
 def cmd_refresh_data(args: argparse.Namespace) -> int:
     """Pull every input the board needs and write it to disk.
 
@@ -863,6 +946,12 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--me", type=int, default=8,
                     help="my ESPN teamId, excluded from the table (default 8)")
     an.set_defaults(func=cmd_anchoring)
+
+    dq = sub.add_parser(
+        "draft-quality", help="who drafts well, and does it predict finishing (C1/C2)"
+    )
+    dq.add_argument("league")
+    dq.set_defaults(func=cmd_draft_quality)
 
     rc = sub.add_parser(
         "rank-check", help="our ordering vs ESPN's served ranks, tier by tier (B-next)"
