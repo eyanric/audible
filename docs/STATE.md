@@ -31,6 +31,53 @@ Two tracks. **Track A never slips for Track B.**
 | Tue 26 | **digest pinned — done. Offline re-proof: needs Eric to run it** | B3 corpus widening |
 | Wed 27 | **freeze**, paper board | B5, B6, B7 |
 
+## P0 — "the cockpit is not interactive": NOT reproducible from source
+
+Driven in a real browser over CDP against `uv run audible serve --league espn_davis_drive`
+(not by inspection):
+
+| check | result |
+|---|---|
+| console errors / uncaught exceptions | **none** |
+| failed network requests | **none** |
+| rows rendered | 140 (grab 5, tabs 10) |
+| click moves selection | yes |
+| selection visibly distinct | yes |
+| mark button removes the player | yes |
+| undo restores him | yes |
+| pause responds | yes |
+
+**Two P0.2 suspects eliminated without Docker:**
+
+- **"Static asset 404s under the container" cannot happen.** `static/` holds *one* file,
+  `index.html`, whose only `href` is a `data:,` favicon — JS and CSS are inline. The Dockerfile
+  copies `src/` wholesale and `STATIC_DIR` resolves identically, so the container serves a
+  byte-identical self-contained page. There is no asset to fail to load.
+- **The `takenStack` drift risk did not fire** — undo clicked against an empty stack, page
+  kept working.
+
+**Still open:** Docker is unavailable in the agent environment, so the pinned image was never
+exercised. The source-vs-container distinction is open at one end — though the packaging
+failure mode it was meant to catch is the one eliminated above.
+
+**Measured, and true either way:** the per-row mark button is **18×18 CSS pixels**, and
+clicking the row body only *selects* — it does not mark. At draft speed that is a plausible
+reading of "renders and does not respond to clicks". Not changed yet: the right fix depends on
+which surface actually misbehaved.
+
+**Run `scripts\diagnose-cockpit.cmd`** — start the cockpit, double-click, and it launches its
+own throwaway browser, drives the page, and writes `cockpit-report.txt`. Exits non-zero if the
+page is not interactive. That is the fastest way to close this out.
+
+> It launches an **isolated** browser on purpose. Enabling remote debugging on a browser
+> already in use exposes every open tab through the debugging port — that happened during this
+> investigation on the default port, which is why the script pins its own profile and port.
+
+**P0.3 (Playwright regression suite in CI) is not started** — locking down behaviour that has
+not yet been shown to break was the wrong order. Do it once the surface is identified.
+
+---
+
 ## A3 — pinned; one step left and it needs a machine with Docker
 
 **Pinned digest:** `ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570`
