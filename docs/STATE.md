@@ -25,11 +25,14 @@ Two tracks. **Track A never slips for Track B.**
 |---|---|---|
 | Mon 17 | build failure diagnosed — **done** | — |
 | Tue 18 | data on disk, offline board proven — **done** | **B1 anchoring — done** |
-| Wed 20 | latency outcome — **blocked, see below** | B2 evaluation harness + 384-pick run |
-| Fri 22 | Sleeper mock rehearsal — **needs Eric** | B3 corpus harvest + provenance |
-| Sun 24 | ESPN runbook — not started | B3 analysis + B4 wins conversion |
-| Tue 26 | digest pinned, offline re-proven | B5, B6 |
-| Wed 27 | **freeze**, paper board | B7 if it stands up |
+| Wed 20 | latency outcome — **blocked, see below** | **B-next mid-tier check — done** |
+| Fri 22 | Sleeper mock rehearsal — **needs Eric** | B2 evaluation harness + 384-pick run |
+| Sun 24 | **ESPN runbook — done** | B3 corpus harvest + provenance |
+| Tue 26 | digest pinned, offline re-proven — **not started** | B4 wins conversion |
+| Wed 27 | **freeze**, paper board | B5, B6, B7 |
+
+**Track A remaining: A3 only** — pin the digest, re-prove the offline property on the final
+image, print the paper board, freeze. Plus A1 if Eric runs the latency draft.
 
 **A1 latency is blocked and it is not a scheduling problem.** Temp league `102010124` read
 read-only this session: `drafted: false`, `inProgress: false`, **0 real picks** — the draft has
@@ -91,7 +94,51 @@ serve: ok:true, data.origin "disk", sync_status "failing"
 
 ---
 
-## B1 — opponent anchoring: settled, and the answer is "no edge here"
+## B-next — the scoring edge IS real, and B1's "no edge" was half the story
+
+`audible rank-check espn_davis_drive`. B1's conclusion (below) still holds for whole
+archetypes. But the rank comparison that supported it was **top-24 only**, and that is the one
+tier where agreement is guaranteed for reasons unrelated to scoring — elite receivers are
+elite in every format.
+
+Across ranks 25–200 the boards diverge sharply:
+
+| tier | n | mean | median | mean&#124;d&#124; | moved |
+|---|---|---|---|---|---|
+| 1–24 | 24 | −1.4 | −0.5 | 2.5 | 1 |
+| 25–60 | 36 | −4.1 | −9.0 | 14.9 | 25 |
+| 61–120 | 60 | +0.6 | −5.5 | 22.8 | 50 |
+| 121–200 | 34 | +4.2 | 0.0 | 11.3 | 13 |
+
+**Divergence alone proves nothing** — two boards can disagree for reasons unrelated to
+receptions. So the hypothesis is tested directly: Spearman(receptions, rank delta) **within
+position**.
+
+| pos | 1–24 | 25–60 | 61–120 | predicted sign |
+|---|---|---|---|---|
+| WR | +0.90 | +0.70 | +0.58 | **+** (paid 0.5/catch) |
+| RB | −0.53 | −0.06 | −0.62 | **−** (paid 0.0/catch) |
+| TE | — | — | −0.14 | + (weak/contrary) |
+
+Both major signs came out as predicted. **The edge is real, it is in rounds 3–10, and it is
+within position rather than across it:**
+
+- Among **WRs at a similar ESPN rank** — take the high-reception possession receiver over the
+  low-volume deep threat.
+- Among **RBs** — fade the pass-catching back, prefer the pure rusher.
+
+**Do not act on the whole-position moves.** QB and TE rise as blocks on our board; that is
+VORP-versus-market structure, not receptions, and this gate establishes nothing about which
+side is right. The CLI verdict says so explicitly.
+
+**Method note worth keeping:** the first cut averaged the within-position correlations, which
+is wrong — the scoring predicts *opposite* signs by position, so a real WR effect and a real
+RB effect cancelled and the verdict read "not reception-driven". Averaging across groups with
+opposing predicted signs will always do this.
+
+---
+
+## B1 — opponent anchoring: settled (whole archetypes only)
 
 `audible anchoring espn_davis_drive`. 384 picks over 2023–25, 79.9% usable.
 
@@ -112,11 +159,13 @@ disagree by ≥10 ranks. Positive ⇒ the seat tracks ESPN's board.
 p = 0.016).** Individually most seats are underpowered at ~13 discriminating picks; the
 unanimity is not, and that is the level the finding is stated at.
 
-**What this means for the 28th:** the RB-reception split is *not* an exploitable ranking edge
-against this room. Every opponent's behaviour is consistent with reading ESPN's own board,
-which already prices non-receiving backs correctly. Do not plan to steal Henry-types late —
-this room is not undervaluing them. The scoring findings still hold (they rest on arithmetic,
-not on this), but they do not convert into a draft-day exploit here.
+**What this means for the 28th — as amended by B-next above.** No opponent is on a generic
+PPR board, so there is no *whole-archetype* steal: don't plan to hoover up Henry-types late,
+this room is not systematically undervaluing them.
+
+But because all seven read ESPN's ordering, and our board demonstrably departs from that
+ordering on reception grounds inside WR and RB in rounds 3–10, the **within-tier** edge is
+live. B1 rules out the crude version of the exploit; it does not rule out the real one.
 
 **Two defects this found, both fixed:**
 
@@ -359,9 +408,19 @@ without it every process start re-downloads and repeated builds earn a `429` fro
      exercises sync, staleness, grab-now, snake math and the UI — all shared with ESPN. The
      tool has never been used in a live draft by a human.
 
-- **Still to do before the freeze:** ESPN runbook (it still assumes Sleeper) with the fallback
-  ladder sync → manual → `audible live` → paper; digest pinned Wed 26; paper board printed
-  Thu 27.
+- **A3, the only Track A item left:** pin the container to an explicit digest; run
+  `refresh-data` against the pinned image and confirm the cache volume holds both leagues;
+  **re-prove the offline property on the final artifact** (block the network, start it, get a
+  board — it was proven in development, not on the thing that will run); print the paper board
+  Thu 27; freeze.
+
+- **`docs/runbook-draft-day.md` is rewritten for League B** and assumes manual entry is
+  primary. It has a section to loosen if the latency number ever lands. Note it records that
+  **League B has no CLI rung** in the fallback ladder — `live` is Sleeper-only.
+
+- **Not done: folding `measure-latency` into the CLI.** `scripts/espn_latency.py` still stands
+  alone and is untracked. It works; it just isn't repeatable-by-command yet. Low value until
+  there is a draft to measure.
 
 - **Track B, next:** B2 (384-pick evaluation, leak-free), then B3 (corpus widening — this is
   what makes the interval tight enough to act on; 384 observations detect a large edge and
@@ -369,6 +428,7 @@ without it every process start re-downloads and repeated builds earn a `429` fro
   guard — B1 just produced a fifth occurrence, the rank tail), B7 (Phase 4 metrics, only
   after B2/B3 report).
 
-  **B1 is done and its answer constrains the rest:** there is no ranking edge against this
-  room from the scoring split, so B2/B3 are measuring whether the board is better *in
-  general*, not whether it exploits these seven managers.
+  **B1 + B-next together constrain the rest:** there is no *whole-archetype* edge against this
+  room, but there is a live within-position one in rounds 3–10. B2/B3 measure whether the
+  board is better in general; they are not needed to justify the draft-night guidance above,
+  which rests on the rank comparison and on arithmetic.
