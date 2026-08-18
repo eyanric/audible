@@ -59,15 +59,26 @@ one of its upstream URLs already 404'd once this month.
 uv run audible cheatsheet espn_davis_drive
 ```
 
-**Pin the image digest.** Get it from the `image` workflow summary on the merge commit you
-want, then edit `scripts/draft-day.cmd`:
+**The image is already pinned.** `scripts/draft-day.cmd` points at an explicit digest —
+`ghcr.io/eyanric/audible@sha256:d3cdb2a1…`, which is main @ `39a13f3`. `latest` can move
+under you the night before; a digest cannot. **Freeze Renovate for the week** so nothing
+auto-merges a base-image bump.
 
-```
-set "AUDIBLE_IMAGE=ghcr.io/eyanric/audible@sha256:<digest>"
-```
+Note the launcher **overrides the image's baked command**. The image defaults to
+`--league sleeper_boyfun`; draft night is League B, so `draft-day.cmd` passes
+`audible serve --league espn_davis_drive` explicitly. One image serves either league and the
+one you are drafting is visible in the launcher rather than buried in a layer.
 
-`latest` can move under you the night before. A digest cannot. **Freeze Renovate for the
-week** so nothing auto-merges a base-image bump.
+**Re-prove the offline property on the pinned image — double-click
+`scripts/verify-offline.cmd`.**
+
+This is not the same check as the development one. It pulls the pinned digest, fills the cache
+volume *using that same image*, then rebuilds both boards with `--network none` — the
+container's network namespace removed entirely, so there is no interface to reach. It is the
+check most likely to catch a packaging difference: a missing file, a wrong path, a volume that
+is not where the code looks for it.
+
+It prints **PASS** or **FAIL**. **Do not freeze on a digest that prints FAIL.**
 
 **Start the pinned container and confirm it is running offline-capable:**
 
