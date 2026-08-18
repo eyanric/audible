@@ -28,13 +28,52 @@ Two tracks. **Track A never slips for Track B.**
 | Wed 20 | latency outcome — **blocked, see below** | **B-next mid-tier check — done** |
 | Fri 22 | Sleeper mock rehearsal — **needs Eric** | **C1/C2 draft quality — done** |
 | Sun 24 | **ESPN runbook — done** | **C3 substitution — BLOCKED, see below** |
-| Tue 26 | digest pinned, offline re-proven — **not started** | B3 corpus widening |
+| Tue 26 | **digest pinned — done. Offline re-proof: needs Eric to run it** | B3 corpus widening |
 | Wed 27 | **freeze**, paper board | B5, B6, B7 |
 
-**Track A remaining: A3 only** — pin the digest, re-prove the offline property on the final
-image, print the paper board, freeze. Plus A1 if Eric runs the latency draft.
+## A3 — pinned; one step left and it needs a machine with Docker
 
-**C3 (model substitution) is blocked on a leakage problem, not on time.** The gate needs an
+**Pinned digest:** `ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570`
+(main @ `39a13f3`, image build green). Set in `scripts/draft-day.cmd`.
+
+**Found while pinning, and it would have been silent:** the image bakes
+`--league sleeper_boyfun` as its default command. Pinning it as-is would have served
+**League A on League B's draft night** — a correct board for the wrong league. The launcher
+now overrides the command explicitly rather than rebuilding, so one image serves either league
+and the league being drafted is visible in the launcher instead of buried in a layer. The
+no-Docker fallback line named the wrong league too.
+
+`.gitattributes` had `* text=auto eol=lf`, which would have handed a checkout LF-only batch
+files. `draft-day.cmd` uses `goto` and labels; those misbehave on LF. `*.cmd text eol=crlf`
+now pins it, verified against a fresh worktree checkout.
+
+**Still to run, and it needs Eric — Docker is unavailable in the agent environment:**
+
+```
+scriptserify-offline.cmd     (double-click)
+```
+
+It pulls the pinned digest, fills the cache volume *using that same image*, then rebuilds both
+boards under `--network none` — the container's network namespace removed entirely, so an
+OS-level block rather than a mocked one. Prints PASS or FAIL. **Do not freeze on a FAIL.**
+
+The exact commands it runs were validated here first with outbound sockets blocked:
+`audible draft espn_davis_drive --top 5` and the League A equivalent both exit 0 with full
+boards. What is unverified is only what needs the real artifact: the pull, the volume, and the
+namespace removal.
+
+Then: print the paper board (`audible cheatsheet espn_davis_drive`), and **freeze Thursday 27**.
+
+Plus A1 if a real full ESPN draft can be joined — see the recorded finding below.
+
+**C3 is not started.** A3 was overdue and took priority. The leakage block below stands, and
+the agreed route around it is now specified: build the season-N line on
+`regressed_ppg_baseline` from **N−1 actuals only** (leak-free and assertable in code), label it
+**machinery-on-baseline-projections** and never "the audible board", and treat a loss against
+ADP-naive as **uninformative** rather than as a null — the handicap and the machinery are
+confounded and cannot be separated. A win is a **lower bound** on the real board's edge.
+
+**Original block, still true:** The gate needs an
 *audible board rebuilt leak-free* for 2023–25. `build_board` takes its projections from
 `SleeperAdapter.get_projections(season=N)`, and Sleeper serves a *current* projection state
 for a past season — there is no way from that endpoint to establish the values are as they
@@ -459,15 +498,17 @@ without it every process start re-downloads and repeated builds earn a `429` fro
 - **Manual entry is built but unmeasured.** `/` → type → **Enter** marks the top filtered
   match; the target is named on screen first; the query clears and focus stays put; Ctrl+Z
   undoes without leaving the box. Verified live that marking advances the clock and undo is a
-  true inverse. **The three-second standard has not been measured** — that needs a human at a
-  keyboard, and it belongs to the rehearsal. On branch `feat/manual-entry`, not yet merged.
+  true inverse. Merged. **The three-second standard has not been measured** — that needs a
+  human at a keyboard, and it belongs to the rehearsal.
 
 - **Blocking, needs Eric:**
-  1. **Run the temp draft in league `102010124` with `scripts/espn_latency.py` already
-     running.** The league exists and is configured; nobody has drafted in it, so there is
-     nothing to measure. Latency cannot be reconstructed afterwards — the script has to be
-     watching while picks happen. Two or three rounds is enough. Under ~15s → sync leads;
-     over ~30s or batchy → manual entry leads. Until then, assume manual entry.
+  1. **Latency needs a REAL, FULL draft — a solo test league cannot work.** ESPN will not
+     start a draft with unfilled slots: every open slot must be filled before the listed start
+     time or the draft is pushed back in five-minute intervals indefinitely. So league
+     `102010124` was never going to produce a number. Measure only if a public ESPN league
+     drafting in the next day or two can be joined, with `scripts/espn_latency.py` running
+     first. **Optional now** — manual entry is primary and the runbook assumes it.
+
   2. **The manual-pick re-run and a Sleeper mock**, three rounds, cockpit open. Free, and it
      exercises sync, staleness, grab-now, snake math and the UI — all shared with ESPN. The
      tool has never been used in a live draft by a human.
