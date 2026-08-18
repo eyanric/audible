@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Batch launchers must keep CRLF. draft-day.cmd uses goto/labels, and those can
+# misbehave on LF-only line endings -- on the one night nobody can debug it.
+*.cmd text eol=crlf
