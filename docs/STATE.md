@@ -26,13 +26,29 @@ Two tracks. **Track A never slips for Track B.**
 | Mon 17 | build failure diagnosed — **done** | — |
 | Tue 18 | data on disk, offline board proven — **done** | **B1 anchoring — done** |
 | Wed 20 | latency outcome — **blocked, see below** | **B-next mid-tier check — done** |
-| Fri 22 | Sleeper mock rehearsal — **needs Eric** | B2 evaluation harness + 384-pick run |
-| Sun 24 | **ESPN runbook — done** | B3 corpus harvest + provenance |
-| Tue 26 | digest pinned, offline re-proven — **not started** | B4 wins conversion |
+| Fri 22 | Sleeper mock rehearsal — **needs Eric** | **C1/C2 draft quality — done** |
+| Sun 24 | **ESPN runbook — done** | **C3 substitution — BLOCKED, see below** |
+| Tue 26 | digest pinned, offline re-proven — **not started** | B3 corpus widening |
 | Wed 27 | **freeze**, paper board | B5, B6, B7 |
 
 **Track A remaining: A3 only** — pin the digest, re-prove the offline property on the final
 image, print the paper board, freeze. Plus A1 if Eric runs the latency draft.
+
+**C3 (model substitution) is blocked on a leakage problem, not on time.** The gate needs an
+*audible board rebuilt leak-free* for 2023–25. `build_board` takes its projections from
+`SleeperAdapter.get_projections(season=N)`, and Sleeper serves a *current* projection state
+for a past season — there is no way from that endpoint to establish the values are as they
+stood before season N's draft. The hard stop is explicit ("no data from season N in season N's
+board"), so using them would either violate it or make a claim I cannot support.
+
+Two honest routes, neither started:
+1. Build the season-N line from **N−1 actuals only**, using the repo's existing
+   `regressed_ppg_baseline`. Genuinely leak-free and assertable in code — but it is a
+   *baseline*, not "the audible board", and must be labelled as such.
+2. Reconstruct pre-draft projections from an archived source. None is currently cached.
+
+The ADP-naive and perfect-hindsight lines are both straightforward and unblocked; they were
+not built because without a defensible board line there is no comparison to report.
 
 **A1 latency is blocked and it is not a scheduling problem.** Temp league `102010124` read
 read-only this session: `drafted: false`, `inProgress: false`, **0 real picks** — the draft has
@@ -91,6 +107,54 @@ serve: ok:true, data.origin "disk", sync_status "failing"
 
 **Run `audible refresh-data` on the 27th before the freeze.** The volume must map to
 `/app/data/cache` in the container.
+
+---
+
+## C1/C2 — draft quality, and whether it decides anything
+
+`audible draft-quality espn_davis_drive`. All five seasons (no ADP needed).
+
+**C1 — mean draft rank across 2021–25 (1 = best draft that season):**
+
+| seat | mean | sd | best | worst | mean finish |
+|---|---|---|---|---|---|
+| WCW | 2.20 | 0.84 | 1 | 3 | 2.60 |
+| Ryan | 3.00 | 3.08 | 1 | 8 | 3.60 |
+| BTD | 3.40 | 1.67 | 2 | 6 | 4.20 |
+| FAT | 5.00 | 1.87 | 3 | 7 | 5.40 |
+| BUTT | 5.00 | 2.24 | 2 | 8 | 4.00 |
+| PM | 5.20 | 2.49 | 1 | 7 | 7.00 |
+| Cnk | 5.80 | 1.92 | 3 | 8 | 4.80 |
+| JEFF | 6.40 | 1.52 | 5 | 8 | 4.40 |
+
+One seat drafts consistently well (**WCW**, never worse than 3rd). One is pure variance
+(**Ryan**, best *and* worst in five years). The rest reshuffle. **BUTT is Eric** — mean draft
+rank 5.00, mean finish 4.00.
+
+**C2 — does drafting predict finishing? Not resolvably, at this sample size.**
+
+Per-season rho(draft rank, finish): −0.167, +0.262, +0.214, **+0.976**, +0.571.
+
+| unit | rho | 95% CI |
+|---|---|---|
+| draft → finish | +0.371 | [−0.160, +0.903] |
+| draft → points for | +0.414 | [−0.212, +1.040] |
+
+**Both intervals cross zero.** The pooled n=40 figure looks better powered than it is: within
+a season the eight draft ranks are a permutation and so are the finishes, so seats are not
+independent and pooling counts one season's evidence eight times. Seasons are independent —
+that leaves **n=5**, and the per-season values run from −0.17 to +0.98 with one season
+carrying the mean.
+
+So this neither establishes that draft edge decides seasons here nor that it doesn't. Five
+seasons of an eight-team league is all the data that exists; **B3's corpus widening is the
+only way to sharpen it, and it can run after the draft.**
+
+The draft tracks **points** more closely than **standings**. A better draft scores more;
+converting that into wins runs through a schedule nobody controls.
+
+*Caveat stated, not solved: drafted-roster points ignore waivers, trades and start/sit. It
+measures the draft, not the season.*
 
 ---
 
