@@ -259,6 +259,16 @@ def cmd_live(args: argparse.Namespace) -> int:
     from .draft.live import compute_view, parse_picks
 
     cfg = _load(args.league)
+    # Refuse BEFORE building. This guard used to sit after the board build, so reaching for
+    # `live` on an ESPN league printed "Building board...", spent minutes on it, and only
+    # then said no -- which is the worst possible behaviour at 8:40 on draft night, when
+    # this command is only ever reached for because something else already went wrong.
+    if not args.simulate and cfg.platform.value != "sleeper":
+        raise SystemExit(
+            "`live` polls Sleeper directly and is Sleeper-only. League B's live sync runs "
+            "in the cockpit: `audible serve --league espn_davis_drive`."
+        )
+
     print(f"Building board for [{cfg.key}] {cfg.name} (value={cfg.value_metric})...")
     board = build_board(cfg)
     rounds = args.rounds
@@ -266,11 +276,6 @@ def cmd_live(args: argparse.Namespace) -> int:
     adapter: SleeperAdapter | None = None
     draft_id = args.draft_id
     if not args.simulate:
-        if cfg.platform.value != "sleeper":
-            raise SystemExit(
-                "`live` polls Sleeper directly and is Sleeper-only. League B's live sync runs "
-                "in the cockpit: `audible serve --league espn_davis_drive`."
-            )
         adapter = SleeperAdapter()
         draft_id = draft_id or str(adapter.get_league(cfg.league_id).get("draft_id"))
         settings = adapter.get_draft(draft_id).get("settings", {})
@@ -458,6 +463,98 @@ def cmd_anchoring(args: argparse.Namespace) -> int:
         print(f"  {len(unclassified)} seat(s) unclassified"
               + (f" ({len(thin)} for want of discriminating picks)" if thin else "")
               + " -- reported as such rather than forced.")
+    return 0
+
+
+def cmd_rank_check(args: argparse.Namespace) -> int:
+    from .analysis.rankdelta import (
+        MATERIAL_MOVE,
+        RANK_HORIZON,
+        build_report,
+        load_espn_projections,
+    )
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "espn":
+        raise SystemExit("rank-check compares against ESPN's served ranks; ESPN leagues only")
+
+    print(f"Rank delta vs ESPN's served STANDARD board -- [{cfg.key}] {cfg.name}")
+    report = build_report(load_espn_projections(cfg), cfg, top_movers=args.movers)
+    print(f"  {report.population} players compared "
+          f"({report.excluded_beyond_horizon} past rank {RANK_HORIZON:.0f}, "
+          f"{report.excluded_unranked} unranked)")
+    print("  delta = ESPN rank - our rank; positive => WE rank him earlier")
+    print("  both orderings dense-ranked over the same population\n")
+
+    print(f"  {'tier':<9} {'n':>4} {'mean':>7} {'median':>7} {'mean|d|':>8} "
+          f"{'moved':>6}  {'rec (up)':>9} {'rec (down)':>11}")
+    for t in report.tiers:
+        if not t.n:
+            continue
+        print(f"  {t.label:<9} {t.n:>4} {t.mean_delta:>+7.1f} {t.median_delta:>+7.1f} "
+              f"{t.mean_abs_delta:>8.1f} {t.material:>6}  "
+              f"{t.mean_receptions_up:>9.1f} {t.mean_receptions_down:>11.1f}")
+    print(f"\n  'moved' = players at least {MATERIAL_MOVE} ranks from ESPN's placement.")
+    print("  rec columns = mean projected receptions of those who moved up / down.")
+
+    print("\n  mean delta by position:")
+    for t in report.tiers:
+        if t.by_position:
+            cells = "  ".join(f"{p}{d:+.0f}" for p, d in sorted(t.by_position.items()))
+            print(f"    {t.label:<9} {cells}")
+
+    print("\nBiggest RISERS in ranks 25-120 (we rank earlier than ESPN):")
+    print(f"  {'player':<24} {'pos':<4} {'espn':>5} {'ours':>5} {'delta':>6} {'rec':>6}")
+    for m in report.risers:
+        print(f"  {m.name[:24]:<24} {m.position:<4} {m.espn_rank:>5} {m.our_rank:>5} "
+              f"{m.delta:>+6} {m.receptions:>6.1f}")
+    print("\nBiggest FALLERS in ranks 25-120 (ESPN ranks them earlier):")
+    print(f"  {'player':<24} {'pos':<4} {'espn':>5} {'ours':>5} {'delta':>6} {'rec':>6}")
+    for m in report.fallers:
+        print(f"  {m.name[:24]:<24} {m.position:<4} {m.espn_rank:>5} {m.our_rank:>5} "
+              f"{m.delta:>+6} {m.receptions:>6.1f}")
+
+    print("\n  Spearman(receptions, delta) WITHIN position -- the actual test of the")
+    print("  reception hypothesis. Across positions it is confounded; inside one, if")
+    print("  uncredited catches are what move players, this is strongly positive.")
+    for t in report.tiers:
+        if t.reception_corr:
+            cells = "  ".join(
+                f"{p} {c:+.2f}(n={n})" for p, (c, n) in sorted(t.reception_corr.items())
+            )
+            print(f"    {t.label:<9} {cells}")
+
+    diverges = report.diverges()
+    driven = report.reception_driven()
+    print("\nVERDICT")
+    if diverges and driven:
+        moved = ", ".join(f"{p} |r|={c:.2f}" for p, c in sorted(driven.items()))
+        print("  The boards DIVERGE sharply in the middle rounds, and part of that movement")
+        print(f"  IS reception-driven, in the direction the scoring predicts: {moved}.")
+        print("")
+        print("  WR/TE are paid 0.5 a catch on our board and ESPN's ordering credits catches")
+        print("  at every position, so high-volume receivers move UP for us and pass-catching")
+        print("  backs -- paid 0.0 -- move DOWN. Both signs came out as predicted.")
+        print("")
+        print("  B1 says this room drafts ESPN's ordering. So the edge IS live, in rounds")
+        print("  3-10, and it is WITHIN position, not across:")
+        print("    * among WRs at a similar ESPN rank, take the high-reception possession")
+        print("      receiver over the low-volume deep threat;")
+        print("    * among RBs, fade the pass-catching back and prefer the pure rusher.")
+        print("")
+        print("  NOT established here: the whole-position moves (QB and TE rising as blocks)")
+        print("  are VORP-vs-market structure, not receptions, and this gate says nothing")
+        print("  about which of those two is right. Do not draft off those.")
+    elif diverges:
+        print("  The boards DIVERGE sharply in the middle rounds -- but NOT over receptions.")
+        print("  The movement is POSITIONAL: whole positions shift together, and within a")
+        print("  position catching more does not move you up in the direction the scoring")
+        print("  predicts. That is VORP structure disagreeing with ESPN's market ordering.")
+        print("  This gate does NOT establish who is right. Do not draft off it.")
+    else:
+        print("  The boards AGREE through the middle rounds too, not just at the top.")
+        print("  Combined with B1 (all seven seats read as ESPN-anchored), the scoring")
+        print("  split is NOT an exploitable ranking edge against this room at any tier.")
     return 0
 
 
@@ -766,6 +863,13 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("--me", type=int, default=8,
                     help="my ESPN teamId, excluded from the table (default 8)")
     an.set_defaults(func=cmd_anchoring)
+
+    rc = sub.add_parser(
+        "rank-check", help="our ordering vs ESPN's served ranks, tier by tier (B-next)"
+    )
+    rc.add_argument("league")
+    rc.add_argument("--movers", type=int, default=12, help="risers/fallers to list")
+    rc.set_defaults(func=cmd_rank_check)
 
     rd = sub.add_parser(
         "refresh-data", help="pull every board input to disk so serve can run offline"
