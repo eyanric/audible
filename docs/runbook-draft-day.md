@@ -8,13 +8,15 @@ One operator, one night, no second chance. Follow this while distracted.
 If you are lost, jump to [Fallback ladder](#fallback-ladder) and work down it.
 
 > **Manual entry is the primary input until proven otherwise.**
-> The sync latency against ESPN has never been measured — the temp-league draft that would
-> measure it was never run. Until that number exists, treat the sync indicator as
-> *informational* and enter picks by hand. Loosen this only if the measurement comes back
-> under ~15s. See [Latency](#if-latency-gets-measured).
+> The sync latency against ESPN has never been measured, and the temp-league draft that was
+> going to measure it **cannot work** — ESPN will not start a draft with unfilled slots.
+> Until a number exists, treat the sync indicator as *informational* and enter picks by hand.
+> Loosen this only if a measurement comes back under ~15s. See
+> [Latency](#if-latency-gets-measured).
 
-`audible` never writes to ESPN or Sleeper. Two copies can run at once without conflicting,
-which is why failover is just opening a different URL.
+`audible` never writes to ESPN or Sleeper, so two copies can run at once without conflicting.
+That is what *would* make failover a matter of opening a different URL — but read the
+[Fallback ladder](#fallback-ladder) before assuming the other URL is the same league.
 
 **League A (`sleeper_boyfun`) is a different runbook.** This one is League B only. Where they
 differ is called out; the biggest is that **`audible live` does not work for League B.**
@@ -25,6 +27,23 @@ differ is called out; the biggest is that **`audible live` does not work for Lea
 
 Run these the day before, not on the day. **This is also the freeze:** after these checks,
 no merges, no rebuilds, no config edits.
+
+**In order. Each one gates the next.**
+
+```
+[ ] 1  uv run audible verify-scoring espn_davis_drive      three lines must pass
+[ ] 2  uv run audible refresh-data                         the only network-dependent step
+[ ] 3  uv run audible cheatsheet espn_davis_drive          print it. paper is the floor.
+[ ] 4  double-click scripts\verify-offline.cmd             must print PASS
+[ ] 5  double-click scripts\draft-day.cmd                  start the pinned image
+[ ] 6  curl localhost:8080/healthz                         ok:true, players>0, origin:disk
+[ ] 7  open the page, double-click a row, Ctrl+Z           the input path, once, by hand
+[ ] 8  FREEZE                                              no merges to main after this
+```
+
+Step 4 is the one people skip. **Do not freeze on a digest that prints FAIL.** Step 7 takes
+ten seconds and is the only check that exercises the thing you will actually be doing 128
+times on Friday.
 
 ```bash
 # 1. Did the league change under us? It did once already, in July, on League A.
@@ -61,8 +80,14 @@ uv run audible cheatsheet espn_davis_drive
 
 **The image is already pinned.** `scripts/draft-day.cmd` points at an explicit digest —
 `ghcr.io/eyanric/audible@sha256:d3cdb2a1…`, which is main @ `39a13f3`. `latest` can move
-under you the night before; a digest cannot. **Freeze Renovate for the week** so nothing
-auto-merges a base-image bump.
+under you the night before; a digest cannot.
+
+> **There is no Renovate config in this repo** — earlier versions of this runbook said to
+> freeze it, and there is nothing here to freeze. The thing that actually moves is
+> `ghcr.io/eyanric/audible:latest`, which the `image` workflow rebuilds on **every push to
+> main**. The cluster copy pulls it (`imagePullPolicy: Always`); the launcher does not,
+> because it is digest-pinned. **The code freeze is what protects this** — no merges to main
+> after the 27th and nothing can move.
 
 Note the launcher **overrides the image's baked command**. The image defaults to
 `--league sleeper_boyfun`; draft night is League B, so `draft-day.cmd` passes
@@ -120,7 +145,12 @@ waiting on.
    top. If it looks wrong now it will look wrong at pick 8 and you will have no time.
 6. **Open the window** and leave it open. Position it beside the ESPN draft room.
 7. **Run one MCP query** in the Claude desktop app (`draft_status`) so the connector is
-   approved before you need it. Approval mid-pick costs you the clock.
+   approved before you need it — approval mid-pick costs you the clock. **Then read what it
+   answered.** If `unfilled_starting_slots` contains `SUPER_FLEX` or `IDP_FLEX` you are
+   talking to **League A** (the public `mcp-audible.havenhomelab.org` endpoint proxies the
+   cluster pod, which serves League A). League B's slots are QB / RB / RB / WR / WR / TE /
+   FLEX / DEF / K and nothing else. Point the connector at the **local** cockpit's `/mcp`,
+   or just use the UI — it never depends on MCP.
 
 ---
 
@@ -136,6 +166,10 @@ The Enter target is **named on screen** before you commit — `↵ marks Bijan R
 Marking the wrong player is the one mistake here that costs you a pick.
 
 **Ctrl+Z** undoes the last mark without leaving the search box.
+
+**If your hand is already on the mouse: double-click the row.** A single click only selects —
+deliberately, so a stray click while scrolling can never mark anyone. The ✕ at the right of
+each row does the same thing and is visible without hovering.
 
 ### The staleness indicator
 
@@ -194,7 +228,7 @@ Each has one concrete first action.
 ### `/healthz` shows `data.origin: network` or the board will not build
 The offline cache is not reaching the container. Check the `audible-cache` volume is mounted
 at `/app/data/cache`. Then `uv run audible refresh-data` on the host and restart. If the
-network is also down and there is no cache, you are on the paper board — go to rung 4.
+network is also down and there is no cache, you are on the paper board — go to rung 3.
 
 ### ESPN cookies expired
 Symptom: `/healthz` shows a board but `sync_status: failing`, or `my_slot_source: unresolved`,
@@ -216,10 +250,24 @@ going. Do not restart mid-pick; a restart costs a board rebuild.
 
 ### The container dies
 1. `docker start audible-cockpit`, or double-click `scripts/draft-day.cmd` again.
-2. **Synced picks are not lost** — state persists to the `audible-cache` volume and restores
-   on start. **Manual marks made in this instance are lost.** If you have been entering by
-   hand all night, this is expensive: re-enter from the ESPN draft room's pick history.
-3. If it will not start: `docker logs audible-cockpit`, then drop to the cluster copy.
+2. **Nothing is lost — synced picks or manual marks.** Both live in the same session file on
+   the `audible-cache` volume, written on every mark and restored on start. Do **not** start
+   re-entering the night's picks from the ESPN draft room; check the board first. (An earlier
+   version of this runbook said manual marks were lost here. They are not, and there is a
+   test pinning it: `tests/test_service.py::test_state_survives_a_restart`.)
+3. If it will not start: `docker logs audible-cockpit`, then go to rung 2 — `serve` from
+   source. **Not** the cluster copy; it is League A.
+
+### The cockpit renders but does not respond to clicks
+1. **Check you are clicking the right thing.** A single click on a row only *selects*. To
+   mark: **double-click the row**, or click the ✕ at the right of it, or `t` on the selected
+   row, or type in the search box and press Enter. All four do the same thing.
+2. If none of them respond, **double-click `scripts/diagnose-cockpit.cmd`**. It launches its
+   own throwaway browser, drives the page, and writes `cockpit-report.txt` with console
+   errors, failed requests and the result of every interaction. It exits non-zero when the
+   page is genuinely inert, which is the answer you need before you start restarting things.
+3. If it reports the page *is* interactive, the problem is the input path, not the app —
+   fall back to the search box and Enter, which needs no mouse at all.
 
 ### The board looks obviously wrong
 Trust the draft room, not the tool. Then ask which kind of wrong:
@@ -239,15 +287,22 @@ the primary surface and never depends on MCP.
 **This is the primary input tonight, not the fallback.**
 
 - **In the UI:** `/` → type → **Enter** marks the top match. **Ctrl+Z** undoes. Or select a
-  row and press `t`; `u` undoes.
+  row and press `t`; `u` undoes. Or **double-click the row** — the mouse path, and the one
+  that does not require hitting a 26px button.
 - **In Claude:** `mark_taken` with the player id from any board tool; `undo_taken` reverses.
+  Note the MCP endpoint published at `mcp-audible.havenhomelab.org` answers for **League A**
+  — see the fallback ladder. Use the UI.
 
 A manual mark is a **real pick** — numbered, attributed to whoever is on the clock, and it
 advances the clock. That is what happened in the room, so that is what gets recorded.
 
-This is **local state only** — nothing is ever written to ESPN. It survives a refresh and a
-restart of the same container, but **does not transfer between instances**: failing over from
-local to cluster loses your manual marks. Everything else reconstructs.
+**It is written to disk the moment you make it** (`draft-state-espn_davis_drive.json`, in the
+`audible-cache` volume at `/app/data/cache`) and restored on start. So it survives a browser
+refresh, a `docker restart`, and even `docker rm -f` followed by the launcher again — as long
+as the same volume is reused. Nothing is ever written to ESPN.
+
+What it does **not** survive is a *different instance*: a second container with its own
+volume, or serving from source, starts empty. Everything else reconstructs from sync.
 
 ---
 
@@ -258,29 +313,65 @@ Work down. Every rung still lets you draft.
 | # | surface | how | loses |
 |---|---|---|---|
 | 1 | **local container** | `scripts/draft-day.cmd` → `localhost:8080` | — |
-| 2 | **cluster spare** | open `http://192.168.1.110` | manual marks |
-| 3 | **serve from source** | `uv run audible serve --league espn_davis_drive` | manual marks; needs a board build |
-| 4 | **printed board** | `uv run audible cheatsheet espn_davis_drive` (do this at T-24h) | everything live |
+| 2 | **serve from source** | `uv run audible serve --league espn_davis_drive` | manual marks; needs a board build |
+| 3 | **printed board** | `uv run audible cheatsheet espn_davis_drive` (do this at T-24h) | everything live |
 
-> **League B has no CLI rung.** `audible live` polls Sleeper directly and is **Sleeper-only**.
-> It will refuse to run for `espn_davis_drive` and tell you so. Do not reach for it at 8:40 —
-> rung 3 is `serve`, and rung 4 is paper.
+> ### The cluster copy at `192.168.1.110` is NOT a League B fallback
+>
+> **Read from the live cluster on 2026-08-20.** `Deployment/audible` in namespace `audible`
+> runs `args: [audible, serve, --league, sleeper_boyfun, ...]`. It serves **League A**.
+> Opening it mid-draft gives you a *correct board for the wrong league* — the kind of wrong
+> that looks right, and the same failure A3 caught in the launcher and fixed only there.
+>
+> Two more things about that pod, both read from the manifest, both relevant on the night:
+>
+> - **`image: ghcr.io/eyanric/audible:latest`, `imagePullPolicy: Always`.** The spare is not
+>   pinned and re-pulls on every restart. A3 pinned the launcher; the cluster still moves.
+> - **Its cache volume is an `emptyDir`, not a PVC.** A pod restart wipes the board cache
+>   *and* the draft state, so it rebuilds **from the network** — the offline property A3
+>   proved does not hold there — and its readiness probe allows five minutes for that. It
+>   also carries no `ESPN_S2`/`ESPN_SWID`, so sync and slot resolution could not work for
+>   League B even if it were pointed at it.
+>
+> **That is why the ladder no longer has a cluster rung.** If you want one before the 28th it
+> is additive rather than a change — `audible` performs no platform writes, so a second copy
+> runs happily alongside League A's:
+>
+> - copy `Deployment/audible` to `audible-espn`, set `--league espn_davis_drive`, pin
+>   `image:` to the digest the launcher already uses, mount a real PVC at `/app/data`, and
+>   add the two ESPN cookies as secret env;
+> - give it its own LoadBalancer IP and put **that** in this table.
+>
+> Do it **before the freeze** or not at all.
 
-Rung 4 is why you print the cheat sheet the day before. If the laptop dies you still draft off
+> **League B has no CLI rung either.** `audible live` polls Sleeper directly and is
+> **Sleeper-only**. It refuses for `espn_davis_drive` in 0.3s and says so. Do not reach for
+> it at 8:40 — rung 2 is `serve`, and rung 3 is paper.
+
+Rung 3 is why you print the cheat sheet the day before. If the laptop dies you still draft off
 paper, and the top of the board barely moves in 24 hours.
 
 ---
 
 ## If latency gets measured
 
-Run the temp draft with the measurement script already running:
+**The temp-league route is dead, and following it wastes an evening.** ESPN will not start a
+draft with unfilled slots: every seat must be filled before the listed start time or the
+draft is pushed back in five-minute intervals, indefinitely. Solo league `102010124` was
+never going to produce a number, and read read-only it shows `drafted: false`,
+`inProgress: false`, **0 real picks**.
+
+The only route that can work is a **real, full draft you can join** — a public ESPN league
+drafting in the next day or two — with the script running *first*:
 
 ```bash
-uv run python scripts/espn_latency.py --league-id 102010124
-# THEN start the draft in league 102010124 and let it run two or three rounds.
+uv run python scripts/espn_latency.py --league-id <that league's id>
+# THEN let two or three rounds happen.
 ```
 
-Latency cannot be reconstructed afterwards — the script has to be watching while picks happen.
+Latency cannot be reconstructed afterwards; the script has to be watching while picks happen.
+**This is optional.** Manual entry is primary and this runbook assumes it, so an unmeasured
+latency costs nothing on the night.
 
 | median lag | what changes |
 |---|---|
@@ -293,8 +384,8 @@ Latency cannot be reconstructed afterwards — the script has to be watching whi
 
 ```bash
 docker logs -f audible-cockpit          # what is it doing
-docker restart audible-cockpit          # keeps synced picks, loses manual marks
-docker rm -f audible-cockpit            # stop entirely
+docker restart audible-cockpit          # keeps EVERYTHING: synced picks and manual marks
+docker rm -f audible-cockpit            # stop entirely; state survives on the volume
 
 curl localhost:8080/healthz             # board present? from disk? how stale?
 curl localhost:8080/api/state | head    # full state
@@ -303,9 +394,9 @@ curl localhost:8080/api/state | head    # full state
 | thing | value |
 |---|---|
 | local | `http://localhost:8080` |
-| cluster | `http://192.168.1.110` |
-| MCP (LAN) | `<base>/mcp` — open, no auth, same as the UI |
-| MCP (public) | `https://mcp-audible.havenhomelab.org` — GitHub OAuth at the proxy |
+| cluster | `http://192.168.1.110` — **League A. Not a League B fallback.** |
+| MCP (LAN) | `<base>/mcp` — open, no auth, same as the UI. Local base = League B. |
+| MCP (public) | `https://mcp-audible.havenhomelab.org` — GitHub OAuth, and it proxies the **cluster** pod, so it answers for **League A** |
 | league | `espn_davis_drive` — ESPN 6012, 8-team, 1-QB, half-PPR for WR/TE, **0.0 for RB** |
 | roster | QB, 2×RB, 2×WR, TE, FLEX, D/ST, K = 9 starters, 7 bench, 16 rounds |
 | me | team 8 → **draft slot 8** (the turn) |
