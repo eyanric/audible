@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .config import LeagueConfig, load_all_leagues
 from .value import VorpEntry, compute_vorp
@@ -416,7 +416,10 @@ def cmd_anchoring(args: argparse.Namespace) -> int:
 
     print(f"Opponent anchoring -- [{cfg.key}] {cfg.name}")
     with EspnAdapter() as espn:
-        report = build_report(espn, cfg, me=args.me)
+        kwargs: dict[str, Any] = {"me": args.me}
+        if args.seasons:
+            kwargs["seasons"] = tuple(args.seasons)
+        report = build_report(espn, cfg, **kwargs)
 
     print(f"  seasons: {', '.join(str(s) for s in report.seasons)}"
           + (f"  (excluded: {', '.join(str(s) for s in report.excluded_seasons)} "
@@ -427,6 +430,19 @@ def cmd_anchoring(args: argparse.Namespace) -> int:
           f"placeholder, not an ordering")
     print(f"  a pick counts as discriminating when the two boards differ by "
           f">= {DIVERGENCE_MIN:.0f} ranks; a seat needs {MIN_DIVERGENT} of them to be labelled")
+
+    if report.identity == "owner":
+        print("  seats keyed by OWNER GUID -- ESPN reuses teamId across seasons")
+    else:
+        print("  !! seats keyed by TEAM ID: standings were unavailable, so the owner GUID "
+              "could not be read.")
+        print("     ESPN reuses team ids across seasons. If any id moved, a seat below "
+              "pools two people.")
+    for note in report.id_moves:
+        print(f"  !! {note} -- pooling by team id would have merged them")
+    if report.identity == "owner" and not report.id_moves:
+        print("  no team id changed hands over this window, so id-based pooling would have "
+              "agreed")
 
     print(f"\n{'seat':<6} {'picks':>5} {'ranked':>7} {'disc':>5} "
           f"{'sp(STD)':>8} {'sp(PPR)':>8} {'mad(STD)':>9} {'mad(PPR)':>9} "
@@ -568,7 +584,10 @@ def cmd_draft_quality(args: argparse.Namespace) -> int:
 
     print(f"Draft quality -- [{cfg.key}] {cfg.name}")
     with EspnAdapter() as espn:
-        report = build_report(espn, cfg)
+        report = (
+            build_report(espn, cfg, seasons=tuple(args.seasons))
+            if args.seasons else build_report(espn, cfg)
+        )
 
     print(f"  seasons: {', '.join(str(s) for s in report.seasons)}")
     print(f"  {report.total_picks} picks, {report.coverage:.1%} with a realized season total "
@@ -638,6 +657,99 @@ def cmd_draft_quality(args: argparse.Namespace) -> int:
         print(f"  Note the draft tracks POINTS ({pts_mean:+.3f}) more closely than it tracks")
         print(f"  STANDINGS ({fin_mean:+.3f}). A better draft scores more; converting that into")
         print("  wins runs through a schedule nobody controls.")
+    return 0
+
+
+def _wrap(text: str, width: int = 76) -> list[str]:
+    import textwrap
+
+    return textwrap.wrap(text, width) or [""]
+
+
+def cmd_substitution(args: argparse.Namespace) -> int:
+    from .adapters.espn import EspnAdapter
+    from .adapters.sleeper import SleeperAdapter
+    from .analysis.substitution import ADP_COMPARABLE_SEASONS, build_report
+    from .backtest.data import regressed_ppg_baseline, season_actuals
+    from .draft.sync import EspnIdBridge
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "espn":
+        raise SystemExit("substitution replays ESPN season history; ESPN leagues only")
+
+    seasons = tuple(args.seasons) if args.seasons else ADP_COMPARABLE_SEASONS
+
+    print(f"Substitution gate (C3) -- [{cfg.key}] {cfg.name}")
+    print(f"  seasons: {', '.join(str(s) for s in seasons)}")
+    print("  one seat substituted, every other seat left where it was\n")
+
+    with SleeperAdapter() as sleeper:
+        cache: dict[int, dict[str, float]] = {}
+
+        def baselines(season: int) -> dict[str, float]:
+            # N-1 actuals ONLY. That is the whole leak-free claim, and it is one line:
+            # nothing from season N can reach season N's projection.
+            if season not in cache:
+                prior = season_actuals(sleeper, season - 1, cfg)
+                cache[season] = regressed_ppg_baseline(prior)
+                print(f"  {season}: baseline from {season - 1} actuals, "
+                      f"{len(cache[season])} players")
+            return cache[season]
+
+        bridge = EspnIdBridge()
+        with EspnAdapter() as espn:
+            report = build_report(espn, cfg, baselines, bridge, seasons=seasons)
+
+    return print_substitution(report)
+
+
+def print_substitution(report: Any) -> int:
+    for season, why in sorted(report.skipped.items()):
+        print(f"  SKIPPED {season}: {why}")
+    if not report.results:
+        print("\nNothing ran. No comparison is established.")
+        return 0
+
+    print(f"\n  {'season':>6} {'pool':>5} {'unscored':>9} {'unbridged':>10} {'no base':>8}")
+    for r in report.results:
+        print(f"  {r.season:>6} {r.pool:>5} {r.unscored:>9} {r.unbridged:>10} "
+              f"{r.no_baseline:>8}")
+    print(f"  coverage {report.coverage:.1%} -- an unscored player is counted, never zeroed,")
+    print("  and no line is allowed to reach for one")
+
+    print("\nBEST-BALL POINTS from the drafted roster (optimal legal lineup, season totals)")
+    print(f"\n  {'season':>6} {'actual':>9} {'market':>9} {'baseline':>9} {'machinery':>10} "
+          f"{'hindsight':>10}")
+    for r in report.results:
+        print(f"  {r.season:>6} {r.points['actual']:>9.0f} {r.points['market']:>9.0f} "
+              f"{r.points['baseline']:>9.0f} {r.points['machinery']:>10.0f} "
+              f"{r.points['hindsight']:>10.0f}")
+
+    print("\nDELTAS vs the ADP-naive line, per season")
+    print(f"\n  {'season':>6} {'actual':>9} {'baseline':>9} {'machinery':>10} {'hindsight':>10}")
+    for r in report.results:
+        print(f"  {r.season:>6} {r.delta('actual'):>+9.0f} {r.delta('baseline'):>+9.0f} "
+              f"{r.delta('machinery'):>+10.0f} {r.delta('hindsight'):>+10.0f}")
+
+    print("\nSEASON-LEVEL (each season is ONE observation -- C2's lesson, not a per-pick n)")
+    for line, against, label in (
+        ("machinery", "market", "machinery vs ADP-naive"),
+        ("machinery", "baseline", "the VORP layer alone (projection held fixed)"),
+        ("hindsight", "machinery", "cost of projection error"),
+    ):
+        mean, half, n = report.season_level(line, against)
+        print(f"  {label:<46} {mean:>+8.1f}  95% CI [{mean - half:>+7.1f}, "
+              f"{mean + half:>+7.1f}]  n={n}")
+
+    print("\nWHAT IT ESTABLISHES")
+    for chunk in _wrap(report.verdict()):
+        print(f"  {chunk}")
+    print("")
+    print("  Two handicaps sit on the machinery line and both run the same way: the")
+    print("  projection is deliberately dumb (N-1 actuals, regressed), and it is scored in")
+    print("  half-PPR against seasons ESPN paid at zero PPR. Neither can manufacture a win.")
+    print("  Opponents do not react to a changed pick in front of them; at one substituted")
+    print("  seat that effect is small and it is not zero.")
     return 0
 
 
@@ -943,15 +1055,32 @@ def build_parser() -> argparse.ArgumentParser:
         "anchoring", help="which board is each opponent drafting off? (B1)"
     )
     an.add_argument("league")
-    an.add_argument("--me", type=int, default=8,
-                    help="my ESPN teamId, excluded from the table (default 8)")
+    an.add_argument("--me",
+                    help="my owner GUID, excluded from the table. Defaults to the "
+                         "authenticated ESPN_SWID -- override only to inspect another seat")
+    an.add_argument("--seasons", type=int, nargs="+",
+                    help="seasons to read (default 2023 2024 2025 -- the ones ESPN serves "
+                         "draft ranks for)")
     an.set_defaults(func=cmd_anchoring)
 
     dq = sub.add_parser(
         "draft-quality", help="who drafts well, and does it predict finishing (C1/C2)"
     )
     dq.add_argument("league")
+    dq.add_argument("--seasons", type=int, nargs="+",
+                    help="seasons to read (default 2021-2025; C1/C2 need no ranks, so every "
+                         "season the league has qualifies)")
     dq.set_defaults(func=cmd_draft_quality)
+
+    sb = sub.add_parser(
+        "substitution",
+        help="would drafting off this machinery have beaten the market, in past seasons (C3)",
+    )
+    sb.add_argument("league")
+    sb.add_argument("--seasons", type=int, nargs="+",
+                    help="seasons to replay (default 2023 2024 2025 -- the ones ESPN "
+                         "serves draft ranks for)")
+    sb.set_defaults(func=cmd_substitution)
 
     rc = sub.add_parser(
         "rank-check", help="our ordering vs ESPN's served ranks, tier by tier (B-next)"

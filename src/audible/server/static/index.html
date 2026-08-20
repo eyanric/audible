@@ -7,13 +7,13 @@
 <link rel="icon" href="data:,">
 <title>audible — draft cockpit</title>
 <style>
-/* ─────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────
    audible draft cockpit
    Two semantic accents only:
      --urgent  grab-now, runs, on-the-clock, staleness alarm
      --safe    survives to your next pick, nothing to do
    Position hues are low-saturation chips and must never compete.
-   ───────────────────────────────────────────────────────────── */
+   ────────────────────────────────────────────────────────── */
 :root{
   --bg:#0f1218;
   --panel:#161a21;
@@ -77,7 +77,7 @@ button,input{font:inherit;color:inherit}
 ::-webkit-scrollbar-thumb{background:#333a46;border:3px solid var(--panel);border-radius:6px}
 ::-webkit-scrollbar-thumb:hover{background:#455066}
 
-/* ── top bar ─────────────────────────────────────────────── */
+/* ── top bar ───────────────────────────────────────────── */
 #top{
   flex:0 0 auto;
   display:grid;
@@ -148,7 +148,7 @@ button,input{font:inherit;color:inherit}
 .btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}
 .btn[aria-pressed="true"]{border-color:var(--warm);color:var(--warm);background:rgba(224,145,63,.10)}
 
-/* ── alert strip ─────────────────────────────────────────── */
+/* ── alert strip ──────────────────────────────────────── */
 #alert{
   flex:0 0 auto;display:flex;align-items:baseline;gap:10px;
   padding:6px 14px;border-bottom:1px solid var(--line);
@@ -160,7 +160,7 @@ button,input{font:inherit;color:inherit}
 #alert.bad #alertTitle{color:var(--urgent)}
 #alertMsg{font-size:12.5px;color:var(--txt-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-/* ── board ───────────────────────────────────────────────── */
+/* ── board ─────────────────────────────────────────────── */
 .board{
   flex:1;min-height:0;display:grid;gap:9px;padding:9px;
   grid-template-columns:248px minmax(520px,1fr) 328px;
@@ -188,7 +188,7 @@ button,input{font:inherit;color:inherit}
 .pbody{overflow:auto;scrollbar-gutter:stable;min-height:0}
 .pbody.grow{flex:1}
 
-/* ── position chips ──────────────────────────────────────── */
+/* ── position chips ─────────────────────────────────────── */
 .chip{
   display:inline-block;font-family:var(--f-cond);font-size:10.5px;font-weight:600;
   letter-spacing:.08em;text-transform:uppercase;padding:1px 4px;border-radius:2px;
@@ -206,7 +206,7 @@ button,input{font:inherit;color:inherit}
 .pos-LB{--pc:#a8977f}
 .pos-DB{--pc:#82a5a5}
 
-/* ── your team ───────────────────────────────────────────── */
+/* ── your team ────────────────────────────────────────── */
 #rosterList{padding:4px 0}
 .slot{padding:3px 9px 4px}
 .slot + .slot{border-top:1px solid var(--line-soft)}
@@ -240,7 +240,7 @@ button,input{font:inherit;color:inherit}
 }
 .legend div{margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* ── player tables ───────────────────────────────────────── */
+/* ── player tables ────────────────────────────────────── */
 .ptable{table-layout:fixed;width:100%;border-collapse:collapse}
 col.w-name{width:auto}
 col.w-pos{width:44px}
@@ -248,7 +248,7 @@ col.w-team{width:40px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
 col.w-flags{width:146px}
-col.w-act{width:24px}
+col.w-act{width:30px}
 
 .ptable thead th{
   position:sticky;top:0;z-index:2;background:var(--panel);
@@ -261,7 +261,9 @@ col.w-act{width:24px}
   padding:0 6px;height:23px;border-bottom:1px solid var(--line-soft);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.prow{cursor:default}
+/* no text selection on rows: double-click is a mark action here, and the browser's
+   default word-select would paint a highlight over the row you just acted on */
+.prow{cursor:default;-webkit-user-select:none;user-select:none}
 .prow:hover{background:var(--row-hover)}
 .prow.sel{background:#232935;box-shadow:inset 2px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
 .prow:focus-visible{outline:none;box-shadow:inset 2px 0 0 0 var(--focus),inset 0 0 0 1px var(--focus)}
@@ -282,12 +284,22 @@ col.w-act{width:24px}
 .c-opp.dev::after{content:"\25B3";font-size:9px;margin-left:3px;vertical-align:1px;color:var(--txt-2)}
 .c-surv.low{color:var(--urgent)}
 .c-surv.high{color:var(--safe)}
+/* The mark control fills its cell. It used to be 18x18 with a transparent border, so it
+   was both the smallest target on the page and invisible until you hovered it -- and a
+   control nobody can see is one you click the row instead of, which only selects. It is
+   now the full width of a widened column and the full height of the row, and outlined at
+   rest. Measured in Chromium at 1600x1000: best rows 26x21 (was 18x18 -- 1.69x the area),
+   grab-now rows 26x24. Grab-now clears the 24x24 WCAG 2.5.8 floor; best-available does
+   not, because the row is 23px tall and raising it re-densifies the whole board a week
+   before the draft. The row double-click below is the large-target path there: 976x23. */
+.ptable td.c-act{padding:0 2px}
 .mark{
-  width:18px;height:18px;line-height:1;padding:0;border-radius:2px;cursor:pointer;
-  background:transparent;border:1px solid transparent;color:var(--txt-3);font-size:12px;
+  display:block;width:100%;height:21px;line-height:1;padding:0;border-radius:2px;cursor:pointer;
+  background:#181d25;border:1px solid var(--line-soft);color:var(--txt-3);font-size:12px;
 }
 .prow:hover .mark,.prow.sel .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
-.mark:hover{border-color:var(--urgent);color:var(--urgent)}
+.mark:hover{border-color:var(--urgent);color:var(--urgent);background:var(--urgent-bg-2)}
+.mark:focus-visible{outline:none;border-color:var(--focus);color:var(--txt)}
 
 /* grab now */
 #grabPanel{border-color:rgba(255,106,60,.38);background:linear-gradient(180deg,var(--urgent-bg-2),transparent 90px),var(--panel)}
@@ -298,6 +310,7 @@ col.w-act{width:24px}
 #grabBody .prow.sel{background:#262a33;box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px #454c5b}
 #grabBody .prow:focus-visible{box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px var(--focus)}
 #grabBody td{height:26px;border-bottom-color:rgba(255,106,60,.12)}
+#grabBody .mark{height:24px}
 #grabBody .c-name{font-size:14.5px;color:#fff}
 #grabEmpty{padding:11px 11px 12px;color:var(--txt-2);font-size:12.5px}
 #grabEmpty b{color:var(--txt);font-weight:600}
@@ -342,7 +355,7 @@ col.w-act{width:24px}
 #notReady p{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--txt-2);max-width:60ch}
 #notReady .quiet{color:var(--txt-3);font-size:12px}
 
-/* ── runs, cliffs, counts ────────────────────────────────── */
+/* ── runs, cliffs, counts ─────────────────────────────────── */
 #countsRow{display:flex;flex-wrap:wrap;gap:6px;padding:8px 9px;border-bottom:1px solid var(--line-soft);align-items:center}
 #countsChips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .cnt{display:flex;align-items:center;gap:4px}
@@ -367,7 +380,7 @@ col.w-act{width:24px}
   text-transform:uppercase;color:var(--txt-3);border-top:1px solid var(--line-soft);
 }
 
-/* ── recent picks ────────────────────────────────────────── */
+/* ── recent picks ───────────────────────────────────────── */
 .pick{display:flex;align-items:center;gap:7px;padding:0 9px;height:23px;border-bottom:1px solid var(--line-soft)}
 .pick .no{font-family:var(--f-mono);font-size:11px;color:var(--txt-3);width:26px;text-align:right;font-variant-numeric:tabular-nums}
 .pick .nm{font-size:12.5px;color:var(--txt-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -377,11 +390,11 @@ col.w-act{width:24px}
 .pick.mine .nm{color:var(--txt);font-weight:600}
 .pick.mine .st{color:var(--txt)}
 
-/* ── last-known / frozen dimming ─────────────────────────── */
+/* ── last-known / frozen dimming ────────────────────────────── */
 .board.lastknown{opacity:.72}
 .board.lastknown .panel{border-style:dashed}
 
-/* ── stacked fallback ────────────────────────────────────── */
+/* ── stacked fallback ───────────────────────────────────── */
 @media (max-width:900px){
   body{height:auto;min-height:100dvh;overflow:auto}
   #top{grid-template-columns:1fr;gap:8px;text-align:left}
@@ -443,7 +456,7 @@ col.w-act{width:24px}
 
 <main class="board" id="board">
 
-  <!-- ── left ─────────────────────────────────────────── -->
+  <!-- ── left ──────────────────────────────────── -->
   <section class="col col-left">
     <div class="panel grow">
       <div class="phead">
@@ -460,6 +473,7 @@ col.w-act{width:24px}
           <div><kbd>enter</kbd>mark top match</div>
           <div><kbd>&uarr;&darr;</kbd>move selection</div>
           <div><kbd>t</kbd>Mark taken</div>
+          <div><kbd>dbl-click</kbd>Mark taken</div>
           <div><kbd>u</kbd> / <kbd>ctrl+z</kbd>Undo</div>
           <div><kbd>space</kbd>Pause updates</div>
           <div><kbd>0-6</kbd>position filter</div>
@@ -468,7 +482,7 @@ col.w-act{width:24px}
     </div>
   </section>
 
-  <!-- ── centre ───────────────────────────────────────── -->
+  <!-- ── centre ─────────────────────────────────── -->
   <section class="col col-mid">
 
     <div class="panel" id="grabPanel">
@@ -536,7 +550,7 @@ col.w-act{width:24px}
 
   </section>
 
-  <!-- ── right ────────────────────────────────────────── -->
+  <!-- ── right ────────────────────────────────── -->
   <section class="col col-right">
     <div class="panel">
       <div class="phead"><span class="ptitle">Runs &amp; cliffs</span></div>
@@ -572,7 +586,7 @@ col.w-act{width:24px}
 "use strict";
 (function () {
 
-/* ───────────────────────── constants ───────────────────────── */
+/* ──────────────────────── constants ──────────────────────── */
 
 var POLL_MS = 2000;
 var TICK_MS = 500;
@@ -590,7 +604,7 @@ var SLOT_LABEL = {
   "D/ST": "DST", DEF: "DST", BN: "BENCH"
 };
 
-/* ───────────────────────── dom helpers ─────────────────────── */
+/* ──────────────────────── dom helpers ────────────────────── */
 
 function $(id) { return document.getElementById(id); }
 
@@ -652,7 +666,7 @@ function reconcile(container, items, keyOf, create, update) {
   });
 }
 
-/* ───────────────────────── formatting ──────────────────────── */
+/* ──────────────────────── formatting ─────────────────────── */
 
 function rank(v) { return (v == null) ? "—" : String(v); }
 
@@ -687,7 +701,7 @@ function clockNow() {
   return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
 }
 
-/* ───────────────────────── app state ───────────────────────── */
+/* ──────────────────────── app state ──────────────────────── */
 
 var S = {
   data: null,            // last good payload
@@ -709,7 +723,7 @@ var S = {
   tabsBuilt: false
 };
 
-/* ───────────────────────── player rows ─────────────────────── */
+/* ──────────────────────── player rows ────────────────────── */
 
 function createPlayerRow(scope) {
   var tr = mk("tr", "prow");
@@ -736,7 +750,11 @@ function createPlayerRow(scope) {
   var tdAct = mk("td", "c-act");
   var btn = mk("button", "mark", "✕");
   btn.type = "button";
-  setAttr(btn, "title", "Mark taken");
+  // Out of the tab order on purpose. There are up to 150 of these; leaving them focusable
+  // puts 150 stops between the search box and anything else on the page. The keyboard
+  // paths to the same action are `t` on the selected row and Enter from the search box.
+  btn.tabIndex = -1;
+  setAttr(btn, "title", "Mark taken (or double-click the row)");
   tdAct.appendChild(btn);
 
   tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
@@ -755,6 +773,17 @@ function createPlayerRow(scope) {
   btn.addEventListener("click", function (ev) {
     ev.preventDefault();
     ev.stopPropagation();
+    markTaken(rec.id, rec.name.textContent);
+  });
+  // A second, forgiving path to the same action: the whole row, which is ~700px wide
+  // rather than 30. Single click still only SELECTS -- that is deliberate, because a
+  // stray click while scrolling must never mark a player. Double-click is the deliberate
+  // gesture, it names what it did in the action note, and Ctrl+Z / u is one keystroke.
+  tr.addEventListener("dblclick", function (ev) {
+    // the button already handled its own clicks; without this a double-click ON the
+    // button fires two button clicks AND this, i.e. three marks for one gesture
+    if (ev.target === btn || btn.contains(ev.target)) return;
+    ev.preventDefault();
     markTaken(rec.id, rec.name.textContent);
   });
 
@@ -791,7 +820,7 @@ function updatePlayerRow(rec, p) {
   setAttr(rec.btn, "aria-label", "Mark taken: " + (p.name || p.id));
 }
 
-/* ───────────────────────── selection ───────────────────────── */
+/* ──────────────────────── selection ──────────────────────── */
 
 function selKey(scope, id) { return scope + "|" + id; }
 
@@ -851,7 +880,7 @@ function moveSelection(delta) {
   select(n.scope, n.id, true);
 }
 
-/* ───────────────────────── tabs ────────────────────────────── */
+/* ──────────────────────── tabs ──────────────────────────── */
 
 function buildTabs(present) {
   var wrap = $("tabs");
@@ -888,7 +917,7 @@ function setFilter(key) {
   if (S.data) render(S.data);
 }
 
-/* ───────────────────────── top bar ─────────────────────────── */
+/* ──────────────────────── top bar ────────────────────────── */
 
 function renderTop(d) {
   var top = $("top");
@@ -957,7 +986,7 @@ function renderTop(d) {
   if (document.title !== t) document.title = t;
 }
 
-/* ───────────────────────── sync / staleness ────────────────── */
+/* ──────────────────────── sync / staleness ────────────────── */
 
 function ageSeconds() {
   if (!S.data) return null;
@@ -1006,7 +1035,7 @@ function renderSync() {
   setAttr(chip, "title", tip.join("  ·  "));
 }
 
-/* ───────────────────────── alert strip ─────────────────────── */
+/* ──────────────────────── alert strip ────────────────────── */
 
 function renderAlert() {
   var bar = $("alert"), title = $("alertTitle"), msg = $("alertMsg");
@@ -1047,7 +1076,7 @@ function renderAlert() {
   setText(msg, body);
 }
 
-/* ───────────────────────── roster ──────────────────────────── */
+/* ──────────────────────── roster ─────────────────────────── */
 
 function renderRoster(d) {
   var roster = d.roster || {};
@@ -1104,7 +1133,7 @@ function renderRoster(d) {
     lg.num_teams ? lg.num_teams + " teams" : null].filter(Boolean).join("  ·  "));
 }
 
-/* ───────────────────────── centre board ────────────────────── */
+/* ──────────────────────── centre board ───────────────────── */
 
 function filteredBest(list) {
   var q = S.query.trim().toLowerCase();
@@ -1209,7 +1238,7 @@ function renderCentre(d) {
   renderEnterHint();
 }
 
-/* ───────────────────────── right column ────────────────────── */
+/* ──────────────────────── right column ───────────────────── */
 
 function renderRight(d) {
   var counts = d.counts_last10 || {};
@@ -1302,7 +1331,7 @@ function renderRight(d) {
     });
 }
 
-/* ───────────────────────── action note ─────────────────────── */
+/* ──────────────────────── action note ────────────────────── */
 
 function renderAction() {
   var note = $("actionNote"), btn = $("undoBtn");
@@ -1315,7 +1344,7 @@ function renderAction() {
   }
 }
 
-/* ───────────────────────── render all ──────────────────────── */
+/* ──────────────────────── render all ─────────────────────── */
 
 function render(d) {
   var lastKnown = (S.fetchFail > 0) || (d.sync && d.sync.status === "failing");
@@ -1338,7 +1367,7 @@ function applyState(d) {
   render(d);
 }
 
-/* ───────────────────────── network ─────────────────────────── */
+/* ──────────────────────── network ────────────────────────── */
 
 function poll() {
   if (S.paused || S.inflight) return;
@@ -1397,10 +1426,20 @@ function renderEnterHint() {
   if (t) setText($("enterHint"), "↵ marks " + t.name);
 }
 
+/* One gesture must be one mark. There are now three surfaces that call this (the ✕, a
+   row double-click, and Enter/`t`), and marking the same player twice pushes two entries
+   onto takenStack -- so undo would need two presses and the second would fail against a
+   player who is already back on the board. */
+var markInFlight = {};
+
 function markTaken(id, name) {
   if (id == null) return;
+  var key = String(id);
+  if (markInFlight[key]) return;
+  markInFlight[key] = true;
   var label = name || id;
   post("/api/taken", id).then(function (j) {
+    delete markInFlight[key];
     S.takenStack.push({ id: String(id), name: label });
     S.actionMsg = "Marked taken: " + label;
     S.actionErr = false;
@@ -1408,6 +1447,7 @@ function markTaken(id, name) {
     S.lastFetchError = null;
     applyState(j);
   }).catch(function (err) {
+    delete markInFlight[key];
     console.error("[audible] mark taken failed:", err);
     S.actionMsg = "Mark taken failed: " + label;
     S.actionErr = true;
@@ -1438,7 +1478,7 @@ function undoTaken() {
   });
 }
 
-/* ───────────────────────── pause ───────────────────────────── */
+/* ──────────────────────── pause ─────────────────────────── */
 
 function setPaused(on) {
   S.paused = !!on;
@@ -1451,7 +1491,7 @@ function setPaused(on) {
   renderSync();
 }
 
-/* ───────────────────────── keyboard ────────────────────────── */
+/* ──────────────────────── keyboard ───────────────────────── */
 
 function isTyping(t) {
   return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
@@ -1534,7 +1574,7 @@ document.addEventListener("keydown", function (e) {
   }
 });
 
-/* ───────────────────────── wiring ──────────────────────────── */
+/* ──────────────────────── wiring ──────────────────────────── */
 
 $("pauseBtn").addEventListener("click", function () { setPaused(!S.paused); });
 $("undoBtn").addEventListener("click", function () { undoTaken(); });

@@ -37,3 +37,33 @@ jobs:
 
       - name: pytest
         run: uv run pytest
+
+  # A separate job on purpose: it downloads a browser, and that cost should not sit in front
+  # of lint/types/tests on every push. It is also the only check that can catch a cockpit
+  # that paints and then ignores you -- the Python suite asserts the JSON contract, and the
+  # page is 1,500 lines of inline JS behind it.
+  cockpit-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --extra nflverse
+
+      # `--with` rather than a declared dependency group: Playwright is needed by exactly
+      # one test file and by nothing that ships, and adding it to pyproject would put a
+      # browser automation stack and its transitive pins into the lockfile that the draft
+      # -night image resolves from. Ephemeral here, locked nowhere.
+      - run: uv run --with playwright playwright install --with-deps chromium
+
+      # AUDIBLE_UI_REQUIRED=1 makes a skip a failure. Without it this job goes green by
+      # running nothing at all the day the browser install breaks -- the exact silent-empty
+      # failure this repo keeps finding elsewhere.
+      - name: pytest (cockpit UI)
+        env:
+          AUDIBLE_UI_REQUIRED: "1"
+        run: uv run --with playwright pytest tests/test_cockpit_ui.py

@@ -59,7 +59,7 @@ def _draft_by(ranks: dict[str, Any], key: str, team_id: int, n: int = 30) -> lis
 def test_a_manager_drafting_espns_board_is_read_as_espn() -> None:
     ranks = _board()
     picks = _draft_by(ranks, "standard", team_id=1)
-    verdict = seat_verdict(1, "AAA", {2024: (picks, ranks)})
+    verdict = seat_verdict("AAA", "AAA", {2024: 1}, {2024: (picks, ranks)})
 
     assert verdict.label == "espn"
     assert verdict.edge > 0
@@ -74,7 +74,7 @@ def test_a_manager_drafting_a_ppr_board_is_read_as_ppr() -> None:
     """
     ranks = _board()
     picks = _draft_by(ranks, "ppr", team_id=2, n=60)
-    verdict = seat_verdict(2, "BBB", {2024: (picks, ranks)})
+    verdict = seat_verdict("BBB", "BBB", {2024: 2}, {2024: (picks, ranks)})
 
     assert verdict.divergent >= MIN_DIVERGENT
     assert verdict.label == "ppr"
@@ -86,7 +86,7 @@ def test_too_few_discriminating_picks_stays_unclassified() -> None:
     """A direction read off three players is not a finding."""
     ranks = _board(divergent_every=25)  # almost nothing separates the boards
     picks = _draft_by(ranks, "standard", team_id=3)
-    verdict = seat_verdict(3, "CCC", {2024: (picks, ranks)})
+    verdict = seat_verdict("CCC", "CCC", {2024: 3}, {2024: (picks, ranks)})
 
     assert verdict.divergent < MIN_DIVERGENT
     assert verdict.label == "unclassified"
@@ -107,7 +107,7 @@ def test_a_manager_who_leans_both_ways_stays_unclassified() -> None:
         overall = 2 if i % 2 == 0 else 190
         picks.append({"overall": overall, "round": 1, "team_id": 4, "player_id": pid})
 
-    verdict = seat_verdict(4, "DDD", {2024: (picks, ranks)})
+    verdict = seat_verdict("DDD", "DDD", {2024: 4}, {2024: (picks, ranks)})
     assert verdict.divergent >= MIN_DIVERGENT
     assert verdict.label == "unclassified"
 
@@ -126,7 +126,7 @@ def test_the_degenerate_rank_tail_is_excluded() -> None:
     picks = _draft_by(ranks, "standard", team_id=5, n=20)
     picks.append({"overall": 21, "round": 2, "team_id": 5, "player_id": "999"})
 
-    verdict = seat_verdict(5, "EEE", {2024: (picks, ranks)})
+    verdict = seat_verdict("EEE", "EEE", {2024: 5}, {2024: (picks, ranks)})
     assert verdict.ranked_picks == 20, "the placeholder pick must not reach the statistics"
     assert abs(verdict.edge) < 100, "and must not dominate the average"
 
@@ -159,11 +159,26 @@ def test_sign_test_ignores_exact_zeros() -> None:
 # --- the report ------------------------------------------------------------------------------
 
 
-class _Adapter:
-    """Serves two seasons; one of them has no ranks at all, like 2021-22."""
+MY_GUID = "{ME-GUID}"
 
-    def __init__(self, ranks: dict[str, Any], picks: list[dict[str, Any]]) -> None:
+
+class _Adapter:
+    """Serves two seasons; one of them has no ranks at all, like 2021-22.
+
+    ``owners`` lets a test move a team id between managers across seasons, which is the
+    thing team-id pooling gets wrong and the reason seats are keyed by owner GUID.
+    """
+
+    swid = MY_GUID
+
+    def __init__(
+        self,
+        ranks: dict[str, Any],
+        picks: list[dict[str, Any]],
+        owners: dict[int, dict[int, str]] | None = None,
+    ) -> None:
         self._ranks, self._picks = ranks, picks
+        self._owners = owners
 
     def get_season_draft(self, _config: Any, season: int) -> list[dict[str, Any]]:
         return self._picks
@@ -172,7 +187,19 @@ class _Adapter:
         return {} if season == 2022 else self._ranks
 
     def get_season_teams(self, _config: Any, season: int) -> dict[int, str]:
-        return {1: "AAA", 8: "ME"}
+        return {1: "AAA", 2: "BBB", 8: "ME"}
+
+    def get_season_standings(self, _config: Any, season: int) -> list[dict[str, Any]]:
+        default = {1: "{OWNER-1}", 2: "{OWNER-2}", 8: MY_GUID}
+        table = (self._owners or {}).get(season, default)
+        return [{"team_id": t, "owner": o, "abbrev": f"T{t}"} for t, o in table.items()]
+
+
+class _NoStandings(_Adapter):
+    """An adapter that cannot answer for owners -- the degraded case."""
+
+    def get_season_standings(self, _config: Any, season: int) -> list[dict[str, Any]]:
+        return []
 
 
 def test_a_season_with_no_ranks_is_excluded_not_compared_against_nothing() -> None:
@@ -181,7 +208,7 @@ def test_a_season_with_no_ranks_is_excluded_not_compared_against_nothing() -> No
     against nothing."""
     ranks = _board()
     picks = _draft_by(ranks, "standard", team_id=1)
-    report = build_report(_Adapter(ranks, picks), None, seasons=(2022, 2024), me=8)
+    report = build_report(_Adapter(ranks, picks), None, seasons=(2022, 2024))
 
     assert report.seasons == (2024,)
     assert report.excluded_seasons == (2022,)
@@ -192,8 +219,10 @@ def test_my_own_seat_is_excluded_from_the_table() -> None:
     picks = _draft_by(ranks, "standard", team_id=1) + [
         {"overall": 99, "round": 4, "team_id": 8, "player_id": "1"}
     ]
-    report = build_report(_Adapter(ranks, picks), None, seasons=(2024,), me=8)
-    assert [s.team_id for s in report.seats] == [1]
+    report = build_report(_Adapter(ranks, picks), None, seasons=(2024,))
+    assert [s.seat_id for s in report.seats] == ["{OWNER-1}"]
+    assert [s.team_ids for s in report.seats] == [(1,)]
+    assert report.identity == "owner"
 
 
 def test_coverage_counts_picks_the_board_could_not_price() -> None:
@@ -201,7 +230,7 @@ def test_coverage_counts_picks_the_board_could_not_price() -> None:
     picks = _draft_by(ranks, "standard", team_id=1, n=20)
     picks.append({"overall": 21, "round": 2, "team_id": 1, "player_id": "no-such-player"})
 
-    report = build_report(_Adapter(ranks, picks), None, seasons=(2024,), me=8)
+    report = build_report(_Adapter(ranks, picks), None, seasons=(2024,))
     assert report.unranked_picks == 1
     assert report.total_picks == 21
     assert 0.9 < report.coverage < 1.0
@@ -212,4 +241,80 @@ def test_divergence_threshold_is_what_makes_a_pick_informative() -> None:
     carry no information about which one was being read."""
     ranks = _board(swing=DIVERGENCE_MIN - 1)  # boards nearly agree everywhere
     picks = _draft_by(ranks, "standard", team_id=1)
-    assert seat_verdict(1, "AAA", {2024: (picks, ranks)}).divergent == 0
+    assert seat_verdict("AAA", "AAA", {2024: 1}, {2024: (picks, ranks)}).divergent == 0
+
+
+# --- seat identity: the thing team ids get wrong ---------------------------------------------
+
+
+def test_my_seat_is_found_from_the_adapters_swid_without_being_told() -> None:
+    """It used to be `--me 8`: a personal constant sitting in a CLI default, and an identity
+    ESPN is free to reassign. A wrong `me` drops a real opponent and adds me as if I were one."""
+    ranks = _board()
+    picks = _draft_by(ranks, "standard", team_id=1) + [
+        {"overall": 99, "round": 4, "team_id": 8, "player_id": "1"}
+    ]
+    report = build_report(_Adapter(ranks, picks), None, seasons=(2024,))
+    assert MY_GUID not in [s.seat_id for s in report.seats]
+    assert [s.seat_id for s in report.seats] == ["{OWNER-1}"]
+
+
+def test_one_team_id_held_by_two_managers_is_two_seats() -> None:
+    """The failure team-id pooling makes silently: ESPN reuses ids, so a seat that changed
+    hands between seasons would be pooled as one manager with twice the picks."""
+    ranks = _board()
+    picks = _draft_by(ranks, "standard", team_id=1)
+    owners = {
+        2023: {1: "{OWNER-1}", 8: MY_GUID},
+        2024: {1: "{OWNER-2}", 8: MY_GUID},  # same id, different person
+    }
+    report = build_report(
+        _Adapter(ranks, picks, owners), None, seasons=(2023, 2024)
+    )
+    assert sorted(s.seat_id for s in report.seats) == ["{OWNER-1}", "{OWNER-2}"]
+    assert any("held by 2 managers" in note for note in report.id_moves)
+
+
+def test_one_manager_across_two_team_ids_is_one_seat() -> None:
+    ranks = _board()
+    picks = _draft_by(ranks, "standard", team_id=1) + _draft_by(ranks, "standard", team_id=2)
+    owners = {
+        2023: {1: "{OWNER-1}", 2: "{OWNER-2}", 8: MY_GUID},
+        2024: {1: "{OWNER-2}", 2: "{OWNER-1}", 8: MY_GUID},  # the two swapped ids
+    }
+    report = build_report(
+        _Adapter(ranks, picks, owners), None, seasons=(2023, 2024)
+    )
+    assert len(report.seats) == 2
+    assert all(len(s.team_ids) == 2 for s in report.seats)
+    assert any("several team ids" in note for note in report.id_moves)
+
+
+def test_a_stable_window_says_so_rather_than_leaving_it_open() -> None:
+    """If no id moved, id-based pooling would have agreed -- which is what makes the earlier
+    published numbers safe to keep. Silence would leave that unknowable."""
+    ranks = _board()
+    picks = _draft_by(ranks, "standard", team_id=1)
+    report = build_report(_Adapter(ranks, picks), None, seasons=(2023, 2024))
+    assert report.identity == "owner"
+    assert report.id_moves == ()
+
+
+def test_without_standings_the_weaker_key_is_declared_not_hidden() -> None:
+    """A report that silently fell back to team ids looks identical to one that did not."""
+    ranks = _board()
+    picks = _draft_by(ranks, "standard", team_id=1)
+    report = build_report(_NoStandings(ranks, picks), None, seasons=(2024,))
+    assert report.identity == "team_id"
+    assert [s.seat_id for s in report.seats] == ["team:1"]
+
+
+def test_a_numeric_me_still_works_on_the_degraded_path() -> None:
+    """Without owners there is no GUID to match, and quietly leaving my own seat in the
+    table would be worse than the weaker key that caused it."""
+    ranks = _board()
+    picks = _draft_by(ranks, "standard", team_id=1) + [
+        {"overall": 99, "round": 4, "team_id": 8, "player_id": "1"}
+    ]
+    report = build_report(_NoStandings(ranks, picks), None, seasons=(2024,), me="8")
+    assert [s.seat_id for s in report.seats] == ["team:1"]
