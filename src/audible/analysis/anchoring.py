@@ -31,6 +31,14 @@ rather than reporting a direction it has not earned.
 
 2021 and 2022 are excluded throughout: ESPN serves no ranks for those seasons, and sorting by
 an absent rank type returns arbitrary order with no error.
+
+**A seat is a person, not a team id.** This module used to pool by ``teamId``, which ESPN
+reuses across seasons -- C1 keys on the owner GUID for exactly that reason and this one did
+not. Where an id changed hands, id-based pooling would merge two managers into one seat with
+twice the picks, and nothing about the output would look wrong. Seats are now keyed by owner
+GUID from the standings, and the report carries ``identity`` (which key was actually used)
+and ``id_moves`` (every id that changed hands). When ``id_moves`` is empty the two keys agree
+and any earlier id-based result stands; that is stated rather than left to be assumed.
 """
 
 from __future__ import annotations
@@ -81,9 +89,15 @@ class SeatSeason:
 
 @dataclass(frozen=True, slots=True)
 class SeatVerdict:
-    """One manager, pooled across the ranked seasons."""
+    """One manager, pooled across the ranked seasons.
 
-    team_id: int
+    ``seat_id`` is the owner GUID where standings were available and ``team:<id>`` where they
+    were not. ``team_ids`` is every ESPN team id this manager held across the window -- more
+    than one means ESPN moved his id, which is exactly why the GUID is the key and not the id.
+    """
+
+    seat_id: str
+    team_ids: tuple[int, ...]
     abbrev: str
     picks: int
     ranked_picks: int
@@ -171,9 +185,17 @@ def seat_season(
 
 
 def seat_verdict(
-    team_id: int, abbrev: str, seasons: dict[int, tuple[list[dict[str, Any]], dict[str, Any]]]
+    seat_id: str,
+    abbrev: str,
+    team_by_season: dict[int, int],
+    seasons: dict[int, tuple[list[dict[str, Any]], dict[str, Any]]],
 ) -> SeatVerdict:
     """Pool a manager's ranked seasons into one verdict.
+
+    ``team_by_season`` is which ESPN team id this manager held each season. It is a mapping
+    rather than a single id because ESPN reuses team ids across seasons -- C1 already keys on
+    the owner GUID for exactly this reason, and pooling by id would silently merge two people
+    into one seat wherever an id moved.
 
     Pooling is over PICKS, not over per-season averages: seasons contribute unequal numbers
     of usable picks, and averaging averages would weight a thin season like a full one.
@@ -182,6 +204,9 @@ def seat_verdict(
     total = 0
     per_season: list[SeatSeason] = []
     for season, (picks, ranks) in sorted(seasons.items()):
+        team_id = team_by_season.get(season)
+        if team_id is None:
+            continue  # this manager was not in the league that season
         all_picks.extend(_seat_picks(picks, ranks, team_id))
         total += sum(1 for row in picks if row["team_id"] == team_id)
         per_season.append(seat_season(season, team_id, picks, ranks))
@@ -200,7 +225,8 @@ def seat_verdict(
         label = "espn" if edge > 0 else "ppr"
 
     return SeatVerdict(
-        team_id=team_id,
+        seat_id=seat_id,
+        team_ids=tuple(sorted(set(team_by_season.values()))),
         abbrev=abbrev,
         picks=total,
         ranked_picks=len(all_picks),
@@ -243,6 +269,13 @@ class AnchoringReport:
     per_season: list[SeatSeason]
     unranked_picks: int  # picks whose player was on neither board -- coverage, not a gap
     total_picks: int
+    # "owner" when seats were keyed by the owner GUID, "team_id" when standings were
+    # unavailable and the id had to stand in. The difference is not cosmetic and is printed,
+    # because a report that silently fell back to the weaker key looks identical otherwise.
+    identity: str = "team_id"
+    # Every place a team id moved between owners, or an owner between team ids, across the
+    # window. Empty means id-based pooling would have given the same answer.
+    id_moves: tuple[str, ...] = ()
 
     @property
     def coverage(self) -> float:
@@ -260,12 +293,32 @@ class AnchoringReport:
         return sign_test([s.edge for s in self.seats])
 
 
+def _owner_map(adapter: Any, config: Any, season: int) -> dict[int, str]:
+    """``team_id -> owner GUID`` for a season, or ``{}`` when standings are unreachable."""
+    getter = getattr(adapter, "get_season_standings", None)
+    if getter is None:
+        return {}
+    try:
+        rows = getter(config, season) or []
+    except Exception:  # noqa: BLE001 -- an unavailable seat key degrades, it does not fail
+        return {}
+    return {int(r["team_id"]): str(r["owner"]) for r in rows if r.get("owner")}
+
+
 def build_report(
-    adapter: Any, config: Any, *, seasons: tuple[int, ...] = RANKED_SEASONS, me: int | None = None
+    adapter: Any, config: Any, *, seasons: tuple[int, ...] = RANKED_SEASONS, me: str | None = None
 ) -> AnchoringReport:
-    """Pull the completed drafts and served ranks, and classify every seat but mine."""
+    """Pull the completed drafts and served ranks, and classify every seat but mine.
+
+    ``me`` is an owner GUID, defaulting to the adapter's authenticated SWID. It used to be a
+    team id with a hardcoded default of 8 -- which is both a personal constant living in a
+    CLI default and, worse, an identity ESPN is free to reassign between seasons. A wrong
+    ``me`` does not just mislabel a row: it drops one real opponent from the table and adds
+    Eric to it as if he were one.
+    """
     data: dict[int, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
     abbrevs: dict[int, str] = {}
+    owners: dict[int, dict[int, str]] = {}
     unranked = 0
     total = 0
 
@@ -278,6 +331,7 @@ def build_report(
             continue
         data[season] = (picks, ranks)
         abbrevs.update(adapter.get_season_teams(config, season))
+        owners[season] = _owner_map(adapter, config, season)
         total += len(picks)
         for p in picks:
             entry = ranks.get(str(p["player_id"]))
@@ -290,17 +344,53 @@ def build_report(
             ):
                 unranked += 1
 
-    team_ids = sorted({p["team_id"] for picks, _ in data.values() for p in picks})
+    by_owner = all(owners.get(season) for season in data)
+    identity = "owner" if by_owner and data else "team_id"
+    if me is None:
+        me = getattr(adapter, "swid", None)
+    want = str(me).strip().upper() if me else None
+
+    # seat_id -> {season: team_id}
+    seats_by_season: dict[str, dict[int, int]] = {}
+    for season, (picks, _) in sorted(data.items()):
+        for team_id in sorted({p["team_id"] for p in picks}):
+            key = owners[season].get(team_id) if by_owner else None
+            seats_by_season.setdefault(key or f"team:{team_id}", {})[season] = team_id
+
+    id_moves: list[str] = []
+    if by_owner:
+        for _seat_id, mapping in sorted(seats_by_season.items()):
+            if len(set(mapping.values())) > 1:
+                moved = ", ".join(f"{s}:{t}" for s, t in sorted(mapping.items()))
+                id_moves.append(f"one manager held several team ids ({moved})")
+        for team_id in {t for m in seats_by_season.values() for t in m.values()}:
+            holders = {sid for sid, m in seats_by_season.items() if team_id in m.values()}
+            if len(holders) > 1:
+                id_moves.append(f"team id {team_id} was held by {len(holders)} managers")
+
+    # With owners resolved, `me` is a GUID. Without them there is no GUID to match, so a
+    # numeric `me` is accepted as a team id -- otherwise the degraded path would quietly put
+    # my own seat back in the table, which is worse than the weaker key itself.
+    mine: set[str] = set()
+    if want:
+        mine = {sid for sid in seats_by_season if sid.strip().upper() == want}
+        if not mine and not by_owner and want.isdigit():
+            mine = {sid for sid in seats_by_season if sid == f"team:{int(want)}"}
     seats = [
-        seat_verdict(team_id, abbrevs.get(team_id, str(team_id)), data)
-        for team_id in team_ids
-        if me is None or team_id != me
+        seat_verdict(
+            sid,
+            abbrevs.get(max(mapping.items())[1], sid),
+            mapping,
+            data,
+        )
+        for sid, mapping in sorted(seats_by_season.items())
+        if sid not in mine
     ]
     per_season = [
-        seat_season(season, team_id, picks, ranks)
-        for season, (picks, ranks) in sorted(data.items())
-        for team_id in sorted({p["team_id"] for p in picks})
-        if me is None or team_id != me
+        seat_season(season, team_id, data[season][0], data[season][1])
+        for sid, mapping in sorted(seats_by_season.items())
+        for season, team_id in sorted(mapping.items())
+        if sid not in mine
     ]
     return AnchoringReport(
         seasons=tuple(sorted(data)),
@@ -309,4 +399,6 @@ def build_report(
         per_season=per_season,
         unranked_picks=unranked,
         total_picks=total,
+        identity=identity,
+        id_moves=tuple(dict.fromkeys(id_moves)),
     )
