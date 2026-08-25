@@ -378,6 +378,17 @@ That digest is recorded in README's *Draft-night rollback* section beside the ol
 there is still something to roll back to. Pin it rather than leaving `latest`: `imagePullPolicy: Always` means a pod that restarts for any
 reason on draft night pulls whatever `latest` points at by then.
 
+**That image has been run.** The `image` workflow's smoke test boots the artifact in a
+container, requires it to answer HTTP (a 503 counts -- the app is up, the board is still
+warming, which is exactly the "cannot start" failure the job exists to catch), checks the
+`/healthz` contract keys and renders the index. It passed on run 32903747416, the build of
+`main @ d01332a` that produced `sha256:803a9fd0...`. Board readiness is reported, not gated,
+because that is a live-network question.
+
+So "the new image is unexercised in a container" is NOT true, and it should not be the reason
+to prefer the old pin. What is still unexercised is this specific image under the homelab's
+own volume mount and network -- which is what the verification below is for.
+
 Then force the reconcile instead of waiting out the interval, and verify:
 
 ```bash

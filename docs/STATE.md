@@ -279,16 +279,18 @@ his VORP. That is a feature, not a bug fix.
 |---|---|
 | local cockpit | `scripts\draft-day.cmd` → League B, correct |
 | pinned image | `sha256:d3cd…be570` = main @ `39a13f3` — **predates every fix above** |
-| current image | `sha256:803a9fd0…69f` = main @ `d01332a`, every fix through PR #28 — built by CI, recorded in README beside the old one |
+| current image | `sha256:803a9fd0…69f` = main @ `d01332a`, every fix through PR #28. CI's smoke test **booted this exact image** in a container and it answered `/healthz` (run 32903747416) |
 | rollback | tag `pre-draft-known-good` (main @ `6a03bb4`), digest recorded in README |
 | cluster | **serving League A, and the fix is in `haven` — see the STOP section** |
 | my seat | **slot 8** (team 8, BUTT), derived from `pickOrder` every poll. Slot 5 is BTD |
 | public MCP | endpoint proven up to the auth boundary; the join needs one human OAuth login |
 | data cache | refreshed 2026-08-25: 3302 League B players, 5 nflverse sources, board builds from disk |
 
-**The pinned image is the safe option, not the current one.** It is a known-good board on
-which the top D/ST still ranks 33rd. To ship the fixes, rebuild, re-pin, and record the new
-digest in README *beside* the old one — never over it.
+**The pinned image is the OLD option, and "safe" is now the wrong word for it.** It is a
+known-good board on which the top D/ST still ranks 33rd — that is the thing it is known to be
+good at. The current image carries every fix AND has been booted in a container by CI, so the
+argument for the old pin is now only "it has run on this hardware", which the verification in
+the runbook settles in about a minute.
 
 Still needing a human, in priority order:
 
