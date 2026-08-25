@@ -63,10 +63,16 @@ The one thing standing between a bad merge and a dead cockpit on draft night.
 | known-good tag | **`pre-draft-known-good`** — `main` @ `6a03bb4`, tagged 2026-08-25 before the pre-draft sprint |
 | pinned image digest | **`ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570`** |
 | that digest is | `main` @ `39a13f3`, set in `scripts/draft-day.cmd` |
+| **current image** | **`ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f`** |
+| that digest is | `main` @ `d01332a` — every fix through PR #28. `latest` and `sha-d01332a…` both resolve to it (checked 2026-08-25) |
+
+The two rows are deliberate: **the old digest is not replaced, it is kept beside the new
+one.** Rolling back means having somewhere to roll back to, and a digest overwritten in place
+is a rollback target that no longer exists.
 
 ```bash
 git checkout pre-draft-known-good     # source rollback
-scripts\draft-day.cmd                 # already pins the digest above at this tag
+scripts\draft-day.cmd                 # at that tag it pins the KNOWN-GOOD digest (d3cdb2a…)
 ```
 
 ### Getting the current digest

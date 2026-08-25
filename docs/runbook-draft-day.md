@@ -369,12 +369,25 @@ audible Deployment):
       - 0.0.0.0
       - --port
       - "8080"
-    image: ghcr.io/eyanric/audible@sha256:<digest>   # was: :latest
+    # main @ d01332a, every fix through PR #28, published 2026-08-25.
+    # Re-resolve with the README snippet if anything merges after the freeze.
+    image: ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f
 ```
 
-Resolve `<digest>` with the snippet in README's *Draft-night rollback* section. Pin it
-rather than leaving `latest`: `imagePullPolicy: Always` means a pod that restarts for any
+That digest is recorded in README's *Draft-night rollback* section beside the old one, so
+there is still something to roll back to. Pin it rather than leaving `latest`: `imagePullPolicy: Always` means a pod that restarts for any
 reason on draft night pulls whatever `latest` points at by then.
+
+**That image has been run.** The `image` workflow's smoke test boots the artifact in a
+container, requires it to answer HTTP (a 503 counts -- the app is up, the board is still
+warming, which is exactly the "cannot start" failure the job exists to catch), checks the
+`/healthz` contract keys and renders the index. It passed on run 32903747416, the build of
+`main @ d01332a` that produced `sha256:803a9fd0...`. Board readiness is reported, not gated,
+because that is a live-network question.
+
+So "the new image is unexercised in a container" is NOT true, and it should not be the reason
+to prefer the old pin. What is still unexercised is this specific image under the homelab's
+own volume mount and network -- which is what the verification below is for.
 
 Then force the reconcile instead of waiting out the interval, and verify:
 
