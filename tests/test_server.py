@@ -285,6 +285,37 @@ def test_index_page_is_served(client: TestClient) -> None:
     assert "text/html" in resp.headers["content-type"]
 
 
+def test_the_page_is_drivable_with_a_thumb(client: TestClient) -> None:
+    """A phone is the draft-night fallback, so the touch layer is part of the contract.
+
+    This cannot test layout -- there is no browser in CI -- but it can stop the pieces
+    from being deleted. Each assertion below is one thing that was measured broken in a
+    real browser at iPhone width: the mark button was 18x18 with a transparent border
+    revealed only by :hover, which a finger never fires; the roster sat 970px down the
+    page with no way to reach it but scrolling; and Undo existed only inside a panel that
+    was itself off-screen.
+    """
+    page = client.get("/").text
+
+    # The bar is the only navigation on a phone. All four controls, or none of them work.
+    for control in ("thumbBar", "thumbBoard", "thumbRoster", "thumbRuns", "thumbUndo"):
+        assert f'id="{control}"' in page, control
+
+    # Touch sizing is keyed on hover:none, not on width -- the question is whether a
+    # finger is driving, not how wide the glass is.
+    assert "@media (hover:none)" in page
+    assert "width:44px;height:44px" in page, "the mark button must be a real touch target"
+
+    # The bar's own display:none MUST be declared before the media query that turns it on.
+    # It was not, and an unlayered rule later in the file won on source order -- the bar
+    # rendered 0x0 and every tap went to the board behind it.
+    assert page.index("#thumbBar{") < page.index("#thumbBar{display:flex}")
+
+    # iOS synthesises mouse events late and drops them when a touch becomes a scroll.
+    assert 'tr.addEventListener("pointerdown"' in page
+    assert 'tr.addEventListener("mousedown"' not in page
+
+
 def test_other_teams_appear_as_manual_picks_land(
     tmp_path: Path, sleeper_config: LeagueConfig
 ) -> None:

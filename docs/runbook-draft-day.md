@@ -289,6 +289,83 @@ Latency cannot be reconstructed afterwards — the script has to be watching whi
 
 ---
 
+## BLOCKER: the cluster is serving the WRONG LEAGUE (measured 2026-08-25)
+
+`http://192.168.1.110` — the container that `mcp-audible.havenhomelab.org` fronts — is
+running **League A**, not League B. Measured against the live endpoint:
+
+```
+/healthz    players 7620              (League B is 3300)
+            draft_id 1361543954792742912   (a SLEEPER draft id; League B's is "6012")
+/api/state  league.key  "sleeper_boyfun"
+            num_teams 10, superflex true, rounds 18
+draft_status via MCP:
+            unfilled ['QB','RB','RB','WR','WR','WR','TE','FLEX','SUPER_FLEX','K','IDP_FLEX']
+            my_slot  None  (unresolved)
+```
+
+This is the failure the A3 note predicted and thought was closed: the image bakes
+`--league sleeper_boyfun` as its default command, `scripts/draft-day.cmd` was fixed to
+override it, **and the long-running cluster container was never restarted with that
+override.** The launcher fix only ever applied to the local container on the Windows box.
+
+So on the 30th, the cockpit Eric opens from `draft-day.cmd` is League B and correct, while
+**anything asked through the public MCP endpoint answers off League A's superflex + IDP
+board** — a 10-team Sleeper board, with Josh Allen priced as a superflex QB and linebackers
+on the board, for an 8-team 1-QB ESPN draft. It will not error. It will answer confidently
+and wrongly, which is worse.
+
+It also does not know the seat (`my_slot: unresolved`), so survival and "picks until mine"
+are dead on that instance even for League A.
+
+**Fix before the draft** — this lives in the homelab deploy, not in this repo, so it is not
+changed here. The container must be restarted with the league named explicitly, exactly as
+the launcher does it:
+
+```
+audible serve --league espn_davis_drive --host 0.0.0.0 --port 8080
+```
+
+Then re-verify, and do not trust a 200:
+
+```bash
+curl -s http://192.168.1.110/api/state | grep -o '"key": "[^"]*"'   # must say espn_davis_drive
+```
+
+## The public MCP endpoint: what is proven and what is not
+
+Probed end to end on 2026-08-25, through Cloudflare anycast (104.21.81.77), not a LAN
+shortcut:
+
+| leg | result |
+|---|---|
+| DNS | resolves to Cloudflare, 4 addresses |
+| edge → tunnel → origin | **works** — `401 {"error":"Unauthorized"}`, `Content-Type: application/json`, from mcp-auth-proxy |
+| OAuth discovery | `/.well-known/oauth-protected-resource` **200**, `/.well-known/oauth-authorization-server` **200** (DCR at `/.idp/register`, PKCE S256) |
+| all 9 MCP tools | **respond end to end** against the deployed container over the LAN leg |
+
+**That 401 is the good outcome.** It is a JSON body from the origin, not a Cloudflare
+challenge page — the tunnel is up and reaching the proxy. A Cloudflare artifact would be a
+403 with HTML.
+
+**Not proven, and it needs a human:** completing a tool call *through* the public URL
+requires the GitHub OAuth browser login. The two legs are each proven; the join is not.
+**Do this before the 30th:** connect Claude to `https://mcp-audible.havenhomelab.org`, log
+in, and ask it `draft_status`. If it answers with 9 starting slots and `my_slot 8`, the
+whole path is good. If it answers with 11 slots and `SUPER_FLEX`, the blocker above is
+still live.
+
+Two soft spots in the proxy's OAuth, both in the homelab and neither changed here:
+
+- The `401` carries **no `WWW-Authenticate` header**. RFC 9728 says a protected resource
+  should point at its metadata there. Clients that only follow that header will not find
+  the discovery document; clients that probe `/.well-known/...` directly are fine.
+- `/.well-known/oauth-protected-resource/mcp` returns **401 instead of metadata**. Newer
+  MCP clients try that path-specific variant *first*. The root variant works, so a client
+  that falls back succeeds and one that does not, fails.
+
+---
+
 ## Quick reference
 
 ```bash
