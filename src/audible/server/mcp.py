@@ -108,6 +108,11 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             "i_am_on_the_clock": clock["picks_until_me"] == 0,
             "my_next_pick": clock["my_next_pick"],
             "rival_picks_before_my_next": clock["opponent_picks_until_horizon"],
+            # How many picks I still hold, and how many are left over once every unfilled
+            # starting slot has one reserved for it. Negative or zero means the rest of my
+            # draft is committed and `recommend` stops offering bench depth.
+            "my_picks_remaining": clock["my_picks_remaining"],
+            "slack_picks": clock["slack_picks"],
             "draft_complete": clock["complete"],
             "draft_started": s["draft"]["started"],
             "unfilled_starting_slots": roster["unfilled"],
@@ -163,19 +168,36 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         rivals = clock["opponent_picks_until_horizon"]
         unfilled = s["roster"]["unfilled"]
 
-        # Need first, then value. Among players who fill a hole, the ones unlikely to last are
-        # the real decision; everything else can wait by definition.
+        # An unfilled starting slot is only a CONSTRAINT once every remaining pick is
+        # committed to one. Before that it is a preference, and treating it as a filter is
+        # how this tool recommended a D/ST in round 7: six picks in, FLEX was already filled
+        # by a backup tight end, so every RB, WR and TE on the board read `fills_need: False`
+        # and the best "need" left was the top defence at VORP #80 -- over a wide receiver at
+        # #34. Follow that and you draft five tight ends and two defences.
+        #
+        # 16 rounds against 9 starting slots means 7 of my picks are bench. So: count the
+        # picks I still hold, subtract the slots still empty, and only when that slack runs
+        # out does need become binding. It is the same omission the replacement baseline had
+        # -- modelling the starting lineup and forgetting the bench that gets drafted around it.
         pool = s["best_available"]
+        slack = clock["slack_picks"]
+        forced = slack is not None and slack <= 0
         need = [p for p in pool if p["fills_need"]]
-        ranked = (need or pool)[: limit * 3]
-        ranked = sorted(ranked, key=lambda p: (not p["grab_now"], p["vorp_rank"]))[:limit]
+        # Forced: only need-fillers can be considered. Otherwise rank the whole board and let
+        # need break ties between players of comparable value.
+        candidates = need if (forced and need) else pool
+        ranked = candidates[: limit * 3]
+        ranked = sorted(
+            ranked,
+            key=lambda p: (not p["grab_now"], p["vorp_rank"], not p["fills_need"]),
+        )[:limit]
 
         out = []
         for p in ranked:
             row = _slim(p)
             bits = [f"VORP #{p['vorp_rank']} (consensus #{p['consensus_rank']})"]
             bits.append("fills an unfilled starting slot" if p["fills_need"]
-                        else "does not fill a starting slot")
+                        else "bench depth -- fills no starting slot")
             # survival_pct is None for a player the market does not price, and formatting
             # that straight produced "None% to last the 5 rival picks" -- a number-shaped
             # non-number, in the one field the model is told to read as the reason.
@@ -199,8 +221,15 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             "starters_complete": s["roster"]["starters_complete"],
             "picks_until_mine": clock["picks_until_me"],
             "rival_picks_before_my_next": rivals,
-            "basis": ("roster need, then league value, with survival to my next pick as the "
-                      "tiebreaker"),
+            "my_picks_remaining": clock["my_picks_remaining"],
+            "slack_picks": slack,
+            "basis": (
+                "every remaining pick is committed to an unfilled starting slot, so only "
+                "players who fill one are considered"
+                if forced else
+                "league value first, with survival to my next pick ahead of it and roster "
+                "need as the tiebreaker -- there are still more picks than empty slots"
+            ),
             "sync": _sync(s),
         }
 

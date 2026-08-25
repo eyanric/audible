@@ -33,6 +33,9 @@ notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifa
 # if the roster changes again.
 value_metric = "vorp"
 
+# 18 rounds = 11 starters + slots_bn=7, from the live draft settings (2026-08-15).
+draft_rounds = 18
+
 # DELIBERATELY 0, and this is the one place the two leagues' value engines differ.
 #
 # League A really does draft 18 rounds against 11 starting slots (slots_bn=7), so bench

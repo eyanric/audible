@@ -243,6 +243,16 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "picks_until_me": view.picks_until_me,
         "survival_horizon": view.survival_horizon,
         "opponent_picks_until_horizon": opponent_picks,
+        # How many picks I have left, and how many of them are already spoken for by an
+        # unfilled starting slot. `recommend` needs the difference: with rounds to spare you
+        # take the best player, and only once every remaining pick is committed does a
+        # starting slot become an actual constraint. Without it, need is a hard filter and a
+        # D/ST outranks a WR 46 places better because the WR fills nothing.
+        "my_picks_remaining": view.my_picks_remaining,
+        "slack_picks": (
+            None if view.my_picks_remaining is None
+            else view.my_picks_remaining - len(view.unfilled)
+        ),
         "complete": view.on_the_clock is None,
     }
     base["roster"] = {

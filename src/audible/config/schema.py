@@ -65,6 +65,14 @@ class LeagueConfig(BaseModel):
     waiver_type: str | None = None
     faab_budget: int | None = None
 
+    # How many rounds this league's draft runs. Structural, unlike `replacement_bench_slots`
+    # below, which is a model knob. Live sync overrides it the moment it answers; this is what
+    # the clock uses BEFORE that, and until now that was a hardcoded 18 -- League A's number,
+    # sitting in shared logic. On League B's 16-round draft an 18-round clock overstates the
+    # picks you have left, which is exactly the quantity `recommend` uses to decide whether an
+    # empty starting slot is still optional.
+    draft_rounds: int | None = Field(default=None, gt=0)
+
     # Bench rounds per team that the replacement baseline prices in. This is a MODEL knob,
     # not a structural fact: 0 means "price in none", which pins replacement at starters+1.
     #
