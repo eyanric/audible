@@ -14,152 +14,242 @@ Rules for editing:
 
 ---
 
-## DRAFT: Friday 28 August, 8:30. ESPN league 6012.
+## DRAFT: **Sunday 30 August, ~19:00.** ESPN league 6012. Seat 8.
 
-Everything below serves that date. **Code freeze Thursday 27 August** — no merges, no
-rebuilds, no config edits after it.
+> **The date changed and the old one is still written in places.** This file previously said
+> *Friday 28 August, 8:30*; the current instruction says **Sunday 30 August, ~7pm**. Sunday is
+> what everything below assumes. If Friday is right, everything moves two days earlier and the
+> freeze has already passed — confirm before trusting a single date here.
 
-Two tracks. **Track A never slips for Track B.**
-
-| by | track A | track B |
-|---|---|---|
-| Mon 17 | build failure diagnosed — **done** | — |
-| Tue 18 | data on disk, offline board proven — **done** | **B1 anchoring — done** |
-| Wed 20 | latency outcome — **blocked, see below** | **B-next mid-tier check — done** |
-| Fri 22 | Sleeper mock rehearsal — **needs Eric** | **C1/C2 draft quality — done** |
-| Sun 24 | **ESPN runbook — done** | **C3 substitution — BLOCKED, see below** |
-| Tue 26 | **digest pinned — done. Offline re-proof: needs Eric to run it** | B3 corpus widening |
-| Wed 27 | **freeze**, paper board | B5, B6, B7 |
-
-## P0 — "the cockpit is not interactive": NOT reproducible from source
-
-Driven in a real browser over CDP against `uv run audible serve --league espn_davis_drive`
-(not by inspection):
-
-| check | result |
-|---|---|
-| console errors / uncaught exceptions | **none** |
-| failed network requests | **none** |
-| rows rendered | 140 (grab 5, tabs 10) |
-| click moves selection | yes |
-| selection visibly distinct | yes |
-| mark button removes the player | yes |
-| undo restores him | yes |
-| pause responds | yes |
-
-**Two P0.2 suspects eliminated without Docker:**
-
-- **"Static asset 404s under the container" cannot happen.** `static/` holds *one* file,
-  `index.html`, whose only `href` is a `data:,` favicon — JS and CSS are inline. The Dockerfile
-  copies `src/` wholesale and `STATIC_DIR` resolves identically, so the container serves a
-  byte-identical self-contained page. There is no asset to fail to load.
-- **The `takenStack` drift risk did not fire** — undo clicked against an empty stack, page
-  kept working.
-
-**Still open:** Docker is unavailable in the agent environment, so the pinned image was never
-exercised. The source-vs-container distinction is open at one end — though the packaging
-failure mode it was meant to catch is the one eliminated above.
-
-**Measured, and true either way:** the per-row mark button is **18×18 CSS pixels**, and
-clicking the row body only *selects* — it does not mark. At draft speed that is a plausible
-reading of "renders and does not respond to clicks". Not changed yet: the right fix depends on
-which surface actually misbehaved.
-
-**Run `scripts\diagnose-cockpit.cmd`** — start the cockpit, double-click, and it launches its
-own throwaway browser, drives the page, and writes `cockpit-report.txt`. Exits non-zero if the
-page is not interactive. That is the fastest way to close this out.
-
-> It launches an **isolated** browser on purpose. Enabling remote debugging on a browser
-> already in use exposes every open tab through the debugging port — that happened during this
-> investigation on the default port, which is why the script pins its own profile and port.
-
-**P0.3 (Playwright regression suite in CI) is not started** — locking down behaviour that has
-not yet been shown to break was the wrong order. Do it once the surface is identified.
+**Code freeze: the day before, whichever it is.** No merges, no rebuilds, no config edits after.
 
 ---
 
-## A3 — pinned; one step left and it needs a machine with Docker
+## STOP: the cluster is serving LEAGUE A. Fix this before anything else.
 
-**Pinned digest:** `ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570`
-(main @ `39a13f3`, image build green). Set in `scripts/draft-day.cmd`.
-
-**Found while pinning, and it would have been silent:** the image bakes
-`--league sleeper_boyfun` as its default command. Pinning it as-is would have served
-**League A on League B's draft night** — a correct board for the wrong league. The launcher
-now overrides the command explicitly rather than rebuilding, so one image serves either league
-and the league being drafted is visible in the launcher instead of buried in a layer. The
-no-Docker fallback line named the wrong league too.
-
-`.gitattributes` had `* text=auto eol=lf`, which would have handed a checkout LF-only batch
-files. `draft-day.cmd` uses `goto` and labels; those misbehave on LF. `*.cmd text eol=crlf`
-now pins it, verified against a fresh worktree checkout.
-
-**Still to run, and it needs Eric — Docker is unavailable in the agent environment:**
+`http://192.168.1.110` — the container behind `mcp-audible.havenhomelab.org` — is running
+**`sleeper_boyfun`**, not League B. Measured 2026-08-25:
 
 ```
-scriptserify-offline.cmd     (double-click)
+/healthz     players 7620                  (League B is 3302)
+             draft_id 1361543954792742912  (a Sleeper id; League B's is "6012")
+/api/state   league.key "sleeper_boyfun", num_teams 10, superflex true, rounds 18
+draft_status unfilled [...'SUPER_FLEX','K','IDP_FLEX'],  my_slot None
 ```
 
-It pulls the pinned digest, fills the cache volume *using that same image*, then rebuilds both
-boards under `--network none` — the container's network namespace removed entirely, so an
-OS-level block rather than a mocked one. Prints PASS or FAIL. **Do not freeze on a FAIL.**
+This is the failure A3 predicted and recorded as **closed**. The image bakes
+`--league sleeper_boyfun` as its default command; `scripts/draft-day.cmd` was fixed to
+override it; **the long-running cluster container was never restarted with that override.**
+The launcher fix only ever applied to the local container on the Windows box — and the
+cluster is what the public MCP hostname fronts.
 
-The exact commands it runs were validated here first with outbound sockets blocked:
-`audible draft espn_davis_drive --top 5` and the League A equivalent both exit 0 with full
-boards. What is unverified is only what needs the real artifact: the pull, the volume, and the
-namespace removal.
+So on the 30th, the cockpit opened from `draft-day.cmd` is correct, while **anything asked
+through the public MCP endpoint answers off a 10-team superflex IDP board.** It will not
+error. It will answer confidently and wrongly, which is worse.
 
-Then: print the paper board (`audible cheatsheet espn_davis_drive`), and **freeze Thursday 27**.
+Restart it with the league named, exactly as the launcher does:
 
-Plus A1 if a real full ESPN draft can be joined — see the recorded finding below.
+```
+audible serve --league espn_davis_drive --host 0.0.0.0 --port 8080
+```
 
-**C3 is not started.** A3 was overdue and took priority. The leakage block below stands, and
-the agreed route around it is now specified: build the season-N line on
-`regressed_ppg_baseline` from **N−1 actuals only** (leak-free and assertable in code), label it
-**machinery-on-baseline-projections** and never "the audible board", and treat a loss against
-ADP-naive as **uninformative** rather than as a null — the handicap and the machinery are
-confounded and cannot be separated. A win is a **lower bound** on the real board's edge.
+Then verify, and **do not trust a 200**:
 
-**Original block, still true:** The gate needs an
-*audible board rebuilt leak-free* for 2023–25. `build_board` takes its projections from
-`SleeperAdapter.get_projections(season=N)`, and Sleeper serves a *current* projection state
-for a past season — there is no way from that endpoint to establish the values are as they
-stood before season N's draft. The hard stop is explicit ("no data from season N in season N's
-board"), so using them would either violate it or make a claim I cannot support.
+```bash
+curl -s http://192.168.1.110/api/state | grep -o '"key": "[^"]*"'   # must say espn_davis_drive
+```
 
-Two honest routes, neither started:
-1. Build the season-N line from **N−1 actuals only**, using the repo's existing
-   `regressed_ppg_baseline`. Genuinely leak-free and assertable in code — but it is a
-   *baseline*, not "the audible board", and must be labelled as such.
-2. Reconstruct pre-draft projections from an archived source. None is currently cached.
+Full detail, plus the two OAuth soft spots, is in `docs/runbook-draft-day.md`.
 
-The ADP-naive and perfect-hindsight lines are both straightforward and unblocked; they were
-not built because without a defensible board line there is no comparison to report.
+---
 
-**A1 latency is blocked and it is not a scheduling problem.** Temp league `102010124` read
-read-only this session: `drafted: false`, `inProgress: false`, **0 real picks** — the draft has
-not been run. `scripts/espn_latency.py` exists and `data/cache/latency.jsonl` is empty, so
-nothing has been measured. Latency cannot be reconstructed after the fact; it needs the script
-running *while* picks happen. Until then the sync-vs-manual mode decision is unmade, and
-manual entry is the safe assumption.
+## What the pre-draft sprint changed (2026-08-25)
 
-## Where the project is
+Five PRs, all merged, all green. Suite **224 passing**, `ruff` clean.
+
+### P1.1 — replacement level is the waiver wire, not the starter line (#18)
+
+The board ranked the top D/ST **33rd overall** and D/ST and K were **all eleven** of its
+biggest "market underpricing" targets, in a league that drafts them last.
+
+The brief's first hypothesis was falsified: replacement was already landing at exactly
+D/ST9 and K9. The defect was on the other side of the comparison. Replacement was computed
+as "best non-starter", which is the waiver wire only in a league with **no bench**. League B
+drafts 16 rounds against 9 starting slots, so 56 of its 128 picks are bench players who are
+not on the wire. That set the RB baseline at RB17 and WR at WR25 when the real waiver line
+is around RB35 and WR52 — compressing every skill-position VORP by 30–50 points, and **not**
+compressing D/ST or K, because nobody rosters a backup D/ST.
+
+The damning number: the board wanted **24 D/ST and 22 K inside 128 picks**. The market's
+first 128 hold zero.
+
+**Allocating the bench by VORP is exactly wrong, and it was measured.** Replacement is
+*defined* as the best unrostered player, so VORP is 0.0 at every position's own baseline and
+ranking non-starters by it ranks them by how FLAT the curve is — and K and D/ST are the
+flattest positions in football. It is also self-confirming: each D/ST stashed pushes D/ST
+replacement deeper, raising D/ST VORP. It converged on rostering 24 D/ST. Bench depth
+instead goes to positions a team could start more than one of, split by starter demand.
+
+Validated against ADP, the only ground truth for how many of each position gets drafted:
+
+| | RB | WR | QB | TE | DEF | K |
+|---|---|---|---|---|---|---|
+| market's first 128 | 43 | 53 | 16 | 16 | 0 | 0 |
+| after | 35 | 52 | 8 | 17 | 8 | 8 |
+
+**First D/ST 33 → 80. First K 43 → 94.**
+
+**League A is deliberately unchanged**, and its TOML says why: the same allocation pushes
+its QB replacement to QB36 against ~32 real NFL starters (QB36 projects 36 points) and
+produces 13 quarterbacks in the top 15 — the junk-tail pathology already recorded against
+scarcity/VONA. Superflex is what breaks it. Every supply guard that fixes it is a threshold
+picked to make that board look right. **Re-open with a supply rule derived from something.**
+
+### Scoring correction — verified applied, now guarded (#19)
+
+**It was already correct everywhere.** AST scan over every `scoring_for` / `config.scoring`
+reference in `src/`: eight call sites, zero zero-arg. All four board surfaces resolve to one
+warmed board whose every number descends from `board.py`'s single
+`config.scoring_for(primary)`. Measured end to end, a 60-catch back projects **176.0**
+against **206.0** off the base table — exactly the 30 points a season the config claims.
+
+What was missing was any test that would notice if that stopped being true.
+
+- **`scoring_for(position)` no longer defaults to `None`.** The default *was* the bug class:
+  it returned the base table, which pays a running back 0.5 a catch in a league that pays
+  him nothing. Every call site already passed a position. Now it is a type error.
+- A cross-surface test drives one pass-catching back through the real board assembly and out
+  through `best_available`, `recommend`, `compare` and `player_lookup` over a real FastMCP
+  client, asserting the four agree **and that what they agree on moves** when
+  `scoring_by_position` is stripped. Agreement alone proves nothing.
+- The ESPN adapter's end-to-end test asserted a QB, a kicker and a D/ST — **none of the three
+  positions the rule touches** — so it passed unchanged with `scoring_by_position` deleted
+  while every back ran ~34 points high (Gibbs 297.393 vs 331.298). Fixed.
+- `recommend` interpolated `survival_pct` with no None check, so unpriced players read
+  **"None% to last the 5 rival picks"**. Unpriced is the common case late in a draft.
+
+### P0 — the cockpit is drivable with a thumb (#20)
+
+The previous session drove the page in a real browser and found it interactive. All true,
+and all on a **desktop viewport**. Driven again at iPhone width with simulated touch, the
+same page is not usable. That gap was the whole P0.
+
+| measured at 393px | before | after |
+|---|---|---|
+| mark button | **18×18**, `border-color: rgba(0,0,0,0)`, revealed by `:hover` — a finger never hovers | **44×44**, solid border, always visible |
+| row height | 23px | 45px |
+| controls under 44px | **155** | 3 |
+| roster panel | y = 970px, off-screen | one tap away |
+| runs & cliffs | y = 1373px, off-screen | one tap away |
+
+Correcting the earlier note: the page does **not** clip horizontally. The `max-width:900px`
+fallback already makes it *fit* a phone; it does not make it *drivable* on one.
+
+Keyed on `hover:none`, not width — the question is whether a finger is driving. A fixed
+thumb bar switches sections and carries its own Undo, disabled rather than hidden. Selection
+moved `mousedown` → `pointerdown`; iOS drops synthesised mouse events when a touch becomes a
+scroll.
+
+Verified by **driving it** against the live board: tap-to-mark, tap-to-undo, and all three
+section switches pass, no console errors. Desktop re-checked at 1600×900 and is unchanged.
+
+One bug it found in itself: the bar's own `display:none` was declared *after* the media query
+that sets `display:flex`, so source order won and it rendered 0×0 — present in the DOM,
+correct in every inspection, every tap landing on the board behind it. The test pins the order.
+
+### recommend respects the bench (#22)
+
+Found by the full dry run. `recommend` filtered to players who fill an unfilled **starting**
+slot, with no concept of the bench. Six picks in, FLEX was filled by a backup tight end *the
+tool itself had recommended*, so every RB, WR and TE read `fills_need: False` and the best
+remaining "need" was the top defence at VORP #80 — with Mike Evans at #34.
+
+Now arithmetic, no threshold: count the picks still held, subtract the slots still empty.
+While that slack is positive an empty slot is a preference; at zero every remaining pick is
+committed and only need-fillers qualify. `draft_status` reports both numbers.
+
+**Second defect found while fixing it:** `DraftSession.rounds` defaulted to **18** — League
+A's number, hardcoded in shared logic. League B drafts 16, and an 18-round clock overstates
+the picks remaining by two, which is the difference between filling the last starting slots
+and finishing without a kicker (reproduced). Rounds now seed from a structural
+`draft_rounds` config field, still overridden by live sync.
+
+---
+
+## TASK 5 — the full dry run, and what it says
+
+8 teams, 16 rounds, 128 picks, driven entirely through the MCP tools, opponents on ADP
+order (B1 measured all seven as ESPN-anchored), our seat taking `recommend`'s top row.
+
+**Mechanically clean, twice:** 128 `mark_taken` / `undo_taken` / re-mark round-trips, **zero
+undo failures**, clock correct throughout, `draft_complete` true, all nine starting slots
+filled, D/ST at R14, K at R15, QB at R16.
+
+| | before the fixes | after |
+|---|---|---|
+| D/ST or K recommended before round 14 | **20** | 4, none of them the top row |
+| first D/ST taken | **round 7** | round 14 |
+| first K taken | **round 9** | round 15 |
+| starting slots left empty | 0 (but 2 D/ST rostered) | 0 |
+
+### The one thing still wrong, and it is not fixed
+
+The resulting roster is **10 WR, 2 RB, 1 TE, 1 QB, 1 DEF, 1 K**. On the earlier data pull it
+was 6 TE. Neither is a real roster.
+
+`recommend` with slack to spare is pure best-available by our VORP, with no notion of
+positional balance. Whichever position our board rates above where this room drafts it gets
+hoovered — TE last week, WR this week. **Two running backs in a league that starts two plus a
+flex is one hamstring from a dead season.**
+
+This is deliberately **not** patched, for a reason worth keeping: taking receivers in a
+league that pays WR 0.5 a catch and RB nothing *is the documented edge*. The failure is
+roster construction, not valuation, and STATE already records the whole-position
+TE/QB-vs-market gap as unresolved with an explicit *do not act on it*. Capping a position
+would be picking a side in that argument on no evidence, days out.
+
+**Draft-night rule, until there is a real fix:** `recommend` returns five rows — read all
+five, not the first. When you already hold three startable bodies at a position, take the
+best row that is not that position. Use `best_available(position="RB")` to see what the run
+on your thin position actually costs. The tool ranks value; you own the roster shape.
+
+The right fix later is marginal value **against my own roster** rather than against the
+league — a fourth WR displaces nobody in my lineup, so his value is injury insurance, not
+his VORP. That is a feature, not a bug fix.
+
+---
+
+## Draft-night state of play
 
 | | |
 |---|---|
-| Phase | 2b complete. ESPN adapter, ESPN sync, and an offline-capable board. |
-| Leagues | A = Sleeper `sleeper_boyfun` (10-team, superflex, IDP). B = ESPN `espn_davis_drive` (8-team, 1-QB, no IDP). |
-| Board source | Sleeper stat lines for **both** leagues, scored through each league's own weights. League B's `draft` output carries a header saying so. |
-| Live sync | Both platforms, one poll loop, behind `draft/sync.py`. Verified: `ok:true`, 3,300 players, 0 picks pre-draft, seat 8 derived. |
-| Data | **On disk.** Board builds with the network unplugged — see below. |
-| Not started | Phase 3, Phase 4. |
+| local cockpit | `scripts\draft-day.cmd` → League B, correct |
+| pinned image | `sha256:d3cd…be570` = main @ `39a13f3` — **predates every fix above** |
+| rollback | tag `pre-draft-known-good` (main @ `6a03bb4`), digest recorded in README |
+| cluster | **serving League A — see the STOP section** |
+| public MCP | endpoint proven up to the auth boundary; the join needs one human OAuth login |
+| data cache | refreshed 2026-08-25: 3302 League B players, 5 nflverse sources, board builds from disk |
 
-**`live` is Sleeper-only** and says so — it polls the adapter directly rather than going
-through the cockpit. League B's live surface is `serve`.
+**The pinned image is the safe option, not the current one.** It is a known-good board on
+which the top D/ST still ranks 33rd. To ship the fixes, rebuild, re-pin, and record the new
+digest in README *beside* the old one — never over it.
+
+Still needing a human, in priority order:
+
+1. **Restart the cluster container on League B**, and verify with the `grep` above.
+2. **Connect Claude to `https://mcp-audible.havenhomelab.org`, log in, ask `draft_status`.**
+   Nine starting slots and `my_slot 8` means the whole path is good. Eleven slots and
+   `SUPER_FLEX` means item 1 is still live. This is the only untested join.
+3. **Decide: pinned image, or rebuild on the fixes.** Both defensible; the fixes are large
+   and tested, the pinned image is unexercised in a container.
+4. **`audible refresh-data` the day before**, and confirm the volume maps to
+   `/app/data/cache` in the container.
+5. **Drive the cockpit once on the actual phone.** It is verified under simulated touch in a
+   headless browser, not under a real thumb on real Safari.
 
 ---
 
-## The board builds offline — the property that matters on the 28th
+## The board builds offline — the property that matters on draft night
 
 Every board input used to be a third-party URL fetched fresh on every process start, because
 nflreadpy caches **in memory only**. On 2026-08-17 one of those URLs started returning a 404
@@ -191,7 +281,7 @@ sleeper_boyfun    7621 players  + DB=1778 DL=1439 LB=1136
 serve: ok:true, data.origin "disk", sync_status "failing"
 ```
 
-**Run `audible refresh-data` on the 27th before the freeze.** The volume must map to
+**Run `audible refresh-data` the day before the freeze.** Last run 2026-08-25. The volume must map to
 `/app/data/cache` in the container.
 
 ---
@@ -309,7 +399,7 @@ disagree by ≥10 ranks. Positive ⇒ the seat tracks ESPN's board.
 p = 0.016).** Individually most seats are underpowered at ~13 discriminating picks; the
 unanimity is not, and that is the level the finding is stated at.
 
-**What this means for the 28th — as amended by B-next above.** No opponent is on a generic
+**What this means on draft night — as amended by B-next above.** No opponent is on a generic
 PPR board, so there is no *whole-archetype* steal: don't plan to hoover up Henry-types late,
 this room is not systematically undervaluing them.
 
@@ -532,55 +622,38 @@ without it every process start re-downloads and repeated builds earn a `429` fro
 
 ## Open / next
 
-- **Next session, promoted above the rest of Phase 3:** measure how ESPN-anchored each opponent
-  is, by correlating each manager's pick sequence against ESPN's per-season draft ranks for
-  2023–2025.
+**Ordered by what breaks the draft, not by what is interesting.**
 
-  This decides whether any scoring edge is actionable. The points delta does **not** translate
-  into a ranking mispricing at the top, because ESPN's STANDARD ordering already tracks PPR
-  there. The surviving edge is the **Henry archetype** — pure rushing backs, undervalued by
-  anyone using generic half-PPR rankings, correctly valued by ESPN's board and by ours. Which
-  opponents sit in which camp determines whether that is exploitable.
+1. **The cluster is on the wrong league.** Top of this file. Nothing else matters until it
+   is restarted and verified.
+2. **`recommend` has no notion of roster balance** — see TASK 5 above. Ten receivers and two
+   backs. Not patched, and the reason is recorded. The fix is marginal value against my own
+   roster.
+3. **The public MCP join is untested** and needs one browser login. Two legs proven, the
+   middle unproven.
+4. **The pinned image predates every fix.** Rebuild-and-re-pin or run known-good; decide
+   before the freeze, and record the digest either way.
 
-- **Manual entry is built but unmeasured.** `/` → type → **Enter** marks the top filtered
-  match; the target is named on screen first; the query clears and focus stays put; Ctrl+Z
-  undoes without leaving the box. Verified live that marking advances the clock and undo is a
-  true inverse. Merged. **The three-second standard has not been measured** — that needs a
-  human at a keyboard, and it belongs to the rehearsal.
+Lower, and none of it blocks the 30th:
 
-- **Blocking, needs Eric:**
-  1. **Latency needs a REAL, FULL draft — a solo test league cannot work.** ESPN will not
-     start a draft with unfilled slots: every open slot must be filled before the listed start
-     time or the draft is pushed back in five-minute intervals indefinitely. So league
-     `102010124` was never going to produce a number. Measure only if a public ESPN league
-     drafting in the next day or two can be joined, with `scripts/espn_latency.py` running
-     first. **Optional now** — manual entry is primary and the runbook assumes it.
-
-  2. **The manual-pick re-run and a Sleeper mock**, three rounds, cockpit open. Free, and it
-     exercises sync, staleness, grab-now, snake math and the UI — all shared with ESPN. The
-     tool has never been used in a live draft by a human.
-
-- **A3, the only Track A item left:** pin the container to an explicit digest; run
-  `refresh-data` against the pinned image and confirm the cache volume holds both leagues;
-  **re-prove the offline property on the final artifact** (block the network, start it, get a
-  board — it was proven in development, not on the thing that will run); print the paper board
-  Thu 27; freeze.
-
-- **`docs/runbook-draft-day.md` is rewritten for League B** and assumes manual entry is
-  primary. It has a section to loosen if the latency number ever lands. Note it records that
-  **League B has no CLI rung** in the fallback ladder — `live` is Sleeper-only.
-
-- **Not done: folding `measure-latency` into the CLI.** `scripts/espn_latency.py` still stands
-  alone and is untracked. It works; it just isn't repeatable-by-command yet. Low value until
-  there is a draft to measure.
-
-- **Track B, next:** B2 (384-pick evaluation, leak-free), then B3 (corpus widening — this is
-  what makes the interval tight enough to act on; 384 observations detect a large edge and
-  nothing subtle), B4 (Eric's picks + wins conversion), B5 (tendencies), B6 (silent-empty
-  guard — B1 just produced a fifth occurrence, the rank tail), B7 (Phase 4 metrics, only
-  after B2/B3 report).
-
-  **B1 + B-next together constrain the rest:** there is no *whole-archetype* edge against this
-  room, but there is a live within-position one in rounds 3–10. B2/B3 measure whether the
-  board is better in general; they are not needed to justify the draft-night guidance above,
-  which rests on the rank comparison and on arithmetic.
+- **The D/ST residual.** The board still lists LAR D/ST as a mild target (+22 on ADP, down
+  from +99). Our board says round 10, a 12-team market says round 11 — and an 8-team league
+  needing 8 of 32 should want them *later*, not earlier. The remaining gap is that D/ST and
+  K preseason projections carry a 14-point spread that is probably not predictive at all.
+  Shrinking it is a modelling change with its own evidence bar.
+- **`_slim` drops `points` and `value`**, so no MCP tool shows the raw projection or the
+  ADP target/fade signal — only ranks. The 30-point RB reception split is invisible on the
+  MCP surface even when correct.
+- **`SLEEPER_SOURCED_CAVEAT` never reaches the MCP surface** (one caller, `cli.py`), so a
+  model querying League B is never told the board is Sleeper stat lines scored through ESPN
+  weights.
+- **No board-building path runs a drift guard.** `expected_reception_points` is read in
+  exactly two places, both in `cli.py`.
+- **League A's replacement baseline is still the old one**, with the same D/ST inflation.
+  Needs the supply rule described above.
+- **P0.3 (browser regression suite in CI)** is still not started. The surface is now
+  identified, so this is finally the right order — the thumb-layer contract test in
+  `test_server.py` is a placeholder for it, not a substitute.
+- **A1 latency** remains unmeasured and optional; manual entry is primary and the runbook
+  assumes it.
+- **Track B** (B2, B3 corpus widening, B4-B7) all runs after the draft.
