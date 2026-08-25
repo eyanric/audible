@@ -145,7 +145,7 @@ button,input{font:inherit;color:inherit}
   font-family:var(--f-cond);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;
   padding:5px 10px;border-radius:3px;cursor:pointer;white-space:nowrap;
 }
-.btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}
+@media (hover:hover){.btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}}
 .btn[aria-pressed="true"]{border-color:var(--warm);color:var(--warm);background:rgba(224,145,63,.10)}
 
 /* ── alert strip ─────────────────────────────────────────── */
@@ -262,7 +262,7 @@ col.w-act{width:24px}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .prow{cursor:default}
-.prow:hover{background:var(--row-hover)}
+@media (hover:hover){.prow:hover{background:var(--row-hover)}}
 .prow.sel{background:#232935;box-shadow:inset 2px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
 .prow:focus-visible{outline:none;box-shadow:inset 2px 0 0 0 var(--focus),inset 0 0 0 1px var(--focus)}
 .c-name{font-size:13.5px;color:var(--txt)}
@@ -286,15 +286,23 @@ col.w-act{width:24px}
   width:18px;height:18px;line-height:1;padding:0;border-radius:2px;cursor:pointer;
   background:transparent;border:1px solid transparent;color:var(--txt-3);font-size:12px;
 }
-.prow:hover .mark,.prow.sel .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
-.mark:hover{border-color:var(--urgent);color:var(--urgent)}
+/* `.prow.sel .mark` is NOT gated -- selection is a real state a finger can reach.
+   `.prow:hover .mark` is, and that matters beyond tidiness: it outweighs the touch rule
+   below on specificity (0,3,0 against 0,1,0), so while it exists the mark button's
+   appearance on a phone depends on a hover rule that happens to set identical values.
+   Gated, the touch rule is the only thing styling it and cannot be silently overridden. */
+.prow.sel .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
+@media (hover:hover){
+  .prow:hover .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
+  .mark:hover{border-color:var(--urgent);color:var(--urgent)}
+}
 
 /* grab now */
 #grabPanel{border-color:rgba(255,106,60,.38);background:linear-gradient(180deg,var(--urgent-bg-2),transparent 90px),var(--panel)}
 #grabPanel .phead{border-bottom-color:rgba(255,106,60,.30)}
 #grabPanel .ptitle{color:var(--urgent)}
 #grabBody .prow{background:transparent;box-shadow:inset 2px 0 0 0 var(--urgent)}
-#grabBody .prow:hover{background:var(--urgent-bg-2)}
+@media (hover:hover){#grabBody .prow:hover{background:var(--urgent-bg-2)}}
 #grabBody .prow.sel{background:#262a33;box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px #454c5b}
 #grabBody .prow:focus-visible{box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px var(--focus)}
 #grabBody td{height:26px;border-bottom-color:rgba(255,106,60,.12)}
@@ -320,7 +328,7 @@ col.w-act{width:24px}
   font-family:var(--f-cond);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
   color:var(--txt-3);padding:3px 7px;
 }
-.tab:hover{color:var(--txt);background:#20252e}
+@media (hover:hover){.tab:hover{color:var(--txt);background:#20252e}}
 .tab[aria-pressed="true"]{color:var(--txt);background:#262c37;border-color:#39414f}
 .tab[hidden]{display:none}
 #q{
