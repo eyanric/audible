@@ -279,7 +279,7 @@ his VORP. That is a feature, not a bug fix.
 |---|---|
 | local cockpit | `scripts\draft-day.cmd` → League B, correct |
 | pinned image | `sha256:d3cd…be570` = main @ `39a13f3` — **predates every fix above** |
-| current image | already built by CI on every merge; resolve the digest with the README snippet |
+| current image | `sha256:803a9fd0…69f` = main @ `d01332a`, every fix through PR #28 — built by CI, recorded in README beside the old one |
 | rollback | tag `pre-draft-known-good` (main @ `6a03bb4`), digest recorded in README |
 | cluster | **serving League A, and the fix is in `haven` — see the STOP section** |
 | my seat | **slot 8** (team 8, BUTT), derived from `pickOrder` every poll. Slot 5 is BTD |

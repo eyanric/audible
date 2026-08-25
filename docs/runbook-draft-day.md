@@ -369,11 +369,13 @@ audible Deployment):
       - 0.0.0.0
       - --port
       - "8080"
-    image: ghcr.io/eyanric/audible@sha256:<digest>   # was: :latest
+    # main @ d01332a, every fix through PR #28, published 2026-08-25.
+    # Re-resolve with the README snippet if anything merges after the freeze.
+    image: ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f
 ```
 
-Resolve `<digest>` with the snippet in README's *Draft-night rollback* section. Pin it
-rather than leaving `latest`: `imagePullPolicy: Always` means a pod that restarts for any
+That digest is recorded in README's *Draft-night rollback* section beside the old one, so
+there is still something to roll back to. Pin it rather than leaving `latest`: `imagePullPolicy: Always` means a pod that restarts for any
 reason on draft night pulls whatever `latest` points at by then.
 
 Then force the reconcile instead of waiting out the interval, and verify:
