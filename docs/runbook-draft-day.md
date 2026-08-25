@@ -1,6 +1,6 @@
 # Draft day runbook — League B (ESPN)
 
-**Friday 28 August, 8:30. ESPN league 6012. You are team 8, draft slot 8.**
+**Sunday 30 August, ~19:00. ESPN league 6012. You are team 8, draft slot 8.**
 
 One operator, one night, no second chance. Follow this while distracted.
 
@@ -21,7 +21,7 @@ differ is called out; the biggest is that **`audible live` does not work for Lea
 
 ---
 
-## T-24h — Thursday 27th
+## T-24h — Saturday 29th, evening
 
 Run these the day before, not on the day. **This is also the freeze:** after these checks,
 no merges, no rebuilds, no config edits.
@@ -102,7 +102,7 @@ waiting on.
 
 ---
 
-## T-30m — Friday 8:00
+## T-30m — Sunday 18:30
 
 1. **Start the local container** — double-click `scripts/draft-day.cmd`.
 2. **Confirm the draft was found.** On `/healthz`, `draft_id` should read `6012`. For ESPN the
