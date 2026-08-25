@@ -332,6 +332,38 @@ Then re-verify, and do not trust a 200:
 curl -s http://192.168.1.110/api/state | grep -o '"key": "[^"]*"'   # must say espn_davis_drive
 ```
 
+## League structure — re-verified live 2026-08-25
+
+Every replacement baseline is derived from this, so it is checked rather than assumed.
+
+**Source 1 — the raw ESPN API**, `settings.rosterSettings.lineupSlotCounts` on league 6012:
+
+```
+  0 QB    = 1        16 D/ST  = 1        20 BE = 7
+  2 RB    = 2        17 K     = 1        21 IR = 3
+  4 WR    = 2        23 FLEX  = 1
+  6 TE    = 1
+  total 19 slots - 3 IR = 16 DRAFTED ROUNDS      settings.size = 8
+```
+
+**Source 2 — `uv run audible verify-scoring espn_davis_drive`**, which re-reads the live
+league through the adapter:
+
+```
+  roster structure is FAITHFUL (9 starting slots match)
+  config scoring is FAITHFUL to the live league (48 position-scoped weights match)
+  receptions confirmed LIVE at 0.5/rec for WR/TE (RB stays 0.0 by design, not drift)
+```
+
+**Starting lineup = QB, RB, RB, WR, WR, TE, FLEX, D/ST, K.** Nine starters, seven bench,
+sixteen rounds, eight teams. This matches `leagues/espn_davis_drive.toml` exactly, so the
+replacement constants stand and nothing needs recomputing.
+
+`tests/test_config.py` pins it. A failure there means the live league moved: re-verify, then
+recompute the baselines — the board will keep building either way, which is the danger.
+
+---
+
 ## The public MCP endpoint: what is proven and what is not
 
 Probed end to end on 2026-08-25, through Cloudflare anycast (104.21.81.77), not a LAN
