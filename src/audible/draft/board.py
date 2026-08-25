@@ -194,6 +194,7 @@ def build_board(
     prior_season: int = 2025,
     cur_season: int = 2026,
 ) -> DraftBoard:
+    """Fetch every board input from the network (or the disk cache), then assemble."""
     from ..adapters.sleeper import SleeperAdapter
     from ..crosswalk import Crosswalk
 
@@ -201,16 +202,47 @@ def build_board(
         lines = sleeper.raw_player_lines(config, season=cur_season)
 
     xwalk = Crosswalk.from_nflverse()
-    opp = season_opportunity([prior_season])
-    traj = trajectory_factors(prior_season)
-    vacated = team_vacated_shares(prior_season, cur_season)
-    teams = current_team_by_gsis(cur_season)
     dc_by_gsis, dc_by_name = load_draft_capital(cur_season)
+    return build_board_from_lines(
+        config,
+        lines,
+        gsis_by_id={line.player_id: xwalk.resolve(line).gsis_id for line in lines},
+        opp=season_opportunity([prior_season]),
+        traj=trajectory_factors(prior_season),
+        vacated=team_vacated_shares(prior_season, cur_season),
+        teams=current_team_by_gsis(cur_season),
+        dc_by_gsis=dc_by_gsis,
+        dc_by_name=dc_by_name,
+    )
+
+
+def build_board_from_lines(
+    config: LeagueConfig,
+    lines: list[RawPlayerLine],
+    *,
+    gsis_by_id: dict[str, str | None] | None = None,
+    opp: dict[str, OpportunityXfp] | None = None,
+    traj: dict[str, TrajInfo] | None = None,
+    vacated: dict[str, VacatedShares] | None = None,
+    teams: dict[str, str] | None = None,
+    dc_by_gsis: dict[str, DraftCapital] | None = None,
+    dc_by_name: dict[str, DraftCapital] | None = None,
+) -> DraftBoard:
+    """Assemble a board from stat lines already in hand -- the whole pure half of the path.
+
+    Split out of `build_board` so the board can be built without a network: every overlay
+    input defaults to empty, and the overlay is a flag-only tilt that never moves `points`,
+    so a board built with none of them carries identical projections, VORP and ranks.
+    That is what lets a test drive scoring all the way out to the served surfaces offline.
+    """
+    gsis_by_id = gsis_by_id or {}
+    opp, traj, vacated, teams = opp or {}, traj or {}, vacated or {}, teams or {}
+    dc_by_gsis, dc_by_name = dc_by_gsis or {}, dc_by_name or {}
 
     projections: list[PlayerProjection] = []
     meta: dict[str, _Proj] = {}
     for line in lines:
-        gsis = xwalk.resolve(line).gsis_id
+        gsis = gsis_by_id.get(line.player_id)
         proj = _project_line(
             line, config, gsis=gsis, opp=opp, traj=traj, vacated=vacated,
             teams=teams, dc_by_gsis=dc_by_gsis, dc_by_name=dc_by_name,

@@ -120,15 +120,20 @@ class LeagueConfig(BaseModel):
             out.update(eligible)
         return frozenset(out)
 
-    def scoring_for(self, position: str | None = None) -> dict[str, float]:
+    def scoring_for(self, position: str) -> dict[str, float]:
         """The effective scoring weights for *position*: base, with that position's overrides.
 
         Resolution lives here rather than in the engine because league shape is data, and
         `score_stat_line` stays a pure function of one weights table. A league with no
         overrides -- every Sleeper league -- returns `scoring` unchanged, so nothing that
         predates position-scoped scoring changes behaviour or identity.
+
+        `position` is REQUIRED, and that is the point. It used to default to None, which
+        returned the BASE table -- the one that pays a running back 0.5 a catch in a league
+        that pays him nothing. Every call site already passed a position, so the default
+        bought nothing and made the silently-wrong call spellable. Now it is a type error.
         """
-        if not self.scoring_by_position or position is None:
+        if not self.scoring_by_position:
             return self.scoring
         overrides = self.scoring_by_position.get(position)
         if not overrides:

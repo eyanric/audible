@@ -72,8 +72,16 @@ def test_sleeper_scoring_is_untouched_by_the_position_layer(
     overrides for League B must not change League A's numbers or even its identity."""
     assert sleeper_config.scoring_by_position == {}
     assert sleeper_config.scoring_for("RB") is sleeper_config.scoring
-    assert sleeper_config.scoring_for(None) is sleeper_config.scoring
     assert sleeper_config.scoring_for("nonsense") is sleeper_config.scoring
+
+
+def test_scoring_for_will_not_answer_without_a_position() -> None:
+    """The base table is only ever correct by accident, so it must not be reachable by
+    forgetting an argument. This is the bug class made unspellable."""
+    import inspect
+
+    param = inspect.signature(LeagueConfig.scoring_for).parameters["position"]
+    assert param.default is inspect.Parameter.empty
 
 
 def test_espn_pays_receptions_to_receivers_but_not_backs(
