@@ -33,6 +33,23 @@ notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifa
 # if the roster changes again.
 value_metric = "vorp"
 
+# DELIBERATELY 0, and this is the one place the two leagues' value engines differ.
+#
+# League A really does draft 18 rounds against 11 starting slots (slots_bn=7), so bench
+# depth belongs in its baseline too, and its board has the same D/ST-and-K inflation League
+# B had. It is not switched on because the allocation rule, applied here, pushes QB
+# replacement to QB36 -- and this pool holds ~32 real NFL starters, so QB36 projects 36
+# points against QB20's 262. Measured: the board that produces is 13 quarterbacks in the top
+# 15, which is the same junk-tail pathology already recorded against scarcity/VONA above.
+#
+# Superflex is what breaks it: SUPER_FLEX doubles QB starter demand to 20, and a
+# demand-weighted bench then runs QB straight off the end of the position's real supply. A
+# supply guard fixes it -- but every threshold that works is one I would be picking to make
+# this league's board look right, so it is not going in five days before a draft in the
+# OTHER league. League A does not draft this week. Re-open with a supply rule derived from
+# something, not tuned to this.
+replacement_bench_slots = 0
+
 # Which Sleeper ADP market prices this league. `adp_idp` is the SUPERFLEX+IDP market and is
 # the only field that covers offense and IDP on one scale (verified 2026-08-15: Josh Allen
 # adp_idp 3.9 ~ adp_2qb 3.8, while adp_idp_1qb 19.5 ~ adp_half_ppr 23.1). Mixing markets by

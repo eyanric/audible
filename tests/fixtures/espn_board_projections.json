@@ -1,0 +1,2594 @@
+[
+ {
+  "player_id": "LAR",
+  "name": "LAR",
+  "position": "DEF",
+  "points": 111.0
+ },
+ {
+  "player_id": "HOU",
+  "name": "HOU",
+  "position": "DEF",
+  "points": 109.0
+ },
+ {
+  "player_id": "SEA",
+  "name": "SEA",
+  "position": "DEF",
+  "points": 108.0
+ },
+ {
+  "player_id": "PHI",
+  "name": "PHI",
+  "position": "DEF",
+  "points": 103.0
+ },
+ {
+  "player_id": "DEN",
+  "name": "DEN",
+  "position": "DEF",
+  "points": 101.0
+ },
+ {
+  "player_id": "BAL",
+  "name": "BAL",
+  "position": "DEF",
+  "points": 100.0
+ },
+ {
+  "player_id": "DET",
+  "name": "DET",
+  "position": "DEF",
+  "points": 97.0
+ },
+ {
+  "player_id": "MIN",
+  "name": "MIN",
+  "position": "DEF",
+  "points": 97.0
+ },
+ {
+  "player_id": "NE",
+  "name": "NE",
+  "position": "DEF",
+  "points": 97.0
+ },
+ {
+  "player_id": "JAX",
+  "name": "JAX",
+  "position": "DEF",
+  "points": 96.0
+ },
+ {
+  "player_id": "PIT",
+  "name": "PIT",
+  "position": "DEF",
+  "points": 93.0
+ },
+ {
+  "player_id": "KC",
+  "name": "KC",
+  "position": "DEF",
+  "points": 92.0
+ },
+ {
+  "player_id": "DAL",
+  "name": "DAL",
+  "position": "DEF",
+  "points": 91.0
+ },
+ {
+  "player_id": "GB",
+  "name": "GB",
+  "position": "DEF",
+  "points": 91.0
+ },
+ {
+  "player_id": "LAC",
+  "name": "LAC",
+  "position": "DEF",
+  "points": 91.0
+ },
+ {
+  "player_id": "NYG",
+  "name": "NYG",
+  "position": "DEF",
+  "points": 91.0
+ },
+ {
+  "player_id": "CHI",
+  "name": "CHI",
+  "position": "DEF",
+  "points": 90.0
+ },
+ {
+  "player_id": "BUF",
+  "name": "BUF",
+  "position": "DEF",
+  "points": 89.0
+ },
+ {
+  "player_id": "IND",
+  "name": "IND",
+  "position": "DEF",
+  "points": 89.0
+ },
+ {
+  "player_id": "SF",
+  "name": "SF",
+  "position": "DEF",
+  "points": 89.0
+ },
+ {
+  "player_id": "ATL",
+  "name": "ATL",
+  "position": "DEF",
+  "points": 88.0
+ },
+ {
+  "player_id": "CAR",
+  "name": "CAR",
+  "position": "DEF",
+  "points": 86.0
+ },
+ {
+  "player_id": "TB",
+  "name": "TB",
+  "position": "DEF",
+  "points": 86.0
+ },
+ {
+  "player_id": "CIN",
+  "name": "CIN",
+  "position": "DEF",
+  "points": 84.0
+ },
+ {
+  "player_id": "NO",
+  "name": "NO",
+  "position": "DEF",
+  "points": 82.0
+ },
+ {
+  "player_id": "WAS",
+  "name": "WAS",
+  "position": "DEF",
+  "points": 80.0
+ },
+ {
+  "player_id": "CLE",
+  "name": "CLE",
+  "position": "DEF",
+  "points": 79.0
+ },
+ {
+  "player_id": "TEN",
+  "name": "TEN",
+  "position": "DEF",
+  "points": 72.0
+ },
+ {
+  "player_id": "ARI",
+  "name": "ARI",
+  "position": "DEF",
+  "points": 71.0
+ },
+ {
+  "player_id": "LV",
+  "name": "LV",
+  "position": "DEF",
+  "points": 70.0
+ },
+ {
+  "player_id": "NYJ",
+  "name": "NYJ",
+  "position": "DEF",
+  "points": 69.0
+ },
+ {
+  "player_id": "MIA",
+  "name": "MIA",
+  "position": "DEF",
+  "points": 67.0
+ },
+ {
+  "player_id": "11533",
+  "name": "Brandon Aubrey",
+  "position": "K",
+  "points": 118.0
+ },
+ {
+  "player_id": "11786",
+  "name": "Cam Little",
+  "position": "K",
+  "points": 114.0
+ },
+ {
+  "player_id": "3451",
+  "name": "Ka'imi Fairbairn",
+  "position": "K",
+  "points": 114.0
+ },
+ {
+  "player_id": "2747",
+  "name": "Jason Myers",
+  "position": "K",
+  "points": 113.0
+ },
+ {
+  "player_id": "11792",
+  "name": "Will Reichard",
+  "position": "K",
+  "points": 110.0
+ },
+ {
+  "player_id": "12015",
+  "name": "Harrison Mevis",
+  "position": "K",
+  "points": 108.0
+ },
+ {
+  "player_id": "12711",
+  "name": "Tyler Loop",
+  "position": "K",
+  "points": 108.0
+ },
+ {
+  "player_id": "1945",
+  "name": "Chris Boswell",
+  "position": "K",
+  "points": 108.0
+ },
+ {
+  "player_id": "7839",
+  "name": "Evan McPherson",
+  "position": "K",
+  "points": 108.0
+ },
+ {
+  "player_id": "8259",
+  "name": "Cameron Dicker",
+  "position": "K",
+  "points": 108.0
+ },
+ {
+  "player_id": "11539",
+  "name": "Jake Bates",
+  "position": "K",
+  "points": 107.0
+ },
+ {
+  "player_id": "6650",
+  "name": "Chase McLaughlin",
+  "position": "K",
+  "points": 107.0
+ },
+ {
+  "player_id": "7042",
+  "name": "Tyler Bass",
+  "position": "K",
+  "points": 105.0
+ },
+ {
+  "player_id": "5189",
+  "name": "Eddy Pineiro",
+  "position": "K",
+  "points": 103.0
+ },
+ {
+  "player_id": "2020",
+  "name": "Cairo Santos",
+  "position": "K",
+  "points": 102.0
+ },
+ {
+  "player_id": "3678",
+  "name": "Wil Lutz",
+  "position": "K",
+  "points": 102.0
+ },
+ {
+  "player_id": "4227",
+  "name": "Harrison Butker",
+  "position": "K",
+  "points": 102.0
+ },
+ {
+  "player_id": "11058",
+  "name": "Blake Grupe",
+  "position": "K",
+  "points": 101.0
+ },
+ {
+  "player_id": "12713",
+  "name": "Andy Borregales",
+  "position": "K",
+  "points": 98.0
+ },
+ {
+  "player_id": "650",
+  "name": "Nick Folk",
+  "position": "K",
+  "points": 96.0
+ },
+ {
+  "player_id": "11653",
+  "name": "Charlie Smyth",
+  "position": "K",
+  "points": 95.0
+ },
+ {
+  "player_id": "10937",
+  "name": "Jake Moody",
+  "position": "K",
+  "points": 93.0
+ },
+ {
+  "player_id": "12961",
+  "name": "Ryan Fitzgerald",
+  "position": "K",
+  "points": 93.0
+ },
+ {
+  "player_id": "5119",
+  "name": "Jason Sanders",
+  "position": "K",
+  "points": 93.0
+ },
+ {
+  "player_id": "4195",
+  "name": "Jake Elliott",
+  "position": "K",
+  "points": 92.0
+ },
+ {
+  "player_id": "10955",
+  "name": "Chad Ryland",
+  "position": "K",
+  "points": 91.0
+ },
+ {
+  "player_id": "11261",
+  "name": "Andre Szmyt",
+  "position": "K",
+  "points": 85.0
+ },
+ {
+  "player_id": "6528",
+  "name": "Joey Slye",
+  "position": "K",
+  "points": 85.0
+ },
+ {
+  "player_id": "6083",
+  "name": "Matt Gay",
+  "position": "K",
+  "points": 77.0
+ },
+ {
+  "player_id": "13545",
+  "name": "Trey Smack",
+  "position": "K",
+  "points": 72.0
+ },
+ {
+  "player_id": "4233",
+  "name": "Zane Gonzalez",
+  "position": "K",
+  "points": 61.0
+ },
+ {
+  "player_id": "13833",
+  "name": "Dominic Zvada",
+  "position": "K",
+  "points": 57.0
+ },
+ {
+  "player_id": "5095",
+  "name": "Daniel Carlson",
+  "position": "K",
+  "points": 54.0
+ },
+ {
+  "player_id": "1433",
+  "name": "Brandon McManus",
+  "position": "K",
+  "points": 46.0
+ },
+ {
+  "player_id": "13066",
+  "name": "Ben Sauls",
+  "position": "K",
+  "points": 42.0
+ },
+ {
+  "player_id": "7922",
+  "name": "Riley Patterson",
+  "position": "K",
+  "points": 38.0
+ },
+ {
+  "player_id": "13968",
+  "name": "Drew Stevens",
+  "position": "K",
+  "points": 22.0
+ },
+ {
+  "player_id": "17",
+  "name": "Matt Prater",
+  "position": "K",
+  "points": 22.0
+ },
+ {
+  "player_id": "4666",
+  "name": "Younghoe Koo",
+  "position": "K",
+  "points": 22.0
+ },
+ {
+  "player_id": "503",
+  "name": "Graham Gano",
+  "position": "K",
+  "points": 22.0
+ },
+ {
+  "player_id": "5230",
+  "name": "Michael Badgley",
+  "position": "K",
+  "points": 22.0
+ },
+ {
+  "player_id": "8258",
+  "name": "Cade York",
+  "position": "K",
+  "points": 14.0
+ },
+ {
+  "player_id": "12548",
+  "name": "Lenny Krieg",
+  "position": "K",
+  "points": 6.0
+ },
+ {
+  "player_id": "13838",
+  "name": "Will Ferrin",
+  "position": "K",
+  "points": 6.0
+ },
+ {
+  "player_id": "10858",
+  "name": "Alex Quevedo",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "1099",
+  "name": "Randy Bullock",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "110",
+  "name": "Stephen Gostkowski",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11008",
+  "name": "Anders Carlson",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11077",
+  "name": "Jack Podlesny",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11092",
+  "name": "B.T. Potter",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11145",
+  "name": "Tanner Brown",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11146",
+  "name": "Christopher Dunn",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11457",
+  "name": "Trey Wolff",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11532",
+  "name": "Matthew Trickett",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11789",
+  "name": "Joshua Karty",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "11949",
+  "name": "Brayden Narveson",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "120",
+  "name": "Adam Vinatieri",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12112",
+  "name": "Camden Lewis",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12156",
+  "name": "James Turner",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12180",
+  "name": "Alex McNulty",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12185",
+  "name": "Spencer Shrader",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12312",
+  "name": "Noah Rauschenberg",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12372",
+  "name": "Vincent Blanchard",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12385",
+  "name": "Jude McAtamney",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12403",
+  "name": "Valentino Ambrosio",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12404",
+  "name": "Colton Theaker",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12438",
+  "name": "Alex Hale",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "1264",
+  "name": "Justin Tucker",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "1266",
+  "name": "Greg Zuerlein",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "127",
+  "name": "Matt Bryant",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12750",
+  "name": "Jonathan Kim",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12791",
+  "name": "Ryan Coe",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "12824",
+  "name": "Maddux Trujillo",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "1287",
+  "name": "Kai Forbath",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "13149",
+  "name": "Caden Davis",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "13211",
+  "name": "John Hoyland",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "13237",
+  "name": "Mark McNamee",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "1348",
+  "name": "Dustin Hopkins",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "13644",
+  "name": "Mason Shipley",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "13710",
+  "name": "Gabriel Plascencia",
+  "position": "K",
+  "points": 0.0
+ },
+ {
+  "player_id": "4984",
+  "name": "Josh Allen",
+  "position": "QB",
+  "points": 351.5
+ },
+ {
+  "player_id": "4881",
+  "name": "Lamar Jackson",
+  "position": "QB",
+  "points": 318.0
+ },
+ {
+  "player_id": "11564",
+  "name": "Drake Maye",
+  "position": "QB",
+  "points": 309.76
+ },
+ {
+  "player_id": "6904",
+  "name": "Jalen Hurts",
+  "position": "QB",
+  "points": 302.54
+ },
+ {
+  "player_id": "11566",
+  "name": "Jayden Daniels",
+  "position": "QB",
+  "points": 299.72
+ },
+ {
+  "player_id": "6770",
+  "name": "Joe Burrow",
+  "position": "QB",
+  "points": 296.12
+ },
+ {
+  "player_id": "7523",
+  "name": "Trevor Lawrence",
+  "position": "QB",
+  "points": 291.42
+ },
+ {
+  "player_id": "3294",
+  "name": "Dak Prescott",
+  "position": "QB",
+  "points": 290.88
+ },
+ {
+  "player_id": "8183",
+  "name": "Brock Purdy",
+  "position": "QB",
+  "points": 290.2
+ },
+ {
+  "player_id": "11560",
+  "name": "Caleb Williams",
+  "position": "QB",
+  "points": 289.34
+ },
+ {
+  "player_id": "6797",
+  "name": "Justin Herbert",
+  "position": "QB",
+  "points": 285.48
+ },
+ {
+  "player_id": "12508",
+  "name": "Jaxson Dart",
+  "position": "QB",
+  "points": 284.54
+ },
+ {
+  "player_id": "11563",
+  "name": "Bo Nix",
+  "position": "QB",
+  "points": 283.72
+ },
+ {
+  "player_id": "4046",
+  "name": "Patrick Mahomes",
+  "position": "QB",
+  "points": 274.68
+ },
+ {
+  "player_id": "3163",
+  "name": "Jared Goff",
+  "position": "QB",
+  "points": 273.46
+ },
+ {
+  "player_id": "421",
+  "name": "Matthew Stafford",
+  "position": "QB",
+  "points": 269.22
+ },
+ {
+  "player_id": "6804",
+  "name": "Jordan Love",
+  "position": "QB",
+  "points": 268.52
+ },
+ {
+  "player_id": "4892",
+  "name": "Baker Mayfield",
+  "position": "QB",
+  "points": 261.88
+ },
+ {
+  "player_id": "8161",
+  "name": "Malik Willis",
+  "position": "QB",
+  "points": 261.12
+ },
+ {
+  "player_id": "12545",
+  "name": "Tyler Shough",
+  "position": "QB",
+  "points": 258.94
+ },
+ {
+  "player_id": "5849",
+  "name": "Kyler Murray",
+  "position": "QB",
+  "points": 256.2
+ },
+ {
+  "player_id": "4943",
+  "name": "Sam Darnold",
+  "position": "QB",
+  "points": 250.74
+ },
+ {
+  "player_id": "9758",
+  "name": "C.J. Stroud",
+  "position": "QB",
+  "points": 226.2
+ },
+ {
+  "player_id": "9228",
+  "name": "Bryce Young",
+  "position": "QB",
+  "points": 224.58
+ },
+ {
+  "player_id": "12522",
+  "name": "Cam Ward",
+  "position": "QB",
+  "points": 214.84
+ },
+ {
+  "player_id": "5870",
+  "name": "Daniel Jones",
+  "position": "QB",
+  "points": 212.54
+ },
+ {
+  "player_id": "1373",
+  "name": "Geno Smith",
+  "position": "QB",
+  "points": 208.48
+ },
+ {
+  "player_id": "13269",
+  "name": "Fernando Mendoza",
+  "position": "QB",
+  "points": 201.16
+ },
+ {
+  "player_id": "96",
+  "name": "Aaron Rodgers",
+  "position": "QB",
+  "points": 170.0
+ },
+ {
+  "player_id": "3257",
+  "name": "Jacoby Brissett",
+  "position": "QB",
+  "points": 153.0
+ },
+ {
+  "player_id": "6768",
+  "name": "Tua Tagovailoa",
+  "position": "QB",
+  "points": 129.94
+ },
+ {
+  "player_id": "11559",
+  "name": "Michael Penix",
+  "position": "QB",
+  "points": 103.38
+ },
+ {
+  "player_id": "4017",
+  "name": "Deshaun Watson",
+  "position": "QB",
+  "points": 96.06
+ },
+ {
+  "player_id": "12524",
+  "name": "Shedeur Sanders",
+  "position": "QB",
+  "points": 92.12
+ },
+ {
+  "player_id": "13272",
+  "name": "Carson Beck",
+  "position": "QB",
+  "points": 50.92
+ },
+ {
+  "player_id": "1166",
+  "name": "Kirk Cousins",
+  "position": "QB",
+  "points": 36.16
+ },
+ {
+  "player_id": "7591",
+  "name": "Justin Fields",
+  "position": "QB",
+  "points": 32.72
+ },
+ {
+  "player_id": "13306",
+  "name": "Taylen Green",
+  "position": "QB",
+  "points": 28.3
+ },
+ {
+  "player_id": "19",
+  "name": "Joe Flacco",
+  "position": "QB",
+  "points": 26.72
+ },
+ {
+  "player_id": "6011",
+  "name": "Gardner Minshew",
+  "position": "QB",
+  "points": 25.96
+ },
+ {
+  "player_id": "2028",
+  "name": "Derek Carr",
+  "position": "QB",
+  "points": 25.18
+ },
+ {
+  "player_id": "7527",
+  "name": "Mac Jones",
+  "position": "QB",
+  "points": 24.72
+ },
+ {
+  "player_id": "13303",
+  "name": "Cade Klubnik",
+  "position": "QB",
+  "points": 22.0
+ },
+ {
+  "player_id": "12511",
+  "name": "Will Howard",
+  "position": "QB",
+  "points": 20.5
+ },
+ {
+  "player_id": "9229",
+  "name": "Anthony Richardson",
+  "position": "QB",
+  "points": 20.32
+ },
+ {
+  "player_id": "13289",
+  "name": "Drew Allar",
+  "position": "QB",
+  "points": 20.02
+ },
+ {
+  "player_id": "11565",
+  "name": "J.J. McCarthy",
+  "position": "QB",
+  "points": 18.62
+ },
+ {
+  "player_id": "7610",
+  "name": "Trey Lance",
+  "position": "QB",
+  "points": 13.62
+ },
+ {
+  "player_id": "12510",
+  "name": "Jalen Milroe",
+  "position": "QB",
+  "points": 12.86
+ },
+ {
+  "player_id": "13275",
+  "name": "Ty Simpson",
+  "position": "QB",
+  "points": 12.62
+ },
+ {
+  "player_id": "2307",
+  "name": "Marcus Mariota",
+  "position": "QB",
+  "points": 12.12
+ },
+ {
+  "player_id": "827",
+  "name": "Tyrod Taylor",
+  "position": "QB",
+  "points": 11.9
+ },
+ {
+  "player_id": "2306",
+  "name": "Jameis Winston",
+  "position": "QB",
+  "points": 11.86
+ },
+ {
+  "player_id": "9999",
+  "name": "Will Levis",
+  "position": "QB",
+  "points": 11.7
+ },
+ {
+  "player_id": "11562",
+  "name": "Spencer Rattler",
+  "position": "QB",
+  "points": 11.68
+ },
+ {
+  "player_id": "7083",
+  "name": "Tyler Huntley",
+  "position": "QB",
+  "points": 11.68
+ },
+ {
+  "player_id": "13427",
+  "name": "Diego Pavia",
+  "position": "QB",
+  "points": 11.52
+ },
+ {
+  "player_id": "11256",
+  "name": "Tyson Bagent",
+  "position": "QB",
+  "points": 11.5
+ },
+ {
+  "player_id": "12470",
+  "name": "Riley Leonard",
+  "position": "QB",
+  "points": 11.44
+ },
+ {
+  "player_id": "3161",
+  "name": "Carson Wentz",
+  "position": "QB",
+  "points": 11.44
+ },
+ {
+  "player_id": "9230",
+  "name": "Tanner McKee",
+  "position": "QB",
+  "points": 11.42
+ },
+ {
+  "player_id": "10217",
+  "name": "Clayton Tune",
+  "position": "QB",
+  "points": 11.4
+ },
+ {
+  "player_id": "11557",
+  "name": "Joe Milton",
+  "position": "QB",
+  "points": 11.4
+ },
+ {
+  "player_id": "12500",
+  "name": "Quinn Ewers",
+  "position": "QB",
+  "points": 11.4
+ },
+ {
+  "player_id": "4179",
+  "name": "Joshua Dobbs",
+  "position": "QB",
+  "points": 11.4
+ },
+ {
+  "player_id": "11292",
+  "name": "Tommy DeVito",
+  "position": "QB",
+  "points": 11.38
+ },
+ {
+  "player_id": "1837",
+  "name": "Jimmy Garoppolo",
+  "position": "QB",
+  "points": 11.32
+ },
+ {
+  "player_id": "6136",
+  "name": "Jarrett Stidham",
+  "position": "QB",
+  "points": 11.22
+ },
+ {
+  "player_id": "4464",
+  "name": "Nick Mullens",
+  "position": "QB",
+  "points": 11.04
+ },
+ {
+  "player_id": "7585",
+  "name": "Davis Mills",
+  "position": "QB",
+  "points": 11.04
+ },
+ {
+  "player_id": "5127",
+  "name": "Kyle Allen",
+  "position": "QB",
+  "points": 11.0
+ },
+ {
+  "player_id": "3976",
+  "name": "Mitchell Trubisky",
+  "position": "QB",
+  "points": 10.94
+ },
+ {
+  "player_id": "12486",
+  "name": "Dillon Gabriel",
+  "position": "QB",
+  "points": 10.86
+ },
+ {
+  "player_id": "829",
+  "name": "Andy Dalton",
+  "position": "QB",
+  "points": 10.82
+ },
+ {
+  "player_id": "4972",
+  "name": "Mason Rudolph",
+  "position": "QB",
+  "points": 10.68
+ },
+ {
+  "player_id": "2152",
+  "name": "Teddy Bridgewater",
+  "position": "QB",
+  "points": 10.58
+ },
+ {
+  "player_id": "260",
+  "name": "Josh Johnson",
+  "position": "QB",
+  "points": 10.34
+ },
+ {
+  "player_id": "10215",
+  "name": "Jake Haener",
+  "position": "QB",
+  "points": 0.0
+ },
+ {
+  "player_id": "10233",
+  "name": "Max Duggan",
+  "position": "QB",
+  "points": 0.0
+ },
+ {
+  "player_id": "1029",
+  "name": "Nick Foles",
+  "position": "QB",
+  "points": 0.0
+ },
+ {
+  "player_id": "9221",
+  "name": "Jahmyr Gibbs",
+  "position": "RB",
+  "points": 268.4
+ },
+ {
+  "player_id": "9509",
+  "name": "Bijan Robinson",
+  "position": "RB",
+  "points": 260.9
+ },
+ {
+  "player_id": "6813",
+  "name": "Jonathan Taylor",
+  "position": "RB",
+  "points": 236.3
+ },
+ {
+  "player_id": "3198",
+  "name": "Derrick Henry",
+  "position": "RB",
+  "points": 229.9
+ },
+ {
+  "player_id": "8138",
+  "name": "James Cook",
+  "position": "RB",
+  "points": 229.8
+ },
+ {
+  "player_id": "4034",
+  "name": "Christian McCaffrey",
+  "position": "RB",
+  "points": 221.0
+ },
+ {
+  "player_id": "4866",
+  "name": "Saquon Barkley",
+  "position": "RB",
+  "points": 209.7
+ },
+ {
+  "player_id": "12527",
+  "name": "Ashton Jeanty",
+  "position": "RB",
+  "points": 209.5
+ },
+ {
+  "player_id": "8151",
+  "name": "Kenneth Walker",
+  "position": "RB",
+  "points": 207.0
+ },
+ {
+  "player_id": "9226",
+  "name": "De'Von Achane",
+  "position": "RB",
+  "points": 202.4
+ },
+ {
+  "player_id": "9224",
+  "name": "Chase Brown",
+  "position": "RB",
+  "points": 198.2
+ },
+ {
+  "player_id": "12507",
+  "name": "Omarion Hampton",
+  "position": "RB",
+  "points": 194.9
+ },
+ {
+  "player_id": "13287",
+  "name": "Jeremiyah Love",
+  "position": "RB",
+  "points": 185.5
+ },
+ {
+  "player_id": "8155",
+  "name": "Breece Hall",
+  "position": "RB",
+  "points": 176.6
+ },
+ {
+  "player_id": "8150",
+  "name": "Kyren Williams",
+  "position": "RB",
+  "points": 176.0
+ },
+ {
+  "player_id": "7543",
+  "name": "Travis Etienne",
+  "position": "RB",
+  "points": 171.7
+ },
+ {
+  "player_id": "6790",
+  "name": "D'Andre Swift",
+  "position": "RB",
+  "points": 171.0
+ },
+ {
+  "player_id": "7588",
+  "name": "Javonte Williams",
+  "position": "RB",
+  "points": 170.3
+ },
+ {
+  "player_id": "5850",
+  "name": "Josh Jacobs",
+  "position": "RB",
+  "points": 169.6
+ },
+ {
+  "player_id": "5892",
+  "name": "David Montgomery",
+  "position": "RB",
+  "points": 169.1
+ },
+ {
+  "player_id": "12481",
+  "name": "Cam Skattebo",
+  "position": "RB",
+  "points": 165.5
+ },
+ {
+  "player_id": "12512",
+  "name": "Quinshon Judkins",
+  "position": "RB",
+  "points": 164.0
+ },
+ {
+  "player_id": "11584",
+  "name": "Bucky Irving",
+  "position": "RB",
+  "points": 161.3
+ },
+ {
+  "player_id": "13286",
+  "name": "Jadarian Price",
+  "position": "RB",
+  "points": 151.0
+ },
+ {
+  "player_id": "12490",
+  "name": "Bhayshul Tuten",
+  "position": "RB",
+  "points": 142.8
+ },
+ {
+  "player_id": "7611",
+  "name": "Rhamondre Stevenson",
+  "position": "RB",
+  "points": 140.0
+ },
+ {
+  "player_id": "12529",
+  "name": "TreVeyon Henderson",
+  "position": "RB",
+  "points": 136.0
+ },
+ {
+  "player_id": "8228",
+  "name": "Jaylen Warren",
+  "position": "RB",
+  "points": 134.6
+ },
+ {
+  "player_id": "6806",
+  "name": "J.K. Dobbins",
+  "position": "RB",
+  "points": 134.2
+ },
+ {
+  "player_id": "8408",
+  "name": "Jordan Mason",
+  "position": "RB",
+  "points": 133.7
+ },
+ {
+  "player_id": "5967",
+  "name": "Tony Pollard",
+  "position": "RB",
+  "points": 132.1
+ },
+ {
+  "player_id": "12534",
+  "name": "Kyle Monangai",
+  "position": "RB",
+  "points": 131.6
+ },
+ {
+  "player_id": "7594",
+  "name": "Chuba Hubbard",
+  "position": "RB",
+  "points": 125.9
+ },
+ {
+  "player_id": "7021",
+  "name": "Rico Dowdle",
+  "position": "RB",
+  "points": 123.1
+ },
+ {
+  "player_id": "11583",
+  "name": "Jonathon Brooks",
+  "position": "RB",
+  "points": 120.9
+ },
+ {
+  "player_id": "11586",
+  "name": "Blake Corum",
+  "position": "RB",
+  "points": 120.3
+ },
+ {
+  "player_id": "10219",
+  "name": "Chris Rodriguez",
+  "position": "RB",
+  "points": 117.5
+ },
+ {
+  "player_id": "12533",
+  "name": "Jacory Croskey-Merritt",
+  "position": "RB",
+  "points": 108.9
+ },
+ {
+  "player_id": "12489",
+  "name": "RJ Harvey",
+  "position": "RB",
+  "points": 107.1
+ },
+ {
+  "player_id": "7567",
+  "name": "Kenny Gainwell",
+  "position": "RB",
+  "points": 105.3
+ },
+ {
+  "player_id": "4199",
+  "name": "Aaron Jones",
+  "position": "RB",
+  "points": 103.1
+ },
+ {
+  "player_id": "8136",
+  "name": "Rachaad White",
+  "position": "RB",
+  "points": 94.1
+ },
+ {
+  "player_id": "11655",
+  "name": "Tyrone Tracy",
+  "position": "RB",
+  "points": 90.3
+ },
+ {
+  "player_id": "9508",
+  "name": "Tyjae Spears",
+  "position": "RB",
+  "points": 79.6
+ },
+ {
+  "player_id": "9511",
+  "name": "Keaton Mitchell",
+  "position": "RB",
+  "points": 78.9
+ },
+ {
+  "player_id": "12469",
+  "name": "Dylan Sampson",
+  "position": "RB",
+  "points": 65.7
+ },
+ {
+  "player_id": "12474",
+  "name": "Woody Marks",
+  "position": "RB",
+  "points": 64.8
+ },
+ {
+  "player_id": "8132",
+  "name": "Tyler Allgeier",
+  "position": "RB",
+  "points": 61.4
+ },
+ {
+  "player_id": "9225",
+  "name": "Tank Bigsby",
+  "position": "RB",
+  "points": 57.2
+ },
+ {
+  "player_id": "8154",
+  "name": "Brian Robinson",
+  "position": "RB",
+  "points": 56.9
+ },
+ {
+  "player_id": "9753",
+  "name": "Zach Charbonnet",
+  "position": "RB",
+  "points": 56.2
+ },
+ {
+  "player_id": "11575",
+  "name": "Ray Davis",
+  "position": "RB",
+  "points": 56.1
+ },
+ {
+  "player_id": "4147",
+  "name": "Samaje Perine",
+  "position": "RB",
+  "points": 55.8
+ },
+ {
+  "player_id": "13345",
+  "name": "Jonah Coleman",
+  "position": "RB",
+  "points": 53.9
+ },
+ {
+  "player_id": "13337",
+  "name": "Emmett Johnson",
+  "position": "RB",
+  "points": 53.2
+ },
+ {
+  "player_id": "13305",
+  "name": "Mike Washington",
+  "position": "RB",
+  "points": 53.0
+ },
+ {
+  "player_id": "13288",
+  "name": "Nicholas Singleton",
+  "position": "RB",
+  "points": 51.7
+ },
+ {
+  "player_id": "12467",
+  "name": "Jordan James",
+  "position": "RB",
+  "points": 48.7
+ },
+ {
+  "player_id": "12457",
+  "name": "Jaydon Blue",
+  "position": "RB",
+  "points": 47.6
+ },
+ {
+  "player_id": "11571",
+  "name": "Isaiah Davis",
+  "position": "RB",
+  "points": 47.5
+ },
+ {
+  "player_id": "4137",
+  "name": "James Conner",
+  "position": "RB",
+  "points": 46.2
+ },
+ {
+  "player_id": "11647",
+  "name": "Kimani Vidal",
+  "position": "RB",
+  "points": 46.0
+ },
+ {
+  "player_id": "11435",
+  "name": "Emanuel Wilson",
+  "position": "RB",
+  "points": 45.5
+ },
+ {
+  "player_id": "11581",
+  "name": "MarShawn Lloyd",
+  "position": "RB",
+  "points": 44.8
+ },
+ {
+  "player_id": "9506",
+  "name": "Sean Tucker",
+  "position": "RB",
+  "points": 44.5
+ },
+ {
+  "player_id": "5995",
+  "name": "Justice Hill",
+  "position": "RB",
+  "points": 43.7
+ },
+ {
+  "player_id": "8205",
+  "name": "Isiah Pacheco",
+  "position": "RB",
+  "points": 43.6
+ },
+ {
+  "player_id": "4035",
+  "name": "Alvin Kamara",
+  "position": "RB",
+  "points": 43.0
+ },
+ {
+  "player_id": "11370",
+  "name": "Chris Brooks",
+  "position": "RB",
+  "points": 42.3
+ },
+ {
+  "player_id": "11576",
+  "name": "Braelon Allen",
+  "position": "RB",
+  "points": 42.2
+ },
+ {
+  "player_id": "6039",
+  "name": "Ty Johnson",
+  "position": "RB",
+  "points": 38.8
+ },
+ {
+  "player_id": "12544",
+  "name": "LeQuint Allen",
+  "position": "RB",
+  "points": 38.2
+ },
+ {
+  "player_id": "11643",
+  "name": "Jaylen Wright",
+  "position": "RB",
+  "points": 38.1
+ },
+ {
+  "player_id": "13405",
+  "name": "Kaytron Allen",
+  "position": "RB",
+  "points": 37.9
+ },
+ {
+  "player_id": "13414",
+  "name": "Kaelon Black",
+  "position": "RB",
+  "points": 36.3
+ },
+ {
+  "player_id": "13424",
+  "name": "Seth McGowan",
+  "position": "RB",
+  "points": 29.3
+ },
+ {
+  "player_id": "12531",
+  "name": "Trevor Etienne",
+  "position": "RB",
+  "points": 28.2
+ },
+ {
+  "player_id": "8800",
+  "name": "Malik Davis",
+  "position": "RB",
+  "points": 27.7
+ },
+ {
+  "player_id": "12504",
+  "name": "Kaleb Johnson",
+  "position": "RB",
+  "points": 27.0
+ },
+ {
+  "player_id": "11570",
+  "name": "Rasheen Ali",
+  "position": "RB",
+  "points": 26.7
+ },
+ {
+  "player_id": "11604",
+  "name": "Brock Bowers",
+  "position": "TE",
+  "points": 202.5
+ },
+ {
+  "player_id": "8130",
+  "name": "Trey McBride",
+  "position": "TE",
+  "points": 186.9
+ },
+ {
+  "player_id": "12517",
+  "name": "Colston Loveland",
+  "position": "TE",
+  "points": 173.4
+ },
+ {
+  "player_id": "12518",
+  "name": "Tyler Warren",
+  "position": "TE",
+  "points": 159.6
+ },
+ {
+  "player_id": "10859",
+  "name": "Sam LaPorta",
+  "position": "TE",
+  "points": 158.5
+ },
+ {
+  "player_id": "12506",
+  "name": "Harold Fannin",
+  "position": "TE",
+  "points": 143.4
+ },
+ {
+  "player_id": "9484",
+  "name": "Tucker Kraft",
+  "position": "TE",
+  "points": 140.9
+ },
+ {
+  "player_id": "7553",
+  "name": "Kyle Pitts",
+  "position": "TE",
+  "points": 138.6
+ },
+ {
+  "player_id": "4217",
+  "name": "George Kittle",
+  "position": "TE",
+  "points": 138.3
+ },
+ {
+  "player_id": "1466",
+  "name": "Travis Kelce",
+  "position": "TE",
+  "points": 136.4
+ },
+ {
+  "player_id": "5012",
+  "name": "Mark Andrews",
+  "position": "TE",
+  "points": 132.5
+ },
+ {
+  "player_id": "10236",
+  "name": "Dalton Kincaid",
+  "position": "TE",
+  "points": 130.6
+ },
+ {
+  "player_id": "9480",
+  "name": "Brenton Strange",
+  "position": "TE",
+  "points": 129.5
+ },
+ {
+  "player_id": "8131",
+  "name": "Isaiah Likely",
+  "position": "TE",
+  "points": 126.3
+ },
+ {
+  "player_id": "8110",
+  "name": "Jake Ferguson",
+  "position": "TE",
+  "points": 124.8
+ },
+ {
+  "player_id": "3214",
+  "name": "Hunter Henry",
+  "position": "TE",
+  "points": 124.5
+ },
+ {
+  "player_id": "5844",
+  "name": "T.J. Hockenson",
+  "position": "TE",
+  "points": 122.0
+ },
+ {
+  "player_id": "12493",
+  "name": "Oronde Gadsden",
+  "position": "TE",
+  "points": 113.8
+ },
+ {
+  "player_id": "8210",
+  "name": "Chig Okonkwo",
+  "position": "TE",
+  "points": 113.6
+ },
+ {
+  "player_id": "11603",
+  "name": "AJ Barner",
+  "position": "TE",
+  "points": 113.4
+ },
+ {
+  "player_id": "5001",
+  "name": "Dalton Schultz",
+  "position": "TE",
+  "points": 110.2
+ },
+ {
+  "player_id": "7002",
+  "name": "Juwan Johnson",
+  "position": "TE",
+  "points": 109.6
+ },
+ {
+  "player_id": "5022",
+  "name": "Dallas Goedert",
+  "position": "TE",
+  "points": 109.5
+ },
+ {
+  "player_id": "7600",
+  "name": "Pat Freiermuth",
+  "position": "TE",
+  "points": 102.9
+ },
+ {
+  "player_id": "12502",
+  "name": "Gunnar Helm",
+  "position": "TE",
+  "points": 101.8
+ },
+ {
+  "player_id": "2505",
+  "name": "Darren Waller",
+  "position": "TE",
+  "points": 99.1
+ },
+ {
+  "player_id": "8111",
+  "name": "Cade Otton",
+  "position": "TE",
+  "points": 95.8
+ },
+ {
+  "player_id": "8172",
+  "name": "Greg Dulcich",
+  "position": "TE",
+  "points": 87.4
+ },
+ {
+  "player_id": "4993",
+  "name": "Mike Gesicki",
+  "position": "TE",
+  "points": 83.9
+ },
+ {
+  "player_id": "12487",
+  "name": "Terrance Ferguson",
+  "position": "TE",
+  "points": 82.8
+ },
+ {
+  "player_id": "13330",
+  "name": "Kenyon Sadiq",
+  "position": "TE",
+  "points": 80.2
+ },
+ {
+  "player_id": "12498",
+  "name": "Mason Taylor",
+  "position": "TE",
+  "points": 76.4
+ },
+ {
+  "player_id": "9479",
+  "name": "Darnell Washington",
+  "position": "TE",
+  "points": 68.6
+ },
+ {
+  "player_id": "13349",
+  "name": "Eli Stowers",
+  "position": "TE",
+  "points": 65.9
+ },
+ {
+  "player_id": "9482",
+  "name": "Michael Mayer",
+  "position": "TE",
+  "points": 63.8
+ },
+ {
+  "player_id": "6826",
+  "name": "Cole Kmet",
+  "position": "TE",
+  "points": 62.7
+ },
+ {
+  "player_id": "5906",
+  "name": "Dawson Knox",
+  "position": "TE",
+  "points": 62.4
+ },
+ {
+  "player_id": "6865",
+  "name": "Colby Parkinson",
+  "position": "TE",
+  "points": 61.8
+ },
+ {
+  "player_id": "11597",
+  "name": "Theo Johnson",
+  "position": "TE",
+  "points": 61.5
+ },
+ {
+  "player_id": "12521",
+  "name": "Elijah Arroyo",
+  "position": "TE",
+  "points": 57.7
+ },
+ {
+  "player_id": "8698",
+  "name": "Jake Tonges",
+  "position": "TE",
+  "points": 55.8
+ },
+ {
+  "player_id": "4066",
+  "name": "Evan Engram",
+  "position": "TE",
+  "points": 55.2
+ },
+ {
+  "player_id": "13434",
+  "name": "Will Kacmarek",
+  "position": "TE",
+  "points": 49.1
+ },
+ {
+  "player_id": "7828",
+  "name": "Noah Gray",
+  "position": "TE",
+  "points": 47.1
+ },
+ {
+  "player_id": "13400",
+  "name": "Justin Joly",
+  "position": "TE",
+  "points": 46.5
+ },
+ {
+  "player_id": "4033",
+  "name": "David Njoku",
+  "position": "TE",
+  "points": 46.5
+ },
+ {
+  "player_id": "13435",
+  "name": "Joe Royer",
+  "position": "TE",
+  "points": 46.3
+ },
+ {
+  "player_id": "13278",
+  "name": "Max Klare",
+  "position": "TE",
+  "points": 45.1
+ },
+ {
+  "player_id": "13282",
+  "name": "Jack Endries",
+  "position": "TE",
+  "points": 42.8
+ },
+ {
+  "player_id": "13342",
+  "name": "John Michael Gyllenborg",
+  "position": "TE",
+  "points": 34.9
+ },
+ {
+  "player_id": "10231",
+  "name": "Elijah Higgins",
+  "position": "TE",
+  "points": 32.9
+ },
+ {
+  "player_id": "9481",
+  "name": "Luke Musgrave",
+  "position": "TE",
+  "points": 32.1
+ },
+ {
+  "player_id": "8225",
+  "name": "Daniel Bellinger",
+  "position": "TE",
+  "points": 31.6
+ },
+ {
+  "player_id": "13319",
+  "name": "Oscar Delp",
+  "position": "TE",
+  "points": 30.9
+ },
+ {
+  "player_id": "8127",
+  "name": "Charlie Kolar",
+  "position": "TE",
+  "points": 30.4
+ },
+ {
+  "player_id": "5857",
+  "name": "Noah Fant",
+  "position": "TE",
+  "points": 29.1
+ },
+ {
+  "player_id": "1339",
+  "name": "Zach Ertz",
+  "position": "TE",
+  "points": 28.7
+ },
+ {
+  "player_id": "4144",
+  "name": "Jonnu Smith",
+  "position": "TE",
+  "points": 28.4
+ },
+ {
+  "player_id": "13401",
+  "name": "Michael Trigg",
+  "position": "TE",
+  "points": 26.8
+ },
+ {
+  "player_id": "13322",
+  "name": "Sam Roush",
+  "position": "TE",
+  "points": 26.5
+ },
+ {
+  "player_id": "3202",
+  "name": "Austin Hooper",
+  "position": "TE",
+  "points": 26.2
+ },
+ {
+  "player_id": "11599",
+  "name": "Cade Stover",
+  "position": "TE",
+  "points": 26.2
+ },
+ {
+  "player_id": "13421",
+  "name": "Eli Raridon",
+  "position": "TE",
+  "points": 26.0
+ },
+ {
+  "player_id": "3271",
+  "name": "Tyler Higbee",
+  "position": "TE",
+  "points": 25.9
+ },
+ {
+  "player_id": "13408",
+  "name": "Tanner Koziol",
+  "position": "TE",
+  "points": 25.8
+ },
+ {
+  "player_id": "12658",
+  "name": "Jackson Hawes",
+  "position": "TE",
+  "points": 25.4
+ },
+ {
+  "player_id": "13324",
+  "name": "Matt Hibner",
+  "position": "TE",
+  "points": 25.3
+ },
+ {
+  "player_id": "7694",
+  "name": "Tommy Tremble",
+  "position": "TE",
+  "points": 25.3
+ },
+ {
+  "player_id": "7716",
+  "name": "John Bates",
+  "position": "TE",
+  "points": 25.3
+ },
+ {
+  "player_id": "13357",
+  "name": "Lance Mason",
+  "position": "TE",
+  "points": 25.1
+ },
+ {
+  "player_id": "13422",
+  "name": "Jaren Kanak",
+  "position": "TE",
+  "points": 25.1
+ },
+ {
+  "player_id": "13431",
+  "name": "Miles Kitselman",
+  "position": "TE",
+  "points": 25.1
+ },
+ {
+  "player_id": "6001",
+  "name": "Drew Sample",
+  "position": "TE",
+  "points": 25.1
+ },
+ {
+  "player_id": "10871",
+  "name": "Luke Schoonmaker",
+  "position": "TE",
+  "points": 24.9
+ },
+ {
+  "player_id": "5973",
+  "name": "Josh Oliver",
+  "position": "TE",
+  "points": 24.9
+ },
+ {
+  "player_id": "13307",
+  "name": "Marlin Klein",
+  "position": "TE",
+  "points": 23.5
+ },
+ {
+  "player_id": "11593",
+  "name": "Brevyn Spann-Ford",
+  "position": "TE",
+  "points": 23.4
+ },
+ {
+  "player_id": "13273",
+  "name": "Josh Cuevas",
+  "position": "TE",
+  "points": 22.3
+ },
+ {
+  "player_id": "6869",
+  "name": "Adam Trautman",
+  "position": "TE",
+  "points": 22.3
+ },
+ {
+  "player_id": "11596",
+  "name": "Ben Sinnott",
+  "position": "TE",
+  "points": 22.0
+ },
+ {
+  "player_id": "9493",
+  "name": "Puka Nacua",
+  "position": "WR",
+  "points": 259.0
+ },
+ {
+  "player_id": "7564",
+  "name": "Ja'Marr Chase",
+  "position": "WR",
+  "points": 256.6
+ },
+ {
+  "player_id": "9488",
+  "name": "Jaxon Smith-Njigba",
+  "position": "WR",
+  "points": 235.1
+ },
+ {
+  "player_id": "7547",
+  "name": "Amon-Ra St. Brown",
+  "position": "WR",
+  "points": 227.5
+ },
+ {
+  "player_id": "6786",
+  "name": "CeeDee Lamb",
+  "position": "WR",
+  "points": 222.5
+ },
+ {
+  "player_id": "7569",
+  "name": "Nico Collins",
+  "position": "WR",
+  "points": 210.5
+ },
+ {
+  "player_id": "5859",
+  "name": "A.J. Brown",
+  "position": "WR",
+  "points": 207.7
+ },
+ {
+  "player_id": "8137",
+  "name": "George Pickens",
+  "position": "WR",
+  "points": 205.7
+ },
+ {
+  "player_id": "6794",
+  "name": "Justin Jefferson",
+  "position": "WR",
+  "points": 205.4
+ },
+ {
+  "player_id": "8112",
+  "name": "Drake London",
+  "position": "WR",
+  "points": 205.2
+ },
+ {
+  "player_id": "8144",
+  "name": "Chris Olave",
+  "position": "WR",
+  "points": 194.9
+ },
+ {
+  "player_id": "7525",
+  "name": "DeVonta Smith",
+  "position": "WR",
+  "points": 189.2
+ },
+ {
+  "player_id": "9997",
+  "name": "Zay Flowers",
+  "position": "WR",
+  "points": 187.7
+ },
+ {
+  "player_id": "11635",
+  "name": "Ladd McConkey",
+  "position": "WR",
+  "points": 187.7
+ },
+ {
+  "player_id": "2216",
+  "name": "Mike Evans",
+  "position": "WR",
+  "points": 187.2
+ },
+ {
+  "player_id": "6801",
+  "name": "Tee Higgins",
+  "position": "WR",
+  "points": 186.9
+ },
+ {
+  "player_id": "11632",
+  "name": "Malik Nabers",
+  "position": "WR",
+  "points": 186.3
+ },
+ {
+  "player_id": "12514",
+  "name": "Emeka Egbuka",
+  "position": "WR",
+  "points": 185.5
+ },
+ {
+  "player_id": "10229",
+  "name": "Rashee Rice",
+  "position": "WR",
+  "points": 185.3
+ },
+ {
+  "player_id": "12526",
+  "name": "Tetairoa McMillan",
+  "position": "WR",
+  "points": 184.5
+ },
+ {
+  "player_id": "8146",
+  "name": "Garrett Wilson",
+  "position": "WR",
+  "points": 183.4
+ },
+ {
+  "player_id": "7526",
+  "name": "Jaylen Waddle",
+  "position": "WR",
+  "points": 182.5
+ },
+ {
+  "player_id": "5927",
+  "name": "Terry McLaurin",
+  "position": "WR",
+  "points": 176.8
+ },
+ {
+  "player_id": "9487",
+  "name": "Parker Washington",
+  "position": "WR",
+  "points": 176.4
+ },
+ {
+  "player_id": "8148",
+  "name": "Jameson Williams",
+  "position": "WR",
+  "points": 176.2
+ },
+ {
+  "player_id": "8167",
+  "name": "Christian Watson",
+  "position": "WR",
+  "points": 176.1
+ },
+ {
+  "player_id": "11620",
+  "name": "Rome Odunze",
+  "position": "WR",
+  "points": 173.9
+ },
+ {
+  "player_id": "12519",
+  "name": "Luther Burden",
+  "position": "WR",
+  "points": 173.0
+ },
+ {
+  "player_id": "11631",
+  "name": "Brian Thomas",
+  "position": "WR",
+  "points": 164.4
+ },
+ {
+  "player_id": "10222",
+  "name": "Jayden Reed",
+  "position": "WR",
+  "points": 162.6
+ },
+ {
+  "player_id": "2133",
+  "name": "Davante Adams",
+  "position": "WR",
+  "points": 161.0
+ },
+ {
+  "player_id": "11628",
+  "name": "Marvin Harrison",
+  "position": "WR",
+  "points": 155.2
+ },
+ {
+  "player_id": "5846",
+  "name": "DK Metcalf",
+  "position": "WR",
+  "points": 152.3
+ },
+ {
+  "player_id": "8142",
+  "name": "Alec Pierce",
+  "position": "WR",
+  "points": 150.9
+ },
+ {
+  "player_id": "4983",
+  "name": "DJ Moore",
+  "position": "WR",
+  "points": 147.5
+ },
+ {
+  "player_id": "13279",
+  "name": "Carnell Tate",
+  "position": "WR",
+  "points": 144.8
+ },
+ {
+  "player_id": "5045",
+  "name": "Courtland Sutton",
+  "position": "WR",
+  "points": 144.8
+ },
+ {
+  "player_id": "9500",
+  "name": "Josh Downs",
+  "position": "WR",
+  "points": 143.4
+ },
+ {
+  "player_id": "9756",
+  "name": "Jordan Addison",
+  "position": "WR",
+  "points": 141.7
+ },
+ {
+  "player_id": "12501",
+  "name": "Matthew Golden",
+  "position": "WR",
+  "points": 141.1
+ },
+ {
+  "player_id": "4037",
+  "name": "Chris Godwin",
+  "position": "WR",
+  "points": 139.6
+ },
+ {
+  "player_id": "13294",
+  "name": "Makai Lemon",
+  "position": "WR",
+  "points": 138.5
+ },
+ {
+  "player_id": "5947",
+  "name": "Jakobi Meyers",
+  "position": "WR",
+  "points": 137.3
+ },
+ {
+  "player_id": "12484",
+  "name": "Jayden Higgins",
+  "position": "WR",
+  "points": 136.9
+ },
+ {
+  "player_id": "10232",
+  "name": "Michael Wilson",
+  "position": "WR",
+  "points": 136.5
+ },
+ {
+  "player_id": "6819",
+  "name": "Michael Pittman",
+  "position": "WR",
+  "points": 136.4
+ },
+ {
+  "player_id": "11646",
+  "name": "Jalen Coker",
+  "position": "WR",
+  "points": 135.9
+ },
+ {
+  "player_id": "8126",
+  "name": "Wan'Dale Robinson",
+  "position": "WR",
+  "points": 135.2
+ },
+ {
+  "player_id": "8134",
+  "name": "Khalil Shakir",
+  "position": "WR",
+  "points": 135.2
+ },
+ {
+  "player_id": "9754",
+  "name": "Quentin Johnston",
+  "position": "WR",
+  "points": 134.9
+ },
+ {
+  "player_id": "11624",
+  "name": "Xavier Worthy",
+  "position": "WR",
+  "points": 134.0
+ },
+ {
+  "player_id": "13281",
+  "name": "Jordyn Tyson",
+  "position": "WR",
+  "points": 133.8
+ },
+ {
+  "player_id": "8121",
+  "name": "Romeo Doubs",
+  "position": "WR",
+  "points": 132.7
+ },
+ {
+  "player_id": "5872",
+  "name": "Deebo Samuel",
+  "position": "WR",
+  "points": 127.7
+ },
+ {
+  "player_id": "13298",
+  "name": "KC Concepcion",
+  "position": "WR",
+  "points": 127.4
+ },
+ {
+  "player_id": "2449",
+  "name": "Stefon Diggs",
+  "position": "WR",
+  "points": 125.3
+ },
+ {
+  "player_id": "8676",
+  "name": "Rashid Shaheed",
+  "position": "WR",
+  "points": 115.6
+ },
+ {
+  "player_id": "13346",
+  "name": "Denzel Boston",
+  "position": "WR",
+  "points": 108.2
+ },
+ {
+  "player_id": "8180",
+  "name": "Jalen Nailor",
+  "position": "WR",
+  "points": 107.6
+ },
+ {
+  "player_id": "11610",
+  "name": "Malik Washington",
+  "position": "WR",
+  "points": 107.3
+ },
+ {
+  "player_id": "11618",
+  "name": "Jalen McMillan",
+  "position": "WR",
+  "points": 105.4
+ },
+ {
+  "player_id": "13417",
+  "name": "De'Zhaun Stribling",
+  "position": "WR",
+  "points": 105.4
+ },
+ {
+  "player_id": "13276",
+  "name": "Omar Cooper",
+  "position": "WR",
+  "points": 104.6
+ },
+ {
+  "player_id": "10213",
+  "name": "Tre Tucker",
+  "position": "WR",
+  "points": 102.9
+ },
+ {
+  "player_id": "6783",
+  "name": "Jerry Jeudy",
+  "position": "WR",
+  "points": 98.1
+ },
+ {
+  "player_id": "11783",
+  "name": "Ryan Flournoy",
+  "position": "WR",
+  "points": 97.7
+ },
+ {
+  "player_id": "12509",
+  "name": "Tre' Harris",
+  "position": "WR",
+  "points": 93.4
+ },
+ {
+  "player_id": "13293",
+  "name": "Ja'Kobi Lane",
+  "position": "WR",
+  "points": 87.4
+ },
+ {
+  "player_id": "7049",
+  "name": "Jauan Jennings",
+  "position": "WR",
+  "points": 86.2
+ },
+ {
+  "player_id": "7571",
+  "name": "Rashod Bateman",
+  "position": "WR",
+  "points": 84.3
+ },
+ {
+  "player_id": "11834",
+  "name": "Devaughn Vele",
+  "position": "WR",
+  "points": 83.0
+ },
+ {
+  "player_id": "13274",
+  "name": "Germie Bernard",
+  "position": "WR",
+  "points": 80.9
+ },
+ {
+  "player_id": "11625",
+  "name": "Adonai Mitchell",
+  "position": "WR",
+  "points": 80.8
+ },
+ {
+  "player_id": "13317",
+  "name": "Ted Hurst",
+  "position": "WR",
+  "points": 79.9
+ },
+ {
+  "player_id": "12530",
+  "name": "Travis Hunter",
+  "position": "WR",
+  "points": 79.1
+ },
+ {
+  "player_id": "9504",
+  "name": "Kayshon Boutte",
+  "position": "WR",
+  "points": 79.1
+ },
+ {
+  "player_id": "12492",
+  "name": "Pat Bryant",
+  "position": "WR",
+  "points": 78.9
+ },
+ {
+  "player_id": "13296",
+  "name": "Caleb Douglas",
+  "position": "WR",
+  "points": 77.8
+ },
+ {
+  "player_id": "13413",
+  "name": "Cyrus Allen",
+  "position": "WR",
+  "points": 77.5
+ },
+ {
+  "player_id": "3321",
+  "name": "Tyreek Hill",
+  "position": "WR",
+  "points": 77.2
+ }
+]
