@@ -53,3 +53,33 @@ tests/                    offline tests over captured fixtures
 ```
 
 See `CLAUDE.md` for the full project context and phasing.
+
+## Draft-night rollback
+
+The one thing standing between a bad merge and a dead cockpit on draft night.
+
+| | |
+|---|---|
+| known-good tag | **`pre-draft-known-good`** — `main` @ `6a03bb4`, tagged 2026-08-25 before the pre-draft sprint |
+| pinned image digest | **`ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570`** |
+| that digest is | `main` @ `39a13f3`, set in `scripts/draft-day.cmd` |
+
+```bash
+git checkout pre-draft-known-good     # source rollback
+scripts\draft-day.cmd                 # already pins the digest above at this tag
+```
+
+**The pinned digest predates the pre-draft sprint.** It does not contain the
+replacement-level fix, the scoring-correction guards, or the phone-drivable cockpit.
+Running the pinned image is the *safe* option, not the *current* one — it is a known-good
+board, and on that image D/ST and K sit far too high (the top D/ST ranks 33rd overall).
+
+To ship the fixes instead, rebuild, re-pin, and **record the new digest here before
+changing `draft-day.cmd`** — the digest above must stay readable as the thing to fall back
+to. Never replace it in place; add the new one beside it.
+
+No-Docker fallback, which needs neither the image nor the tag:
+
+```bash
+uv run audible serve --league espn_davis_drive
+```
