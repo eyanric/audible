@@ -166,6 +166,8 @@ class CockpitService:
         self.board_error: str | None = None
         self.health = SyncHealth()
         self.session = DraftSession(league_key=config.key, draft_id=draft_id)
+        if config.draft_rounds is not None:
+            self.session.rounds = config.draft_rounds
 
         self._lock = threading.RLock()
         self._stop = threading.Event()

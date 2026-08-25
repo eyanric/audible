@@ -28,6 +28,11 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 # Checked against ADP, the only ground truth for how many of each position get drafted: the
 # market's first 128 picks are 43 RB / 53 WR / 16 QB / 16 TE and ZERO D/ST or K (first D/ST
 # at 132, first K at 131). This lands on the same shape.
+# 16 rounds, agreeing two ways against the live league: max(roundId) over the draft slate,
+# and sum(lineupSlotCounts) - IR. Sync overrides this; it is what the clock uses before the
+# first successful poll.
+draft_rounds = 16
+
 replacement_bench_slots = 7
 
 expected_reception_points = 0.5  # drift guard: the WR/TE reception value (see [scoring_by_position])

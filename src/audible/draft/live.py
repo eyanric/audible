@@ -111,6 +111,7 @@ class LiveView:
     picks_until_me: int | None  # 0 == I am on the clock right now
     survival_horizon: int | None  # the next pick I control AFTER this one
     opponent_picks_until_horizon: int | None  # rival picks between now and that horizon
+    my_picks_remaining: int | None  # picks I still hold, this one included
     my_roster: list[str]  # names of my picks
     roster_slots: list[tuple[str, DraftEntry | None]]  # every starting slot -> who fills it
     unfilled: list[str]  # my remaining starting slots
@@ -242,10 +243,18 @@ def compute_view(
             gap = at_pos[0].points - at_pos[1].points
             cliffs.append(f"{pos}: {at_pos[0].name} is the last before a {gap:.0f}-pt drop")
 
+    # Every pick I still hold, this one included. Counted from the snake, not from the
+    # rounds left, so a wheel slot is right at the turn.
+    my_picks_remaining = (
+        None if my_slot is None
+        else sum(1 for n in snake_pick_numbers(my_slot, teams, rounds) if n >= current_pick)
+    )
+
     return LiveView(
         current_pick=current_pick, on_the_clock=on_clock, my_next_pick=my_next,
         picks_until_me=picks_until, survival_horizon=horizon,
         opponent_picks_until_horizon=opponent_picks,
+        my_picks_remaining=my_picks_remaining,
         my_roster=[e.name for e in my_entries], roster_slots=roster_slots, unfilled=unfilled,
         starters_complete=starters_complete,
         best_available=best, ranked=ranked, recommendations=recs, runs=runs, cliffs=cliffs,
