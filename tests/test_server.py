@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -314,6 +315,72 @@ def test_the_page_is_drivable_with_a_thumb(client: TestClient) -> None:
     # iOS synthesises mouse events late and drops them when a touch becomes a scroll.
     assert 'tr.addEventListener("pointerdown"' in page
     assert 'tr.addEventListener("mousedown"' not in page
+
+
+# Hover cannot be a prerequisite for anything a finger has to do. iOS resolves a first tap to
+# a hover state and then LEAVES it there, so an ungated :hover rule does two bad things: it
+# hides an affordance until a wasted tap reveals it, and it then sticks, painting a control
+# that is not active as though it were. The original P0 was the first of those. The second is
+# live in the position tabs, where `.tab:hover` and `.tab[aria-pressed="true"]` differ only by
+# a border -- so after tapping RB then WR, both look selected.
+HOVER_ALLOWED_UNGATED = frozenset({
+    # A scrollbar thumb has no touch affordance to reveal and no state to be confused with.
+    "::-webkit-scrollbar-thumb:hover",
+})
+
+
+def _hover_rules_outside_a_hover_gate(page: str) -> list[str]:
+    """Every selector carrying :hover that is not inside `@media (hover:hover)`.
+
+    Comments are stripped first -- this file explains the hover problem in prose that
+    mentions the very selectors being checked -- and braces are counted rather than the
+    sheet regexed, so a rule nested deeper inside the gate still counts as gated.
+    """
+    style = page[page.index("<style>"): page.index("</style>")].replace(chr(13), "")
+    style = re.sub(r"/\*.*?\*/", "", style, flags=re.S)
+
+    out: list[str] = []
+    gate_depth = 0
+    for raw in style.split(chr(10)):
+        line = raw.strip()
+        if not line:
+            continue
+        opens_gate = "@media (hover:hover)" in line
+        if ":hover" in line and not opens_gate and gate_depth == 0:
+            selector = line.split("{")[0].strip()
+            if selector and selector not in HOVER_ALLOWED_UNGATED:
+                out.append(selector)
+        if opens_gate:
+            gate_depth = line.count("{") - line.count("}")
+            continue
+        if gate_depth > 0:
+            gate_depth += line.count("{") - line.count("}")
+    return out
+
+
+def test_no_control_depends_on_hover(client: TestClient) -> None:
+    """Every :hover rule must sit behind `@media (hover:hover)`.
+
+    Keyed on the media feature rather than on width, because the question is whether a
+    pointer that can hover is driving -- not how wide the glass is.
+    """
+    leaked = _hover_rules_outside_a_hover_gate(client.get("/").text)
+    assert not leaked, f"hover rules reachable on a touch device: {leaked}"
+
+
+def test_the_mark_button_is_styled_without_hover(client: TestClient) -> None:
+    """The touch rule must stand alone, not tie with a hover rule that outweighs it.
+
+    `.prow:hover .mark` is specificity (0,3,0); the touch rule is (0,1,0). While both are
+    live on a phone the button only looks right because the two happen to set identical
+    values -- change one and the phone silently loses the button again. Selection stays
+    ungated on purpose: it is a real state a finger can reach.
+    """
+    page = client.get("/").text
+    assert ".prow.sel .mark{" in page, "selection must style the mark button on any device"
+    assert ".prow:hover .mark" not in _hover_rules_outside_a_hover_gate(page), (
+        "the hover rule outweighs the touch rule on specificity; it must not be live on touch"
+    )
 
 
 def test_other_teams_appear_as_manual_picks_land(
