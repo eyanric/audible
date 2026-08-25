@@ -69,6 +69,24 @@ git checkout pre-draft-known-good     # source rollback
 scripts\draft-day.cmd                 # already pins the digest above at this tag
 ```
 
+### Getting the current digest
+
+CI publishes on every push to `main`: `latest` and `sha-<full-commit>`, which resolve to
+the **same image**. So "rebuild off main" needs no local Docker — it has already
+happened. To read the digest for whatever `main` is now:
+
+```bash
+SCOPE='repository:eyanric/audible:pull'
+TOKEN=$(curl -s "https://ghcr.io/token?scope=$SCOPE&service=ghcr.io" | jq -r .token)
+ACCEPT='application/vnd.oci.image.index.v1+json'
+curl -sI -H "Authorization: Bearer $TOKEN" -H "Accept: $ACCEPT" \
+  https://ghcr.io/v2/eyanric/audible/manifests/latest | grep -i docker-content-digest
+```
+
+Pin *that* digest, not `latest` — `latest` moves the moment anything merges, and on
+draft night the one restart that matters is the one that quietly picks up a different
+image.
+
 **The pinned digest predates the pre-draft sprint.** It does not contain the
 replacement-level fix, the scoring-correction guards, or the phone-drivable cockpit.
 Running the pinned image is the *safe* option, not the *current* one — it is a known-good

@@ -332,6 +332,79 @@ Then re-verify, and do not trust a 200:
 curl -s http://192.168.1.110/api/state | grep -o '"key": "[^"]*"'   # must say espn_davis_drive
 ```
 
+## The cluster fix lives in eyanric/haven, and kubectl WILL NOT hold
+
+Established 2026-08-25 by reading the cluster, not by guessing:
+
+```
+kubectl -n audible get deploy audible
+  image:            ghcr.io/eyanric/audible:latest
+  imagePullPolicy:  Always
+  args:             ["audible","serve","--league","sleeper_boyfun","--host","0.0.0.0","--port","8080"]
+  labels:           kustomize.toolkit.fluxcd.io/name=apps
+
+kubectl -n flux-system get kustomization apps
+  path: ./kubernetes/apps   sourceRef: GitRepository/flux-system   prune: true   interval: 10m0s
+
+kubectl -n flux-system get gitrepository flux-system
+  url: https://github.com/eyanric/haven.git   branch: main
+```
+
+**Do not fix this with `kubectl patch` or `kubectl set args`.** Flux reconciles
+`./kubernetes/apps` from `haven@main` every ten minutes with `prune: true`, so a live edit
+comes back green, serves the right league for a few minutes, and is then silently reverted
+-- possibly between two picks. That failure is worse than the current one, because the
+current one is at least stable.
+
+The change is two lines in **`eyanric/haven`, branch `main`, under `kubernetes/apps/`** (the
+audible Deployment):
+
+```yaml
+    args:
+      - audible
+      - serve
+      - --league
+      - espn_davis_drive        # was: sleeper_boyfun
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    image: ghcr.io/eyanric/audible@sha256:<digest>   # was: :latest
+```
+
+Resolve `<digest>` with the snippet in README's *Draft-night rollback* section. Pin it
+rather than leaving `latest`: `imagePullPolicy: Always` means a pod that restarts for any
+reason on draft night pulls whatever `latest` points at by then.
+
+Then force the reconcile instead of waiting out the interval, and verify:
+
+```bash
+flux reconcile kustomization apps --with-source
+kubectl -n audible rollout status deploy/audible
+
+curl -s http://192.168.1.110/api/state | grep -o '"key": "[^"]*"'   # espn_davis_drive
+curl -s http://192.168.1.110/healthz                                # players ~3300, not 7620
+```
+
+## Which seat am I? Slot 8, and it is derived, not configured
+
+Measured live 2026-08-25 -- `settings.draftSettings.pickOrder = [2, 3, 6, 4, 1, 5, 7, 8]`:
+
+| slot | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| team id | 2 | 3 | 6 | 4 | 1 | 5 | 7 | 8 |
+| abbrev | Ryan | Cnk | FAT | PM | **BTD** | JEFF | WCW | **BUTT** |
+
+BUTT is team id 8 and **draft slot 8**. Slot 5 is BTD. `orderType` is `MANUAL`, so the
+commissioner can reshuffle before Sunday -- and the sync re-derives the seat on every poll
+rather than caching it, so a reshuffle is followed automatically. **Nothing needs to be
+configured, and nothing should be: a `--slot` flag would just be a second place for the
+answer to be wrong.**
+
+`my_slot: null` on the cluster is not a bug in the seat resolver. It is League A: Sleeper's
+`draft_order` is null until the draft opens, which is documented Sleeper behaviour. On
+League B, locally, the same code answers `my_slot: 8, my_slot_source: "pick_order"`.
+
 ## The public MCP endpoint: what is proven and what is not
 
 Probed end to end on 2026-08-25, through Cloudflare anycast (104.21.81.77), not a LAN
