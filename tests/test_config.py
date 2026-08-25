@@ -90,3 +90,47 @@ def test_unknown_position_is_rejected() -> None:
                 "scoring": {"rec": 0.5},
             }
         )
+
+
+# --- League B structural ground truth (Task 2, re-verified live 2026-08-25) --------------
+#
+# Confirmed two independent ways against ESPN league 6012 on 2026-08-25:
+#
+#   1. The raw API. `settings.rosterSettings.lineupSlotCounts`, by ESPN lineup-slot id:
+#        0 QB=1   2 RB=2   4 WR=2   6 TE=1   16 D/ST=1   17 K=1   23 FLEX=1
+#        20 BE=7  21 IR=3        -> 19 slots, minus 3 IR = 16 DRAFTED ROUNDS
+#      and `settings.size = 8`.
+#
+#   2. `uv run audible verify-scoring espn_davis_drive`, which re-reads the live league:
+#        "roster structure is FAITHFUL (9 starting slots match)"
+#        "config scoring is FAITHFUL to the live league (48 position-scoped weights match)"
+#        "receptions confirmed LIVE at 0.5/rec for WR/TE (RB stays 0.0 by design)"
+#
+# This is pinned in a test because the replacement baselines are DERIVED from it. The bench
+# allocation in `value/replacement.py` splits 8 x 7 = 56 bench picks across the positions a
+# team can start more than one of, which is what puts RB replacement at RB35 and WR at WR52.
+# Change the starting lineup and every one of those numbers is wrong -- silently, because the
+# board still builds. A failure here means: re-verify against the live league, then recompute.
+EXPECTED_STARTING_LINEUP = ("QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K")
+
+
+def test_league_b_structure_is_the_one_the_baselines_were_derived_from(
+    espn_config: LeagueConfig,
+) -> None:
+    assert espn_config.num_teams == 8
+    assert espn_config.draft_rounds == 16
+    assert espn_config.starting_slots == EXPECTED_STARTING_LINEUP
+    assert len(espn_config.starting_slots) == 9
+    # 16 rounds against 9 starters is where the 7 bench picks come from.
+    assert espn_config.draft_rounds - len(espn_config.starting_slots) == 7
+    assert espn_config.replacement_bench_slots == 7
+    # D/ST and K each occupy exactly one slot and no flex, which is why nobody rosters a
+    # backup and why their replacement level sits at the team count.
+    assert espn_config.starting_slots.count("DEF") == 1
+    assert espn_config.starting_slots.count("K") == 1
+    assert "DEF" not in espn_config.slot_eligibility["FLEX"]
+    assert "K" not in espn_config.slot_eligibility["FLEX"]
+    # No superflex, no IDP -- this is a 1-QB, offence-plus-D/ST league.
+    assert "SUPER_FLEX" not in espn_config.starting_slots
+    assert "IDP_FLEX" not in espn_config.starting_slots
+    assert espn_config.positions == frozenset({"QB", "RB", "WR", "TE", "K", "DEF"})
