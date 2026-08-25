@@ -16,12 +16,11 @@ Rules for editing:
 
 ## DRAFT: **Sunday 30 August, ~19:00.** ESPN league 6012. Seat 8.
 
-> **The date changed and the old one is still written in places.** This file previously said
-> *Friday 28 August, 8:30*; the current instruction says **Sunday 30 August, ~7pm**. Sunday is
-> what everything below assumes. If Friday is right, everything moves two days earlier and the
-> freeze has already passed — confirm before trusting a single date here.
+Settled by the instruction of 2026-08-25, which supersedes the *Friday 28 August, 8:30*
+this file used to carry. Friday is dead; do not resurrect it from an older doc. `docs/runbook-draft-day.md` was written for the Friday-morning clock and
+has been moved with it: T-24h is now **Saturday 29th evening**, T-30m is **Sunday 18:30**.
 
-**Code freeze: the day before, whichever it is.** No merges, no rebuilds, no config edits after.
+**Code freeze: Saturday 29 August.** No merges, no rebuilds, no config edits after it.
 
 ---
 
@@ -176,6 +175,61 @@ and finishing without a kicker (reproduced). Rounds now seed from a structural
 
 ---
 
+## ESPN-only sprint (2026-08-25, second pass)
+
+Six PRs. Nothing in this pass changed a ranking; it changed what is proven about one.
+
+**The deploy is blocked in `eyanric/haven`, and that is the whole of Task 1.** The cluster
+Deployment is Flux-managed — `kustomize.toolkit.fluxcd.io/name=apps`, path
+`./kubernetes/apps`, source `github.com/eyanric/haven.git@main`, `prune: true`,
+`interval: 10m`. Both the `--league` argument and the image reference live there. A
+`kubectl patch` is NOT a workaround: it would serve the right league for a few minutes and
+then be reverted, possibly between two picks. The exact YAML change is in the runbook.
+
+**The image is already rebuilt.** CI publishes `latest` and `sha-<commit>` on every push to
+main and they resolve to the same digest — verified against the registry for two different
+main commits. "Rebuild off main" needed no local Docker (which is unavailable here anyway:
+Docker Desktop is installed but the daemon is not running). README carries the snippet that
+resolves the current digest, and says to pin THAT rather than `latest`, because
+`imagePullPolicy: Always` means any restart on the night picks up whatever `latest` has
+become.
+
+**The seat is 8, not 5.** The instruction said BUTT is slot 5; the live league says
+otherwise, and every survival number and snake turn depends on it. `pickOrder` on
+2026-08-25 is `[2, 3, 6, 4, 1, 5, 7, 8]` — BUTT is team 8 at slot 8; **slot 5 is BTD**.
+`orderType` is MANUAL so the commissioner may still reshuffle, and the sync re-derives the
+seat every poll rather than caching it, so a reshuffle is followed on its own.
+
+**`my_slot: null` was never a bug.** It is League A — Sleeper's `draft_order` is null until
+the draft opens, already documented here. League B on current main answers `my_slot: 8`,
+`my_slot_source: "pick_order"`, 8 teams, 16 rounds, `DEF` in the unfilled slots and neither
+SUPER_FLEX nor IDP_FLEX. Every Task 1 acceptance criterion passes on the code.
+
+**The lineup is confirmed and pinned.** QB/RB/RB/WR/WR/TE/FLEX/D-ST/K, nine starters,
+sixteen rounds, eight teams — from the raw `lineupSlotCounts` and independently from
+`audible verify-scoring`, which reports the structure FAITHFUL. The replacement constants
+stand; nothing needed recomputing. `tests/test_config.py` pins it, because the failure mode
+is silent: change the lineup and every baseline is wrong while the board still builds.
+
+**A draft fills the lineup from every seat.** 8 seats × 128 picks = 1024 picks, 1024
+mark/undo/re-mark round-trips, zero undo failures, zero seats a starting slot short. First
+D/ST off the board at picks 99–103, first K at 106–128. So the feasibility rule was NOT
+implemented — its precondition never fires, and the slack rule already guarantees the
+outcome by construction. `tests/test_draft_completes.py` asserts the outcome only, so a
+future re-ranking is free to move every pick.
+
+**Hover is no longer load-bearing anywhere.** The 44×44 sizing fixed how big the mark button
+is, not the tap semantics. Two things were still wrong: `.prow:hover .mark` outweighs the
+touch rule on specificity (0,3,0 vs 0,1,0) and only looked right because both set identical
+values; and iOS leaves a first tap's hover state stuck, so `.tab:hover` — which differs from
+`.tab[aria-pressed="true"]` by a border and three points of grey — made **two position tabs
+read as selected** for the rest of the draft. Every `:hover` is now behind
+`@media (hover:hover)`; `.prow.sel .mark` deliberately is not, since selection is a state a
+finger can reach. Verified both ways in a browser: 6 of 6 rules disabled on touch with the
+mark button standing on its own, 6 of 6 active on desktop with the dense board intact.
+
+---
+
 ## TASK 5 — the full dry run, and what it says
 
 8 teams, 16 rounds, 128 picks, driven entirely through the MCP tools, opponents on ADP
@@ -225,8 +279,10 @@ his VORP. That is a feature, not a bug fix.
 |---|---|
 | local cockpit | `scripts\draft-day.cmd` → League B, correct |
 | pinned image | `sha256:d3cd…be570` = main @ `39a13f3` — **predates every fix above** |
+| current image | already built by CI on every merge; resolve the digest with the README snippet |
 | rollback | tag `pre-draft-known-good` (main @ `6a03bb4`), digest recorded in README |
-| cluster | **serving League A — see the STOP section** |
+| cluster | **serving League A, and the fix is in `haven` — see the STOP section** |
+| my seat | **slot 8** (team 8, BUTT), derived from `pickOrder` every poll. Slot 5 is BTD |
 | public MCP | endpoint proven up to the auth boundary; the join needs one human OAuth login |
 | data cache | refreshed 2026-08-25: 3302 League B players, 5 nflverse sources, board builds from disk |
 
@@ -236,16 +292,19 @@ digest in README *beside* the old one — never over it.
 
 Still needing a human, in priority order:
 
-1. **Restart the cluster container on League B**, and verify with the `grep` above.
+1. **Edit `eyanric/haven`**: the audible Deployment's `--league` to `espn_davis_drive` and
+   its image to a pinned digest, then `flux reconcile kustomization apps --with-source`.
+   The exact YAML is in the runbook. **Not a `kubectl patch`** — Flux reverts that within
+   ten minutes, which on the night is worse than the stable wrong answer it replaces.
 2. **Connect Claude to `https://mcp-audible.havenhomelab.org`, log in, ask `draft_status`.**
    Nine starting slots and `my_slot 8` means the whole path is good. Eleven slots and
    `SUPER_FLEX` means item 1 is still live. This is the only untested join.
-3. **Decide: pinned image, or rebuild on the fixes.** Both defensible; the fixes are large
-   and tested, the pinned image is unexercised in a container.
-4. **`audible refresh-data` the day before**, and confirm the volume maps to
+3. **`audible refresh-data` on the 29th**, and confirm the volume maps to
    `/app/data/cache` in the container.
-5. **Drive the cockpit once on the actual phone.** It is verified under simulated touch in a
-   headless browser, not under a real thumb on real Safari.
+4. **Drive the cockpit once on the actual phone.** Hover is no longer load-bearing and the
+   cascade is verified both ways in a browser — but no real thumb has touched real Safari.
+5. **Confirm the seat before the first pick.** `orderType` is MANUAL. The tool follows a
+   reshuffle on its own; you just want to know which chair you are in.
 
 ---
 
@@ -631,8 +690,8 @@ without it every process start re-downloads and repeated builds earn a `429` fro
    roster.
 3. **The public MCP join is untested** and needs one browser login. Two legs proven, the
    middle unproven.
-4. **The pinned image predates every fix.** Rebuild-and-re-pin or run known-good; decide
-   before the freeze, and record the digest either way.
+4. **The pinned image predates every fix**, and the cluster runs `:latest` unpinned with
+   `imagePullPolicy: Always`. Pin a digest in haven; decide before the freeze.
 
 Lower, and none of it blocks the 30th:
 
@@ -651,9 +710,9 @@ Lower, and none of it blocks the 30th:
   exactly two places, both in `cli.py`.
 - **League A's replacement baseline is still the old one**, with the same D/ST inflation.
   Needs the supply rule described above.
-- **P0.3 (browser regression suite in CI)** is still not started. The surface is now
-  identified, so this is finally the right order — the thumb-layer contract test in
-  `test_server.py` is a placeholder for it, not a substitute.
+- **P0.3 (browser regression suite in CI)** is still not started. `test_server.py` now pins
+  the thumb layer AND that no `:hover` rule is reachable on touch, which covers the two
+  defects that actually happened — but it reads the stylesheet, it does not drive a browser.
 - **A1 latency** remains unmeasured and optional; manual entry is primary and the runbook
   assumes it.
 - **Track B** (B2, B3 corpus widening, B4-B7) all runs after the draft.
