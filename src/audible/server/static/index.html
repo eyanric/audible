@@ -404,6 +404,69 @@ col.w-act{width:24px}
   #clockNum{font-size:56px}
   .t-mid{min-height:0}
 }
+
+/* ── thumb layer ─────────────────────────────────────────────────────────────
+   The stacked fallback above makes the cockpit FIT a phone. It does not make it
+   DRIVABLE on one, and that is what "renders but does not respond to clicks"
+   turned out to mean. Measured in a real browser at iPhone width, before this
+   block: the mark button is 18x18 CSS pixels with a TRANSPARENT border, revealed
+   only by `.prow:hover` -- and a finger never hovers, so on a phone it is a dim
+   grey glyph on a dark row with no edge to aim at. Rows are 23px tall. 155
+   controls sit under Apple's 44px minimum. The roster starts 970px down the page
+   and Runs & cliffs 1373px, so two of the three things you need are a long scroll
+   away from the one you are looking at.
+
+   Keyed on `hover:none` rather than width: the question is whether a finger is
+   driving, not how wide the glass is. A laptop at 800px keeps the dense board. */
+@media (hover:none){
+  /* Reveal-on-hover is a desktop affordance. With no hover there is no reveal,
+     so the button must simply always be visible. */
+  .mark{
+    width:44px;height:44px;font-size:19px;
+    border-color:var(--line);background:#20252e;color:var(--txt-2);
+  }
+  .mark:active{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
+  col.w-act{width:52px}
+  .ptable td{height:44px;padding:0 8px}
+  #grabBody td{height:48px}
+  .c-name{font-size:15px}
+  .prow.sel{box-shadow:inset 3px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
+  /* Everything else that has to be hit with a thumb. */
+  .btn{min-height:44px;padding:0 16px;font-size:13px}
+  .tab{min-height:44px;padding:0 14px}
+  #q{min-height:44px;font-size:16px}  /* 16px: anything smaller and iOS zooms the page */
+}
+
+#thumbBar{
+  display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;
+  gap:6px;padding:7px 9px;padding-bottom:calc(7px + env(safe-area-inset-bottom));
+  background:var(--panel);border-top:1px solid var(--line);
+}
+#thumbBar button{
+  flex:1;min-height:46px;border-radius:4px;cursor:pointer;
+  background:#20252e;border:1px solid var(--line);color:var(--txt-2);
+  font-family:var(--f-display);font-size:12.5px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;
+}
+#thumbBar button[aria-pressed="true"]{background:#2c3441;border-color:#4a5568;color:var(--txt)}
+#thumbUndo{flex:0 0 96px;border-color:rgba(255,106,60,.45);color:var(--urgent)}
+#thumbUndo:disabled{opacity:.4;color:var(--txt-3);border-color:var(--line)}
+
+/* One section at a time, chosen from a bar under the thumb, instead of scrolling
+   past a whole board to reach the roster. `data-view` is set by the bar below;
+   with no JS and on desktop nothing here applies and all three columns show. */
+@media (max-width:900px){
+  body{padding-bottom:64px}          /* room for the bar; body scrolls, bar does not */
+  #thumbBar{display:flex}
+  #board[data-view="board"] .col-left,
+  #board[data-view="board"] .col-right,
+  #board[data-view="roster"] .col-mid,
+  #board[data-view="roster"] .col-right,
+  #board[data-view="runs"] .col-mid,
+  #board[data-view="runs"] .col-left{display:none}
+  .pbody.grow{max-height:none}       /* one panel owns the screen, so let it use it */
+  #top{position:sticky;top:0;z-index:20;background:var(--bg)}
+}
 </style>
 </head>
 <body>
@@ -565,6 +628,16 @@ col.w-act{width:24px}
   </section>
 
 </main>
+
+<!-- Thumb bar. Hidden above 900px; on a phone it is the only navigation, so the three
+     things a pick needs -- the board, my roster, what the room is doing -- and Undo are
+     all one tap away at the bottom of the screen where a thumb already is. -->
+<nav id="thumbBar" aria-label="Cockpit sections">
+  <button id="thumbBoard" type="button" aria-pressed="true">Board</button>
+  <button id="thumbRoster" type="button" aria-pressed="false">Roster</button>
+  <button id="thumbRuns" type="button" aria-pressed="false">Runs</button>
+  <button id="thumbUndo" type="button" disabled>Undo</button>
+</nav>
 
 <noscript><p style="padding:14px">This cockpit needs JavaScript. Nothing else about it needs a network beyond this server.</p></noscript>
 
@@ -750,7 +823,9 @@ function createPlayerRow(scope) {
     flags: tdFlags, btn: btn
   };
 
-  tr.addEventListener("mousedown", function () { select(scope, rec.id, false); });
+  // pointerdown, not mousedown: iOS synthesises mouse events late and drops them
+  // entirely if the touch turns into a scroll, so a tap could select nothing.
+  tr.addEventListener("pointerdown", function () { select(scope, rec.id, false); });
   tr.addEventListener("focus", function () { select(scope, rec.id, false); });
   btn.addEventListener("click", function (ev) {
     ev.preventDefault();
@@ -1309,9 +1384,15 @@ function renderAction() {
   setText(note, S.actionMsg || "");
   setClassName(note, "note" + (S.actionErr ? " err" : ""));
   setHidden(btn, S.takenStack.length === 0);
+  // The thumb bar's Undo is DISABLED rather than hidden: on a phone the bar is fixed
+  // furniture, and a control that appears and vanishes moves the other three under a
+  // thumb that is already on its way down.
+  var thumb = $("thumbUndo");
+  if (thumb) thumb.disabled = S.takenStack.length === 0;
   if (S.takenStack.length) {
     var top = S.takenStack[S.takenStack.length - 1];
     setAttr(btn, "title", "Undo: " + top.name);
+    if (thumb) setAttr(thumb, "title", "Undo: " + top.name);
   }
 }
 
@@ -1538,6 +1619,20 @@ document.addEventListener("keydown", function (e) {
 
 $("pauseBtn").addEventListener("click", function () { setPaused(!S.paused); });
 $("undoBtn").addEventListener("click", function () { undoTaken(); });
+$("thumbUndo").addEventListener("click", function () { undoTaken(); });
+
+// --- thumb bar: which section owns the screen on a phone ---------------------
+var THUMB_VIEWS = [["thumbBoard", "board"], ["thumbRoster", "roster"], ["thumbRuns", "runs"]];
+function setThumbView(view) {
+  setAttr($("board"), "data-view", view);
+  for (var i = 0; i < THUMB_VIEWS.length; i++) {
+    setAttr($(THUMB_VIEWS[i][0]), "aria-pressed", THUMB_VIEWS[i][1] === view ? "true" : "false");
+  }
+}
+THUMB_VIEWS.forEach(function (pair) {
+  $(pair[0]).addEventListener("click", function () { setThumbView(pair[1]); });
+});
+setThumbView("board");
 $("q").addEventListener("input", function () {
   S.query = this.value;
   if (S.data) render(S.data);
