@@ -19,6 +19,17 @@ num_teams = 8
 # Starting lineup (9). 1-QB, no IDP, team D/ST only (normalized to DEF internally).
 starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 
+# 16 rounds against 9 starting slots -> 7 bench picks per team. Replacement level is the
+# first player on the WAIVER WIRE, and 56 of the 128 players drafted here are bench, so
+# they are not on it. Priced in, League B's baselines move from RB17/WR25 to RB35/WR52 and
+# stay at D/ST9 and K9 -- nobody drafts a backup D/ST. Left at 0 the board ranked the top
+# D/ST 33rd overall and made D/ST and K its eleven biggest "value" targets.
+#
+# Checked against ADP, the only ground truth for how many of each position get drafted: the
+# market's first 128 picks are 43 RB / 53 WR / 16 QB / 16 TE and ZERO D/ST or K (first D/ST
+# at 132, first K at 131). This lands on the same shape.
+replacement_bench_slots = 7
+
 expected_reception_points = 0.5  # drift guard: the WR/TE reception value (see [scoring_by_position])
 notes = "Shallow 8-team, 16-round, 1-QB. Half-PPR for WR/TE, ZERO PPR for RB -- deliberate."
 # Backtest edged scarcity/VONA over VORP here (+28 vs +24), BUT the current VONA impl has a

@@ -65,6 +65,16 @@ class LeagueConfig(BaseModel):
     waiver_type: str | None = None
     faab_budget: int | None = None
 
+    # Bench rounds per team that the replacement baseline prices in. This is a MODEL knob,
+    # not a structural fact: 0 means "price in none", which pins replacement at starters+1.
+    #
+    # It matters because replacement level is meant to be the first player on the WAIVER
+    # WIRE. In a 16-round draft against 9 starting slots, 7 of every team's picks are bench
+    # and those players are not on the wire. Leaving them in the pool sets a baseline that is
+    # far too shallow at RB/WR/TE and exactly right at D/ST and K -- nobody drafts a backup
+    # D/ST -- so it inflates D/ST and K relative to every position that actually gets hoarded.
+    replacement_bench_slots: int = Field(default=0, ge=0)
+
     # Adapter drift guards.
     expected_reception_points: float | None = None
     notes: str | None = None

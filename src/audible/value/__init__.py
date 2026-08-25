@@ -6,6 +6,7 @@ from .replacement import (
     assign_starters,
     compute_vorp,
     replacement_levels,
+    rostered_counts,
 )
 from .scarcity import scarcity_values
 
@@ -15,5 +16,6 @@ __all__ = [
     "assign_starters",
     "compute_vorp",
     "replacement_levels",
+    "rostered_counts",
     "scarcity_values",
 ]
