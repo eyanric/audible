@@ -176,9 +176,15 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             bits = [f"VORP #{p['vorp_rank']} (consensus #{p['consensus_rank']})"]
             bits.append("fills an unfilled starting slot" if p["fills_need"]
                         else "does not fill a starting slot")
+            # survival_pct is None for a player the market does not price, and formatting
+            # that straight produced "None% to last the 5 rival picks" -- a number-shaped
+            # non-number, in the one field the model is told to read as the reason.
             if rivals is not None:
                 bits.append(
                     f"{row['survival_pct']}% to last the {rivals} rival picks before my next"
+                    if row["survival_pct"] is not None
+                    else f"unknown odds to last the {rivals} rival picks before my next "
+                         f"(the market does not price him)"
                 )
             if p["grab_now"]:
                 bits.append("unlikely to survive -- take him now or lose him")

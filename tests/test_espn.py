@@ -223,6 +223,43 @@ def test_projections_score_offense_and_defer_specialists(
     assert allen.points == pytest.approx(368.41909807, abs=UNMAPPED_STAT_63_TOLERANCE)
     assert allen.stats["espn_draft_rank"] == 36.0
 
+    # A RUNNING BACK, on this path, deliberately. Every other assertion here is a QB, a
+    # kicker or a D/ST -- none of which the reception rule touches -- so this test used to
+    # pass unchanged with `scoring_by_position` deleted, while every back in the league ran
+    # ~34 points a season high. `test_receptions_split_rb_from_wr` covers the same
+    # arithmetic but calls `score_stat_line` directly; only this one proves the adapter
+    # hands `player_projections` a POSITION rather than resolving the base table.
+    gibbs = by_name["Jahmyr Gibbs"]
+    assert gibbs.stats["rec"] == pytest.approx(67.80887914)
+    assert gibbs.points == pytest.approx(297.39338, abs=UNMAPPED_STAT_63_TOLERANCE)
+
+
+def test_the_adapter_scores_backs_through_the_position_scoped_table(
+    sample: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """Strip the override and every back must move -- proof the adapter passes a position.
+
+    Pinning the corrected number alone is not enough: it would still pass if the fixture
+    happened to agree. Scoring the same pool off the base table has to change the answer,
+    and only for the backs.
+    """
+    flat = espn_config.model_copy(update={"scoring_by_position": {}})
+    with _adapter(_serving(sample)) as adapter:
+        correct = {p.name: p for p in adapter.player_projections(espn_config)}
+    with _adapter(_serving(sample)) as adapter:
+        base_table = {p.name: p for p in adapter.player_projections(flat)}
+
+    moved = {
+        name: base_table[name].points - p.points
+        for name, p in correct.items()
+        if base_table[name].points != p.points
+    }
+    assert {correct[name].primary_position for name in moved} == {"RB"}, (
+        f"only running backs may move when the RB reception override is removed: {moved}"
+    )
+    for name, delta in moved.items():
+        assert delta == pytest.approx(correct[name].stats["rec"] * 0.5), name
+
 
 # --- scoring drift --------------------------------------------------------------------
 
