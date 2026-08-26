@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -104,6 +105,23 @@ LAYOUT = """
 """
 
 
+def pick_int(text: str | None) -> int | None:
+    """The integer out of 'PICK 12' -- and out of 'PICK 8+9' at the snake turn.
+
+    #pickNo is the only mark/undo oracle this suite has, and its FORMAT changes at the
+    turn, so comparing the raw strings would read a format flip as a successful mark.
+    """
+    m = re.match(r"PICK (\d+)", (text or "").strip())
+    return int(m.group(1)) if m else None
+
+
+async def board_names(bus: Bus) -> list[str]:
+    v = await bus.ev(
+        "JSON.stringify([].slice.call(document.querySelectorAll('#bestBody .pname'))"
+        ".map(function(e){return (e.textContent||'').trim();}))")
+    return json.loads(v or "[]")
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -146,8 +164,18 @@ class Bus:
         self.n += 1
         mid = self.n
         await self.ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+        deadline = time.time() + CDP_TIMEOUT_S
         while True:
-            m = json.loads(await self.ws.recv())
+            if time.time() > deadline:
+                # This used to be a bare `await recv()`. A wedged page hung it forever: no
+                # summary, no exit code, and the finally that kills the browser and the
+                # cockpit never ran, so both leaked. A hang is now a red run like any other.
+                raise CdpTimeout(f"CDP timed out after {CDP_TIMEOUT_S}s on {method}")
+            try:
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=1.0)
+            except TimeoutError:
+                continue
+            m = json.loads(raw)
             if m.get("id") == mid:
                 return m
             self._record(m)
@@ -212,17 +240,25 @@ READONLY_CHECKS: tuple[str, ...] = (
     "clicking a row selects exactly one",
     "arrow moves the highlight",
     "caret stays in the search box",
+    "no JS exceptions during the whole run",
+    "no console errors during the whole run",
 )
 
 WRITE_CHECKS: tuple[str, ...] = (
     "typing filters the board",
     "typing highlights a row and shows the hint",
     "Enter marked the highlighted row",
+    "Enter advanced the pick by exactly one",
+    "Enter marked the player that was highlighted",
     "query cleared and box still focused",
     "t marked the selection",
+    "t advanced the pick by exactly one",
     "ctrl+z undid it",
+    "ctrl+z moved the pick back by exactly one",
     "u undid another",
+    "u moved the pick back by exactly one",
     "clicking X marked a player",
+    "clicking X advanced the pick by exactly one",
     "a space in the box raises no Enter hint",
     "a space in the box never marks anybody",
     "Enter on a focused button does not mark",
@@ -277,6 +313,14 @@ CLOCK_CHECKS: tuple[str, ...] = (
     "clock state is right at pick 57",
     "cockpit renders the pick-57 clock",
 )
+
+# No single CDP command should ever take this long. Past it the page is wedged, and a
+# wedged page has to produce a red verdict rather than a process that never returns.
+CDP_TIMEOUT_S = 30.0
+
+
+class CdpTimeout(RuntimeError):
+    """Its own type so the overall deadline can never be mistaken for the 1s poll."""
 
 RESULTS: list[tuple[str, bool, str]] = []
 ABORT: list[str] = []  # non-empty => run_suite raised; the run is INCOMPLETE, not just red
@@ -389,11 +433,23 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
           bool(mid["selName"]) and bool(mid["hint"]),
           "sel={!r} hint={!r}".format(mid["selName"], mid["hint"]))
     before = mid["pick"]
+    names_before = await board_names(bus)
     await bus.key("Enter", code="Enter")
     await bus.drain(1.0)
     c = await bus.snap()
     check("Enter marked the highlighted row", c["pick"] != before,
           "pick {!r} -> {!r}".format(before, c["pick"]))
+    check("Enter advanced the pick by exactly one",
+          pick_int(c["pick"]) == (pick_int(before) or 0) + 1,
+          "pick {!r} -> {!r}".format(before, c["pick"]))
+    # Identity, not just motion: the row Enter took must be the row that was highlighted.
+    # The setup is asserted too, so this cannot pass by the name never having been there.
+    names_after = await board_names(bus)
+    was_there = mid["selName"] in names_before
+    check("Enter marked the player that was highlighted",
+          was_there and mid["selName"] not in names_after,
+          "{!r} on board before={} after={}".format(
+              mid["selName"], was_there, mid["selName"] in names_after))
     check("query cleared and box still focused", c["q"] == "" and c["focus"] == "q",
           "q={!r} focus={}".format(c["q"], c["focus"]))
 
@@ -411,16 +467,25 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     c = await bus.snap()
     check("t marked the selection", c["pick"] != before,
           f"pick {before!r} -> {c['pick']!r}")
+    check("t advanced the pick by exactly one",
+          pick_int(c["pick"]) == (pick_int(before) or 0) + 1,
+          f"pick {before!r} -> {c['pick']!r}")
     before = c["pick"]
     await bus.key("z", code="KeyZ", mods=2)
     await bus.drain(1.0)
     c = await bus.snap()
     check("ctrl+z undid it", c["pick"] != before, "pick {!r} -> {!r}".format(before, c["pick"]))
+    check("ctrl+z moved the pick back by exactly one",
+          pick_int(c["pick"]) == (pick_int(before) or 0) - 1,
+          "pick {!r} -> {!r}".format(before, c["pick"]))
     before = c["pick"]
     await bus.key("u", text="u")
     await bus.drain(1.0)
     c = await bus.snap()
     check("u undid another", c["pick"] != before, "pick {!r} -> {!r}".format(before, c["pick"]))
+    check("u moved the pick back by exactly one",
+          pick_int(c["pick"]) == (pick_int(before) or 0) - 1,
+          "pick {!r} -> {!r}".format(before, c["pick"]))
 
     print()
     print("=" * 74)
@@ -432,6 +497,9 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     await bus.drain(1.0)
     c = await bus.snap()
     check("clicking X marked a player", c["pick"] != before,
+          "pick {!r} -> {!r}".format(before, c["pick"]))
+    check("clicking X advanced the pick by exactly one",
+          pick_int(c["pick"]) == (pick_int(before) or 0) + 1,
           "pick {!r} -> {!r}".format(before, c["pick"]))
 
     print()
@@ -607,6 +675,15 @@ async def drive(url: str, readonly: bool) -> None:
                 await run_suite(bus, url, readonly)
             except Exception:
                 ABORT.append(traceback.format_exc())
+            # The load-time pair catches a cockpit that is dead on arrival. This pair catches
+            # the one that dies UNDER USE -- on a click, a keystroke, a mark, an undo. Those
+            # exceptions were collected and printed and asserted on by NOTHING, so the suite
+            # would print the very exception it exists to catch and still exit 0.
+            await bus.drain(1.5)
+            check("no JS exceptions during the whole run", not bus.errors,
+                  "; ".join(bus.errors[:3]))
+            check("no console errors during the whole run", not bus.console,
+                  "; ".join(bus.console[:2]))
             print()
             print("=" * 74)
             print("JS ERRORS / CONSOLE")

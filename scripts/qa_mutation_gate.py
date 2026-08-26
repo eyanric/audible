@@ -1,7 +1,7 @@
 """Phase 0: prove the QA suite can actually fail.
 
 A green suite means nothing until you have watched it go red for a reason you planted.
-This breaks the cockpit in five specific ways and asserts that scripts/qa-cockpit.py
+This breaks the cockpit in seven specific ways and asserts that scripts/qa-cockpit.py
 notices each one -- by ASSERTION, not by crashing. A mutation the harness crashes on is
 not a mutation the harness detects; both exit 1, and only one of them is an oracle.
 
@@ -64,6 +64,34 @@ MUTATIONS = [
         "path": BOARD,
         "mutate": "corrupt_rank",
         "expect_fail": ["board vorp ranks are a clean 1..N sequence"],
+    },
+    {
+        "key": "late_throw",
+        "desc": "throw AFTER load, once the page-health checks have already passed",
+        "path": COCKPIT,
+        "find": "setInterval(poll, POLL_MS);",
+        "repl": (
+            "setInterval(poll, POLL_MS);\n"
+            'setTimeout(function(){ throw new Error("MUTANT: late exception"); }, 8000);'
+        ),
+        "expect_fail": ["no JS exceptions during the whole run"],
+    },
+    {
+        "key": "undo_marks",
+        "desc": "rewire the undo key to MARK instead",
+        "path": COCKPIT,
+        "find": '    case "u": case "U":\n      undoTaken();',
+        # Marks the first board row rather than S.sel, which may be null by the time the
+        # suite presses u -- a mutation that quietly does not fire proves nothing. The pick
+        # number still MOVES, so the old change-only check passes and only the direction
+        # check can catch it. That is exactly the gap this mutation exists to prove closed.
+        "repl": (
+            '    case "u": case "U":\n'
+            '      var mrow = document.querySelector("#bestBody tr");\n'
+            '      if (mrow) { markTaken(mrow.getAttribute("data-id"), "MUTANT"); }\n'
+            "      else { undoTaken(); }"
+        ),
+        "expect_fail": ["u moved the pick back by exactly one"],
     },
     {
         "key": "console_error",
