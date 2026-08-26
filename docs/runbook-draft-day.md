@@ -7,6 +7,11 @@ One operator, one night, no second chance. Follow this while distracted.
 **The one thing to remember:** every failure below ends somewhere you can still draft.
 If you are lost, jump to [Fallback ladder](#fallback-ladder) and work down it.
 
+**If it is kickoff, something is down, and all you have is the phone:** go straight to
+[The endpoint is down and you are holding your phone](#the-endpoint-is-down-and-you-are-holding-your-phone).
+That page is the whole procedure, in order, and it starts by telling you what is actually
+broken.
+
 > **Manual entry is the primary input until proven otherwise.**
 > The sync latency against ESPN has never been measured — the temp-league draft that would
 > measure it was never run. Until that number exists, treat the sync indicator as
@@ -251,6 +256,110 @@ local to cluster loses your manual marks. Everything else reconstructs.
 
 ---
 
+## The endpoint is down and you are holding your phone
+
+One page. Steps, not prose. **Work down and stop at the first one that gives you a board.**
+
+Bookmark the two URLs in step 1 on the phone at T-24h. Looking them up at 19:01 is the
+failure this page exists to prevent.
+
+> **The draft does not need the internet, the tunnel, the cluster, or Flux.** It needs the
+> laptop on the same wifi as the phone. Everything below is a way of getting back to that.
+
+### 1. Find out what is actually down — 10 seconds
+
+Open both in Safari.
+
+| tap | loads | does not load |
+|---|---|---|
+| `http://192.168.1.21:8080/healthz` | laptop cockpit is alive → **step 2** | → **step 3** |
+| `https://mcp-audible.havenhomelab.org` | tunnel + cluster alive | ignore it — no rung below needs it |
+
+`192.168.1.21` is the drafting machine (`iBUYPOWER`) on the LAN. If the phone is on cellular
+it will not resolve — **turn wifi back on first.** That is the single most likely "outage".
+
+### 2. Cockpit is alive, so just use it — you are done
+
+`http://192.168.1.21:8080` on the phone. Mark with the ✕ on each row, undo from the bottom
+bar. Nothing else on this page applies.
+
+### 3. Cockpit is dead → restart the container — 30 seconds at the laptop
+
+```cmd
+scripts\draft-day.cmd
+```
+
+Re-running is always safe; it force-removes the old container first. Synced picks survive on
+the `audible-cache` volume. **Manual marks made in the dead instance do not** — re-enter them
+from the ESPN draft room's pick history.
+
+If Docker itself is down, skip to step 4.
+
+### 4. Docker will not start → serve from source — 1 minute
+
+```bash
+uv run audible serve --league espn_davis_drive --host 0.0.0.0 --port 8080
+```
+
+**`--host 0.0.0.0` is not optional.** `serve` defaults to `127.0.0.1`, which the phone cannot
+reach — the laptop would be serving a cockpit only the laptop can see. Then open
+`http://192.168.1.21:8080` on the phone exactly as in step 2.
+
+This runs whatever is checked out. `main` is current and carries the phone fixes.
+
+### 5. The board itself is wrong → roll the image back
+
+Only if the cockpit *starts* but the board is obviously wrong. Edit `AUDIBLE_IMAGE` in
+`scripts\draft-day.cmd`, then re-run it.
+
+| | digest | is |
+|---|---|---|
+| **current** | `sha256:6b12610a62cda931e8638f96b28de13ca6b3bf883d8ab3d7138e6244ab50aff1` | `main` @ `bfa9b2e` — two-picks header + touch fixes |
+| previous | `sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f` | `main` @ `d01332a` — every fix through PR #28 |
+| **rollback** | `sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570` | `main` @ `39a13f3` — known-good, **predates the replacement-level fix** |
+
+Exact command, rollback to known-good:
+
+```cmd
+docker rm -f audible-cockpit
+docker run -d --restart unless-stopped --name audible-cockpit ^
+  -p 8080:8080 --env-file .env -v audible-cache:/app/data ^
+  ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570 ^
+  audible serve --league espn_davis_drive --host 0.0.0.0 --port 8080
+```
+
+Swap the digest for the **current** row above to go the other way. Source rollback is
+`git checkout pre-draft-known-good`.
+
+> **What the rollback costs you.** On `d3cdb2a1` the top D/ST ranks 33rd overall and D/ST and
+> K are the eleven biggest "value" targets on the board. It is *known-good*, not *good*. Roll
+> back only if the current image will not serve — not because the rankings look surprising.
+
+### 6. Nothing runs → paper
+
+The cheat sheet printed at T-24h. `uv run audible cheatsheet espn_davis_drive` if the laptop
+still works at all. The top of the board barely moves in 24 hours.
+
+---
+
+### ⚠️ Do not fail over to the cluster right now
+
+`http://192.168.1.110` is listed below as rung 2. **As of 2026-08-26 it is serving League A**
+— 10 teams, 18 rounds, SUPERFLEX, IDP — because the Flux manifest in `eyanric/haven` still
+says `--league sleeper_boyfun`. It will load, it will look healthy, and every number on it
+will be for the wrong league. That is worse than a blank page.
+
+The fix is a two-line commit to `haven` that is written and validated but **cannot be pushed**:
+branch protection requires a PR, and haven's required checks fail instantly on an exhausted
+Actions budget, so the PR cannot go green either. Until someone lands it by hand:
+
+- **treat rung 2 as unavailable**, and
+- confirm the league on any cockpit before trusting it — the header must read
+  **DAVIS DRIVE ALUMNI FF LEAGUE · 8 TEAMS**, and `draft_status` must show nine starting
+  slots with `D/ST`, no `SUPER_FLEX`, no `IDP_FLEX`.
+
+---
+
 ## Fallback ladder
 
 Work down. Every rung still lets you draft.
@@ -258,8 +367,8 @@ Work down. Every rung still lets you draft.
 | # | surface | how | loses |
 |---|---|---|---|
 | 1 | **local container** | `scripts/draft-day.cmd` → `localhost:8080` | — |
-| 2 | **cluster spare** | open `http://192.168.1.110` | manual marks |
-| 3 | **serve from source** | `uv run audible serve --league espn_davis_drive` | manual marks; needs a board build |
+| 2 | ~~**cluster spare**~~ | ~~`http://192.168.1.110`~~ — **UNAVAILABLE: serving League A**, see above | — |
+| 3 | **serve from source** | `uv run audible serve --league espn_davis_drive --host 0.0.0.0` | manual marks; needs a board build |
 | 4 | **printed board** | `uv run audible cheatsheet espn_davis_drive` (do this at T-24h) | everything live |
 
 > **League B has no CLI rung.** `audible live` polls Sleeper directly and is **Sleeper-only**.
