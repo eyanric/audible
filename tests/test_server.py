@@ -547,8 +547,13 @@ def test_the_panel_head_wraps_rather_than_overflowing_the_phone(client: TestClie
 def test_the_cursor_starts_in_the_search_box(client: TestClient) -> None:
     """No `/` to remember and no click to make -- the draft is typed, not clicked."""
     page = client.get("/").text
-    assert 'buildTabs({});' in page
-    assert '$("q").focus();' in page, "the search box must be focused on load"
+    # `$("q").focus()` already existed inside the "/" handler, so its mere presence proves
+    # nothing. What matters is a focus at INIT -- assert it sits in the wiring block right
+    # after buildTabs({}), not somewhere in a key handler.
+    i = page.index("buildTabs({});")
+    assert '$("q").focus();' in page[i:i + 400], (
+        "the search box must be focused at init, not only reachable via '/'"
+    )
 
 
 def test_arrows_move_the_highlight_without_leaving_the_search_box(client: TestClient) -> None:
