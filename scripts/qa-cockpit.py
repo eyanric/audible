@@ -316,6 +316,8 @@ BOARD_CHECKS: tuple[str, ...] = (
     "usage shares are fractions in 0..1",
     "_slim carries every usage field",
     "_slim usage fields are populated, not just present",
+    "ADP is priced deep enough to rank the draftable window",
+    "ADP value tracks market rank (a pick number, not a round code)",
 )
 
 VIEWPORT_CHECKS: tuple[str, ...] = (
@@ -838,6 +840,7 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="audible-qa-inv-") as inv:
             qa_board_invariants.run(check, args.league, Path(inv))
             qa_board_invariants.run_usage(check, args.league, Path(inv))
+            qa_board_invariants.run_adp_calibration(check, args.league)
     except Exception:
         ABORT.append(traceback.format_exc())
         print("  board invariants ABORTED:")

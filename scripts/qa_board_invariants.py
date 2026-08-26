@@ -290,3 +290,35 @@ def run_usage(check: Any, league: str, state_dir: Path) -> None:
     check("_slim usage fields are populated, not just present",
           len(populated) == len(keys),
           f"never populated: {sorted(set(keys) - set(populated))}")
+
+
+def run_adp_calibration(check: Any, league: str) -> None:
+    """The assumption that makes rank-based survival correct, asserted rather than assumed.
+
+    `compute_view` never compares an ADP pick number to a pick counter. It sorts the AVAILABLE
+    players by ADP and compares a player's INDEX in that queue against the number of rival
+    picks before my next pick (live.py:192-201). That is league-size-invariant by construction:
+    only the order is used.
+
+    What makes it correct is that Sleeper's ADP is an average OVERALL PICK NUMBER, so the k-th
+    player off the board has ADP ~= k in any league size. Measured 2026-08-26 on the pinned
+    board: mean(adp - market_rank) = +0.33 over the top 200, max |diff| 0.90.
+
+    If Sleeper ever changed that -- to a round.pick code, or to a per-league-size number -- the
+    order would still look sane while every survival estimate quietly moved. This is the check
+    that would notice, so nobody has to re-derive the 12-vs-8-team question a third time.
+    """
+    board = load_board(league)
+    priced = sorted((e for e in board.entries if e.adp is not None), key=lambda e: e.adp)
+    check("ADP is priced deep enough to rank the draftable window", len(priced) >= 200,
+          f"{len(priced)} priced players")
+    if len(priced) < 200:
+        check("ADP value tracks market rank (a pick number, not a round code)", False,
+              "too few priced players to measure")
+        return
+
+    diffs = [abs(e.adp - (i + 1)) for i, e in enumerate(priced[:200])]
+    worst = max(diffs)
+    check("ADP value tracks market rank (a pick number, not a round code)", worst <= 5.0,
+          f"max |adp - market_rank| over the top 200 = {worst:.2f} "
+          f"(mean {sum(diffs) / len(diffs):.2f})")
