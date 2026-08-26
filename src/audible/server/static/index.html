@@ -125,6 +125,9 @@ button,input{font:inherit;color:inherit}
   font-size:clamp(26px,3vw,44px);line-height:1;letter-spacing:.02em;text-transform:uppercase;
 }
 #top.onclock #clockWord{color:var(--urgent)}
+/* "Two picks on the clock" is a longer string than any other word state; shrink it rather
+   than let it collide with the countdown number or wrap the fixed-height header. */
+#top.twopicks #clockWord{font-size:clamp(20px,2.2vw,32px)}
 #clockSub{
   font-family:var(--f-cond);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3);
   white-space:nowrap;
@@ -254,8 +257,12 @@ col.w-act{width:24px}
   position:sticky;top:0;z-index:2;background:var(--panel);
   font-family:var(--f-cond);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
   color:var(--txt-3);text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);
-  white-space:nowrap;cursor:help;
+  white-space:nowrap;
 }
+/* `cursor:help` advertises the `title=` tooltips on these headers. A tooltip is a hover
+   affordance with no touch equivalent, so on a phone the cursor promised an explanation
+   that no gesture can retrieve. Gated: the promise is only made where it can be kept. */
+@media (hover:hover){.ptable thead th{cursor:help}}
 .ptable th.num,.ptable td.num{text-align:right}
 .ptable td{
   padding:0 6px;height:23px;border-bottom:1px solid var(--line-soft);
@@ -433,7 +440,13 @@ col.w-act{width:24px}
     width:44px;height:44px;font-size:19px;
     border-color:var(--line);background:#20252e;color:var(--txt-2);
   }
-  .mark:active{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
+  /* `.prow.sel .mark` (0,3,0) is ungated and sets these same three properties, and the row
+     is ALWAYS selected at the moment of the press: the button's stopPropagation is on its
+     `click` listener, so `pointerdown` has already bubbled to the row and painted `.sel`
+     while the finger is still down. At (0,2,0) this rule lost every time, so a tap on the
+     phone produced no visual change at all -- the only confirmation was the network round
+     trip. `.prow.sel .mark:active` is (0,4,0) and wins. */
+  .mark:active,.prow.sel .mark:active{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
   col.w-act{width:52px}
   .ptable td{height:44px;padding:0 8px}
   #grabBody td{height:48px}
@@ -442,7 +455,14 @@ col.w-act{width:24px}
   /* Everything else that has to be hit with a thumb. */
   .btn{min-height:44px;padding:0 16px;font-size:13px}
   .tab{min-height:44px;padding:0 14px}
-  #q{min-height:44px;font-size:16px}  /* 16px: anything smaller and iOS zooms the page */
+  /* Those 44px tabs no longer fit beside the title and the search box on one 29px row.
+     At 393px the head laid out 623px wide, and iOS answers page-level overflow by
+     shrinking EVERYTHING to fit -- 63% here, which is how a dense board silently
+     becomes unreadable without any single element looking broken. Wrap the head and
+     give search its own full-width line rather than letting it push the row. */
+  .phead{height:auto;flex-wrap:wrap;row-gap:6px;padding-top:6px;padding-bottom:6px}
+  #tabs{flex-wrap:wrap;row-gap:4px}
+  #q{min-height:44px;font-size:16px;width:100%;flex:1 0 100%}  /* 16px: anything smaller and iOS zooms the page */
 }
 
 #thumbBar{
@@ -982,9 +1002,22 @@ function renderTop(d) {
   var started = draft.started !== false;
   var complete = clock.complete === true;
 
+  // THE TURN. At seat 8 of 8 the snake hands over two picks at once -- 8 and 9, 24 and 25,
+  // 40 and 41 -- and then goes quiet for fourteen. The server already computes exactly this
+  // signal: `opponent_picks_until_horizon` is the number of RIVAL picks between the pick on
+  // the clock and the next pick I control, so zero means both are mine right now. Showing a
+  // single pick number here reads as one pick, and the second one gets made in a hurry
+  // against a board that never said it was coming.
+  var twoOnClock = started && !complete
+    && clock.picks_until_me === 0
+    && clock.opponent_picks_until_horizon === 0
+    && clock.survival_horizon != null;
+
   // left
   if (started && clock.current_pick != null) {
-    setText($("pickNo"), "PICK " + clock.current_pick);
+    setText($("pickNo"), twoOnClock
+      ? "PICK " + clock.current_pick + "+" + clock.survival_horizon
+      : "PICK " + clock.current_pick);
     setText($("pickRound"), clock.label || ("R" + clock.round + "." + clock.slot_on_clock));
   } else {
     setText($("pickNo"), started ? "PICK —" : "PRE-DRAFT");
@@ -1012,8 +1045,10 @@ function renderTop(d) {
     wordMode = "Slot unresolved";
     subText = "board is still usable · no countdown until your slot is known";
   } else if (n === 0) {
-    wordMode = "You're on the clock";
-    subText = clock.current_pick ? "pick " + clock.current_pick : "";
+    wordMode = twoOnClock ? "Two picks on the clock" : "You're on the clock";
+    subText = twoOnClock
+      ? "picks " + clock.current_pick + " and " + clock.survival_horizon + "  ·  back to back"
+      : (clock.current_pick ? "pick " + clock.current_pick : "");
   } else {
     subText = (clock.my_next_pick != null) ? "your next pick · " + clock.my_next_pick : "";
   }
@@ -1028,13 +1063,16 @@ function renderTop(d) {
   setText(sub, subText);
 
   top.classList.toggle("onclock", started && !complete && n === 0);
+  top.classList.toggle("twopicks", twoOnClock);
   top.classList.toggle("soon", started && !complete && n != null && n > 0 && n <= 2);
 
   // browser tab — he is usually looking at the Sleeper window
   var t;
   if (!started) t = "audible · pre-draft";
   else if (complete) t = "audible · complete";
-  else if (n === 0) t = "● ON THE CLOCK";
+  else if (n === 0) t = twoOnClock
+    ? "●● TWO PICKS · " + clock.current_pick + "+" + clock.survival_horizon
+    : "● ON THE CLOCK";
   else if (n != null) t = "in " + n + " · audible";
   else t = "audible";
   if (document.title !== t) document.title = t;

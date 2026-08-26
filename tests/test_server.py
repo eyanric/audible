@@ -418,3 +418,121 @@ def test_unresolved_slot_claims_nobody(tmp_path: Path, sleeper_config: LeagueCon
     assert state["clock"]["my_slot_source"] == "unresolved"
     assert sum(s["filled"] for s in state["roster"]["slots"]) == 0
     assert not any(t["is_me"] for t in state["teams"])
+
+
+# --------------------------------------------------------------------------------------
+# THE TURN, and the touch defects found driving it.
+#
+# Seat 8 of 8 does not pick once and wait -- the snake hands it two picks at a time (8 and
+# 9, 24 and 25, 40 and 41, 56 and 57) and then goes quiet for fourteen. Everything below
+# pins something that was silently wrong for a thumb on that seat.
+# --------------------------------------------------------------------------------------
+
+ESPN_TEAMS = 8
+
+
+def _espn_slot(pick_no: int) -> int:
+    rnd, idx = divmod(pick_no - 1, ESPN_TEAMS)
+    return idx + 1 if rnd % 2 == 0 else ESPN_TEAMS - idx
+
+
+def _espn_client_on_pick(
+    tmp_path: Path, espn_config: LeagueConfig, current_pick: int, my_slot: int = 8
+) -> TestClient:
+    """League B at seat 8 with the clock parked on `current_pick`."""
+    svc = CockpitService(espn_config, state_dir=tmp_path, slot_override=my_slot)
+    svc.board = DraftBoard("espn_davis_drive", [_entry(i) for i in range(1, 201)])
+    svc.session.draft_id = "d1"
+    svc.session.draft_status = "drafting"
+    svc.session.slot = my_slot
+    svc.session.slot_source = "override"
+    svc.health.last_success = time.time()
+    svc.session.picks = [
+        Pick(pick_no=n, round=(n - 1) // ESPN_TEAMS + 1,
+             draft_slot=_espn_slot(n), player_id=f"p{n:03d}")
+        for n in range(1, current_pick)
+    ]
+    return TestClient(create_app(svc, warm=False))
+
+
+@pytest.mark.parametrize("pick,partner", [(8, 9), (24, 25), (40, 41), (56, 57)])
+def test_the_turn_reports_zero_opponents_before_my_next_pick(
+    tmp_path: Path, espn_config: LeagueConfig, pick: int, partner: int
+) -> None:
+    """The first pick of a turn: both picks are mine, nobody picks between them.
+
+    This is the signal the header renders. `opponent_picks_until_horizon == 0` while on the
+    clock is the only place the two-picks case is derivable from the payload.
+    """
+    clock = _espn_client_on_pick(tmp_path, espn_config, pick).get("/api/state").json()["clock"]
+    assert clock["picks_until_me"] == 0, "seat 8 must be on the clock at the turn"
+    assert clock["opponent_picks_until_horizon"] == 0
+    assert clock["survival_horizon"] == partner
+
+
+@pytest.mark.parametrize("pick", [9, 25, 41, 57])
+def test_the_second_pick_of_the_turn_faces_the_full_gap(
+    tmp_path: Path, espn_config: LeagueConfig, pick: int
+) -> None:
+    """The second pick of the turn is still mine, but fourteen rivals follow it.
+
+    The pair must not read as two picks twice -- after the second one the wait is real, and
+    that is exactly when survival matters most.
+    """
+    clock = _espn_client_on_pick(tmp_path, espn_config, pick).get("/api/state").json()["clock"]
+    assert clock["picks_until_me"] == 0
+    assert clock["opponent_picks_until_horizon"] == 14
+
+
+def test_the_page_renders_the_turn_rather_than_one_pick_number(client: TestClient) -> None:
+    """The payload carried the turn all along; the page printed one number and dropped it."""
+    page = client.get("/").text
+    assert "twoOnClock" in page, "the page must derive the two-picks case"
+    assert "clock.opponent_picks_until_horizon === 0" in page
+    assert "Two picks on the clock" in page
+    assert 'clock.current_pick + "+" + clock.survival_horizon' in page, (
+        "the header pick number must name BOTH picks, not just the one on the clock"
+    )
+
+
+def test_pressing_mark_gives_feedback_even_though_the_row_is_selected(
+    client: TestClient,
+) -> None:
+    """`.prow.sel .mark` (0,3,0) is ungated and outranked `.mark:active` (0,2,0).
+
+    The row is always `.sel` at press time -- the button's stopPropagation is on `click`, so
+    pointerdown has already bubbled and painted the selection. The press therefore changed
+    nothing on screen. Only a rule at (0,4,0) or better survives that.
+    """
+    page = client.get("/").text
+    assert ".prow.sel .mark:active" in page, (
+        "press feedback must outrank the ungated selection rule, or a tap looks like nothing"
+    )
+
+def test_cursor_help_does_not_promise_a_tooltip_a_finger_cannot_get(
+    client: TestClient,
+) -> None:
+    """`cursor:help` on the column headers advertises `title=` text with no touch equivalent."""
+    page = client.get("/").text
+    style = page[page.index("<style>"): page.index("</style>")]
+    style = re.sub(r"/\*.*?\*/", "", style, flags=re.S)
+    assert "@media (hover:hover){.ptable thead th{cursor:help}}" in style
+    assert "cursor:help" not in style.split("@media (hover:hover){.ptable thead th")[0], (
+        "cursor:help must not be live on a touch device"
+    )
+
+
+def test_the_panel_head_wraps_rather_than_overflowing_the_phone(client: TestClient) -> None:
+    """Title + seven 44px tabs + the search box do not fit one row at 393px.
+
+    Page-level horizontal overflow is not a scrollbar on a phone -- iOS shrinks the WHOLE
+    page to fit, so a dense board silently renders at 63% with nothing looking broken.
+    Measured at 393px: the head laid out 623px wide before this, 383px after.
+    """
+    page = client.get("/").text
+    style = page[page.index("<style>"): page.index("</style>")]
+    touch = style[style.index("@media (hover:none)"):]
+    assert ".phead{height:auto;flex-wrap:wrap" in touch, (
+        "the panel head must wrap on touch or the page overflows the viewport"
+    )
+    assert "flex:1 0 100%" in touch, "search must take its own line rather than push the row"
