@@ -31,11 +31,21 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO / "scripts"))
+
+# The cockpit renders real glyphs (the Enter arrow U+21B5, en dashes) and this harness
+# echoes them back in check detail. A Windows console is cp1252, where printing one raises
+# AFTER the assertion was recorded but BEFORE the summary -- an incomplete run that exits 1
+# and reads exactly like an ordinary failure. Never let the reporter break the report.
+for _stream in (sys.stdout, sys.stderr):
+    with contextlib.suppress(Exception):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 EDGE_CANDIDATES = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -165,7 +175,38 @@ class Bus:
         return json.loads(v) if v and v != "null" else None
 
 
+# Checks a run must produce to be COMPLETE. Without this, "the suite went red" is
+# ambiguous: an assertion that caught a regression and a harness that crashed on check 11
+# both exit 1. A mutation the suite CRASHES on is not a mutation the suite DETECTS, and a
+# mutation gate that cannot tell those apart certifies nothing. Any name here that never
+# ran is reported as its own failure.
+READONLY_CHECKS: tuple[str, ...] = (
+    "no uncaught JS exceptions",
+    "no console errors",
+    "board rendered rows",
+    "search box focused on load",
+    "no horizontal overflow at 1920",
+    "digit legend matches visible tabs",
+    "clicking a row selects exactly one",
+    "arrow moves the highlight",
+    "caret stays in the search box",
+)
+
+WRITE_CHECKS: tuple[str, ...] = (
+    "typing filters the board",
+    "typing highlights a row and shows the hint",
+    "Enter marked the highlighted row",
+    "query cleared and box still focused",
+    "t marked the selection",
+    "ctrl+z undid it",
+    "u undid another",
+    "clicking X marked a player",
+    "key 'g' jumps to the grab list",
+    "key 'b' jumps to the best list",
+)
+
 RESULTS: list[tuple[str, bool, str]] = []
+ABORT: list[str] = []  # non-empty => run_suite raised; the run is INCOMPLETE, not just red
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
@@ -334,7 +375,10 @@ async def drive(url: str, readonly: bool) -> None:
             raise SystemExit("browser did not expose a CDP page target")
         async with websockets.connect(tgt["webSocketDebuggerUrl"], max_size=40_000_000) as ws:
             bus = Bus(ws)
-            await run_suite(bus, url, readonly)
+            try:
+                await run_suite(bus, url, readonly)
+            except Exception:
+                ABORT.append(traceback.format_exc())
             print()
             print("=" * 74)
             print("JS ERRORS / CONSOLE")
@@ -349,22 +393,33 @@ async def drive(url: str, readonly: bool) -> None:
         proc.terminate()
 
 
-def start_server(league: str, port: int, state_dir: Path) -> subprocess.Popen:
-    """A throwaway cockpit: real board, ISOLATED state, so QA can never touch a real draft."""
+def start_server(league: str, port: int, state_dir: Path,
+                 live_board: bool = False) -> subprocess.Popen:
+    """A throwaway cockpit: PINNED board, ISOLATED state, so QA never touches a real draft.
+
+    The board is loaded from scripts/fixtures/qa-board-<league>.json rather than built.
+    A live board makes the oracle non-deterministic in the worst way: a UI regression and an
+    overnight ADP move produce the same red, and yesterday's red does not reproduce today.
+    `--live-board` opts back in, for a deliberate against-reality check outside the loop.
+    """
     src = REPO / "src"
+    scripts = REPO / "scripts"
+    board_expr = "build_board(cfg)" if live_board else f"load_board({league!r})"
+    board_import = ("from audible.draft.board import build_board" if live_board
+                    else "from qa_board_fixture import load_board")
     boot = "\n".join([
-        f"import sys,time;sys.path.insert(0,r'{src}')",
+        f"import sys,time;sys.path.insert(0,r'{src}');sys.path.insert(0,r'{scripts}')",
         "from pathlib import Path",
         "import uvicorn",
         "from audible.config.loader import load_all_leagues",
-        "from audible.draft.board import build_board",
+        board_import,
         "from audible.draft.service import CockpitService",
         "from audible.server import create_app",
         f"cfg=load_all_leagues()[{league!r}]",
         f"sd=Path({str(state_dir)!r}); sd.mkdir(parents=True,exist_ok=True)",
         "[p.unlink() for p in sd.glob('*.json')]",
         "svc=CockpitService(cfg,state_dir=sd,slot_override=8)",
-        "svc.board=build_board(cfg)",
+        f"svc.board={board_expr}",
         "svc.session.draft_id='qa'; svc.session.draft_status='drafting'",
         "svc.session.slot, svc.session.slot_source = 8,'override'",
         "svc.health.last_success=time.time()",
@@ -381,6 +436,10 @@ def main() -> int:
     ap.add_argument("--league", default="espn_davis_drive")
     ap.add_argument("--url", default=None,
                     help="attach to a running cockpit; runs READ-ONLY checks only")
+    ap.add_argument("--live-board", action="store_true",
+                    help="build the board from live data instead of the pinned fixture")
+    ap.add_argument("--json", dest="json_out", default=None,
+                    help="write a machine-readable verdict here (used by the mutation gate)")
     args = ap.parse_args()
 
     if args.url:
@@ -389,9 +448,10 @@ def main() -> int:
     else:
         port = free_port()
         with tempfile.TemporaryDirectory(prefix="audible-qa-state-") as sd:
-            print(f"starting an isolated cockpit: league={args.league} "
+            board_src = "LIVE board" if args.live_board else "pinned board"
+            print(f"starting an isolated cockpit ({board_src}): league={args.league} "
                   f"port={port} state={sd}\n")
-            proc = start_server(args.league, port, Path(sd))
+            proc = start_server(args.league, port, Path(sd), live_board=args.live_board)
             try:
                 for _ in range(90):
                     try:
@@ -406,6 +466,14 @@ def main() -> int:
             finally:
                 proc.terminate()
 
+    ran = [r[0] for r in RESULTS]
+    for name in READONLY_CHECKS + (() if args.url else WRITE_CHECKS):
+        if name not in ran:
+            check(name, False, "THIS CHECK NEVER RAN -- the run is incomplete")
+    if ABORT:
+        check("suite ran to completion", False,
+              "ABORTED: " + ABORT[0].strip().splitlines()[-1])
+
     bad = [r for r in RESULTS if not r[1]]
     print()
     print("=" * 74)
@@ -413,6 +481,14 @@ def main() -> int:
     for n, _, d in bad:
         print(f"   FAILED: {n}   {d}")
     print("=" * 74)
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps({
+            "aborted": bool(ABORT),
+            "abort_traceback": ABORT[0] if ABORT else None,
+            "passed": len(RESULTS) - len(bad),
+            "failed": [{"name": r[0], "detail": r[2]} for r in bad],
+            "results": [{"name": r[0], "ok": r[1], "detail": r[2]} for r in RESULTS],
+        }, indent=2), encoding="utf-8")
     return 1 if bad else 0
 
 
