@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -98,12 +99,12 @@ class Bus:
         if meth == "Runtime.exceptionThrown":
             d = p.get("exceptionDetails", {})
             desc = (d.get("exception") or {}).get("description") or d.get("text")
-            self.errors.append("%s @%s:%s" % (str(desc).split("\n")[0],
+            self.errors.append("{} @{}:{}".format(str(desc).split("\n")[0],
                                               d.get("url", "?"), d.get("lineNumber")))
         elif meth == "Log.entryAdded":
             e = p.get("entry", {})
             if e.get("level") == "error":
-                self.errors.append("[log] %s @%s:%s" % (e.get("text"), e.get("url", "?"),
+                self.errors.append("[log] {} @{}:{}".format(e.get("text"), e.get("url", "?"),
                                                         e.get("lineNumber")))
         elif meth == "Runtime.consoleAPICalled" and p.get("type") in ("error", "assert"):
             self.console.append(" ".join(str(a.get("value", a.get("description", "")))
@@ -122,15 +123,13 @@ class Bus:
     async def drain(self, seconds: float = 0.5) -> None:
         end = time.time() + seconds
         while time.time() < end:
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 self._record(json.loads(await asyncio.wait_for(self.ws.recv(), timeout=0.12)))
-            except asyncio.TimeoutError:
-                pass
 
     async def ev(self, expr: str):
         r = await self.send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
         if r.get("result", {}).get("exceptionDetails"):
-            self.errors.append("[eval] %s" % r["result"]["exceptionDetails"].get("text"))
+            self.errors.append("[eval] {}".format(r["result"]["exceptionDetails"].get("text")))
         return r["result"]["result"].get("value")
 
     async def snap(self) -> dict:
@@ -158,10 +157,11 @@ class Bus:
         await self.drain(0.45)
 
     async def box(self, sel: str, nth: int = 0):
+        sel_js = json.dumps(sel)
         v = await self.ev(
-            "(function(){var e=document.querySelectorAll(%s)[%d];if(!e)return 'null';"
-            "var r=e.getBoundingClientRect();return JSON.stringify("
-            "{x:r.x+r.width/2,y:r.y+r.height/2});})()" % (json.dumps(sel), nth))
+            f"(function(){{var e=document.querySelectorAll({sel_js})[{nth}];"
+            f"if(!e)return 'null';var r=e.getBoundingClientRect();"
+            f"return JSON.stringify({{x:r.x+r.width/2,y:r.y+r.height/2}});}})()")
         return json.loads(v) if v and v != "null" else None
 
 
@@ -170,7 +170,8 @@ RESULTS: list[tuple[str, bool, str]] = []
 
 def check(name: str, ok: bool, detail: str = "") -> None:
     RESULTS.append((name, bool(ok), detail))
-    print("  %-46s %s  %s" % (name, "PASS" if ok else "**FAIL**", detail))
+    verdict = "PASS" if ok else "**FAIL**"
+    print(f"  {name:<46} {verdict}  {detail}")
 
 
 async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
@@ -196,12 +197,12 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     check("no uncaught JS exceptions", not bus.errors, "; ".join(bus.errors[:3]))
     check("no console errors", not bus.console, "; ".join(bus.console[:2]))
     check("board rendered rows", s.get("rows", 0) > 0,
-          "best=%s grab=%s" % (s.get("rows"), s.get("grabRows")))
-    check("search box focused on load", s.get("focus") == "q", "focus=%s" % s.get("focus"))
+          "best={} grab={}".format(s.get("rows"), s.get("grabRows")))
+    check("search box focused on load", s.get("focus") == "q", "focus={}".format(s.get("focus")))
     check("no horizontal overflow at 1920", not s.get("hOverflow"))
     check("digit legend matches visible tabs",
-          s.get("legend") == "0-%d" % (len(s.get("tabs", [])) - 1),
-          "legend=%s tabs=%s" % (s.get("legend"), s.get("tabs")))
+          s.get("legend") == f"0-{len(s.get('tabs', [])) - 1}",
+          "legend={} tabs={}".format(s.get("legend"), s.get("tabs")))
 
     print()
     print("=" * 74)
@@ -211,7 +212,7 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     await bus.click(row["x"], row["y"])
     a = await bus.snap()
     check("clicking a row selects exactly one", a["selCount"] == 1 and bool(a["selName"]),
-          "sel=%r" % a["selName"])
+          "sel={!r}".format(a["selName"]))
 
     print()
     print("=" * 74)
@@ -224,8 +225,8 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     await bus.key("ArrowDown", code="ArrowDown")
     b2 = await bus.snap()
     check("arrow moves the highlight", b1["selName"] != b2["selName"],
-          "%r -> %r" % (b1["selName"], b2["selName"]))
-    check("caret stays in the search box", b2["focus"] == "q", "focus=%s" % b2["focus"])
+          "{!r} -> {!r}".format(b1["selName"], b2["selName"]))
+    check("caret stays in the search box", b2["focus"] == "q", "focus={}".format(b2["focus"]))
 
     if readonly:
         print("\n  (read-only mode: skipping every check that would mark a player)")
@@ -247,18 +248,18 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     await bus.drain(0.6)
     mid = await bus.snap()
     check("typing filters the board", 0 < mid["rows"] < 140,
-          "%r -> rows=%s" % (frag, mid["rows"]))
+          "{!r} -> rows={}".format(frag, mid["rows"]))
     check("typing highlights a row and shows the hint",
           bool(mid["selName"]) and bool(mid["hint"]),
-          "sel=%r hint=%r" % (mid["selName"], mid["hint"]))
+          "sel={!r} hint={!r}".format(mid["selName"], mid["hint"]))
     before = mid["pick"]
     await bus.key("Enter", code="Enter")
     await bus.drain(1.0)
     c = await bus.snap()
     check("Enter marked the highlighted row", c["pick"] != before,
-          "pick %r -> %r" % (before, c["pick"]))
+          "pick {!r} -> {!r}".format(before, c["pick"]))
     check("query cleared and box still focused", c["q"] == "" and c["focus"] == "q",
-          "q=%r focus=%s" % (c["q"], c["focus"]))
+          "q={!r} focus={}".format(c["q"], c["focus"]))
 
     print()
     print("=" * 74)
@@ -272,17 +273,18 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     await bus.key("t", text="t")
     await bus.drain(1.0)
     c = await bus.snap()
-    check("t marked the selection", c["pick"] != before, "pick %r -> %r" % (before, c["pick"]))
+    check("t marked the selection", c["pick"] != before,
+          f"pick {before!r} -> {c['pick']!r}")
     before = c["pick"]
     await bus.key("z", code="KeyZ", mods=2)
     await bus.drain(1.0)
     c = await bus.snap()
-    check("ctrl+z undid it", c["pick"] != before, "pick %r -> %r" % (before, c["pick"]))
+    check("ctrl+z undid it", c["pick"] != before, "pick {!r} -> {!r}".format(before, c["pick"]))
     before = c["pick"]
     await bus.key("u", text="u")
     await bus.drain(1.0)
     c = await bus.snap()
-    check("u undid another", c["pick"] != before, "pick %r -> %r" % (before, c["pick"]))
+    check("u undid another", c["pick"] != before, "pick {!r} -> {!r}".format(before, c["pick"]))
 
     print()
     print("=" * 74)
@@ -294,7 +296,7 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     await bus.drain(1.0)
     c = await bus.snap()
     check("clicking X marked a player", c["pick"] != before,
-          "pick %r -> %r" % (before, c["pick"]))
+          "pick {!r} -> {!r}".format(before, c["pick"]))
 
     print()
     print("=" * 74)
@@ -305,24 +307,25 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
         await bus.drain(0.4)
         got = await bus.ev("(function(){var r=document.querySelector('tr.sel');"
                            "return r?(r.closest('#grabBody')?'grab':'best'):null;})()")
-        check("key %r jumps to the %s list" % (k, want), got == want, "scope=%s" % got)
+        check(f"key {k!r} jumps to the {want} list", got == want, f"scope={got}")
 
 
 async def drive(url: str, readonly: bool) -> None:
     import websockets
 
     cdp = free_port()
-    profile = Path(tempfile.gettempdir()) / ("audible-qa-%d" % cdp)
+    profile = Path(tempfile.gettempdir()) / f"audible-qa-{cdp}"
     proc = subprocess.Popen(
         [find_browser(), "--headless=new", "--disable-gpu", "--no-first-run",
-         "--disable-extensions", "--remote-debugging-port=%d" % cdp,
-         "--user-data-dir=%s" % profile, "about:blank"],
+         "--disable-extensions", f"--remote-debugging-port={cdp}",
+         f"--user-data-dir={profile}", "about:blank"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         tgt = None
         for _ in range(60):
             try:
-                with urllib.request.urlopen("http://127.0.0.1:%d/json/list" % cdp, timeout=1) as r:
+                listing = f"http://127.0.0.1:{cdp}/json/list"
+                with urllib.request.urlopen(listing, timeout=1) as r:
                     tgt = next(t for t in json.load(r) if t.get("type") == "page")
                 break
             except Exception:
@@ -337,9 +340,9 @@ async def drive(url: str, readonly: bool) -> None:
             print("JS ERRORS / CONSOLE")
             print("=" * 74)
             for e in bus.errors:
-                print("  EXC %s" % e)
+                print(f"  EXC {e}")
             for c in bus.console:
-                print("  CON %s" % c)
+                print(f"  CON {c}")
             if not bus.errors and not bus.console:
                 print("  (none)")
     finally:
@@ -348,25 +351,26 @@ async def drive(url: str, readonly: bool) -> None:
 
 def start_server(league: str, port: int, state_dir: Path) -> subprocess.Popen:
     """A throwaway cockpit: real board, ISOLATED state, so QA can never touch a real draft."""
-    boot = (
-        "import sys,time,os;sys.path.insert(0,r'%s')\n"
-        "from pathlib import Path\n"
-        "import uvicorn\n"
-        "from audible.config.loader import load_all_leagues\n"
-        "from audible.draft.board import build_board\n"
-        "from audible.draft.service import CockpitService\n"
-        "from audible.server import create_app\n"
-        "cfg=load_all_leagues()[%r]\n"
-        "sd=Path(%r); sd.mkdir(parents=True,exist_ok=True)\n"
-        "[p.unlink() for p in sd.glob('*.json')]\n"
-        "svc=CockpitService(cfg,state_dir=sd,slot_override=8)\n"
-        "svc.board=build_board(cfg)\n"
-        "svc.session.draft_id='qa'; svc.session.draft_status='drafting'\n"
-        "svc.session.slot, svc.session.slot_source = 8,'override'\n"
-        "svc.health.last_success=time.time()\n"
-        "uvicorn.run(create_app(svc,warm=False),host='127.0.0.1',port=%d,log_level='warning')\n"
-        % (REPO / "src", league, str(state_dir), port)
-    )
+    src = REPO / "src"
+    boot = "\n".join([
+        f"import sys,time;sys.path.insert(0,r'{src}')",
+        "from pathlib import Path",
+        "import uvicorn",
+        "from audible.config.loader import load_all_leagues",
+        "from audible.draft.board import build_board",
+        "from audible.draft.service import CockpitService",
+        "from audible.server import create_app",
+        f"cfg=load_all_leagues()[{league!r}]",
+        f"sd=Path({str(state_dir)!r}); sd.mkdir(parents=True,exist_ok=True)",
+        "[p.unlink() for p in sd.glob('*.json')]",
+        "svc=CockpitService(cfg,state_dir=sd,slot_override=8)",
+        "svc.board=build_board(cfg)",
+        "svc.session.draft_id='qa'; svc.session.draft_status='drafting'",
+        "svc.session.slot, svc.session.slot_source = 8,'override'",
+        "svc.health.last_success=time.time()",
+        f"uvicorn.run(create_app(svc,warm=False),host='127.0.0.1',port={port},"
+        "log_level='warning')",
+    ])
     return subprocess.Popen([sys.executable, "-c", boot], cwd=REPO,
                             stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
@@ -380,34 +384,34 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.url:
-        print("attached to %s -- READ-ONLY checks only\n" % args.url)
+        print(f"attached to {args.url} -- READ-ONLY checks only\n")
         asyncio.run(drive(args.url.rstrip("/") + "/", readonly=True))
     else:
         port = free_port()
         with tempfile.TemporaryDirectory(prefix="audible-qa-state-") as sd:
-            print("starting an isolated cockpit: league=%s port=%d state=%s\n"
-                  % (args.league, port, sd))
+            print(f"starting an isolated cockpit: league={args.league} "
+                  f"port={port} state={sd}\n")
             proc = start_server(args.league, port, Path(sd))
             try:
                 for _ in range(90):
                     try:
-                        with urllib.request.urlopen(
-                                "http://127.0.0.1:%d/healthz" % port, timeout=2) as r:
+                        health = f"http://127.0.0.1:{port}/healthz"
+                        with urllib.request.urlopen(health, timeout=2) as r:
                             if r.status == 200:
                                 break
                     except Exception:
                         pass
                     time.sleep(1)
-                asyncio.run(drive("http://127.0.0.1:%d/" % port, readonly=False))
+                asyncio.run(drive(f"http://127.0.0.1:{port}/", readonly=False))
             finally:
                 proc.terminate()
 
     bad = [r for r in RESULTS if not r[1]]
     print()
     print("=" * 74)
-    print("SUMMARY: %d passed, %d FAILED" % (len(RESULTS) - len(bad), len(bad)))
+    print(f"SUMMARY: {len(RESULTS) - len(bad)} passed, {len(bad)} FAILED")
     for n, _, d in bad:
-        print("   FAILED: %s   %s" % (n, d))
+        print(f"   FAILED: {n}   {d}")
     print("=" * 74)
     return 1 if bad else 0
 
