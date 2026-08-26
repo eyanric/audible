@@ -593,6 +593,36 @@ Two soft spots in the proxy's OAuth, both in the homelab and neither changed her
 
 ---
 
+## Verifying the cockpit before you trust it
+
+```bash
+# The whole suite: real browser, real keystrokes, board invariants. Exit 0 only if
+# EVERY check passed. Marks players, so it starts its own cockpit on a random port
+# with a throwaway state dir -- it never touches the real draft session.
+uv run --extra nflverse python scripts/qa-cockpit.py
+
+# Look at a cockpit that is already running. Read-only checks only.
+uv run --extra nflverse python scripts/qa-cockpit.py --url http://localhost:8080
+
+# Prove the suite can still fail. Breaks the cockpit five ways, asserts the suite
+# notices each one BY ASSERTION rather than by crashing, and reverts every change.
+uv run --extra nflverse python scripts/qa_mutation_gate.py
+```
+
+The board is **pinned**, not live: `scripts/fixtures/qa-board-<league>.json`. That is what
+makes a red run reproduce tomorrow -- against a live board an overnight ADP move and a UI
+regression look identical. Regenerate deliberately, never inside a debugging loop:
+
+```bash
+uv run --extra nflverse python scripts/qa_board_fixture.py --league espn_davis_drive
+uv run --extra nflverse python scripts/qa-cockpit.py --live-board   # a check against reality
+```
+
+**If a board invariant is red, stop.** Those ten checks guard picks rather than pixels --
+ranks being a clean sequence, no D/ST or K outranking the 24th startable RB or WR, the four
+MCP tools agreeing off one board, a 128-pick dry run from seat 8 still filling every
+starting slot. They come from the value engine, and the answer is never to adjust the UI.
+
 ## Quick reference
 
 ```bash

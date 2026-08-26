@@ -223,6 +223,9 @@ WRITE_CHECKS: tuple[str, ...] = (
     "ctrl+z undid it",
     "u undid another",
     "clicking X marked a player",
+    "a space in the box raises no Enter hint",
+    "a space in the box never marks anybody",
+    "Enter on a focused button does not mark",
     "key 'g' jumps to the grab list",
     "key 'b' jumps to the best list",
 )
@@ -314,6 +317,22 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     check("digit legend matches visible tabs",
           s.get("legend") == f"0-{len(s.get('tabs', [])) - 1}",
           "legend={} tabs={}".format(s.get("legend"), s.get("tabs")))
+
+    # Everything below drives a cockpit that has to be ALIVE: it clicks rows by
+    # coordinate, reads the pick number, waits on a poll. When the IIFE is dead none of
+    # that exists, and the first click raises -- which is red, but red for the wrong
+    # reason and with two thirds of the suite silently unrun. The checks above have
+    # already recorded the real failure; stopping cleanly here lets the manifest report
+    # every remaining check as its own explicit failure, so the run is COMPLETE and red
+    # rather than truncated and red. A dead page is the loudest result this suite has.
+    # Gated on the BOARD, not on bus.errors: a JS error with a rendered board still leaves
+    # every control drivable, and the run is more useful for having tested them. Only a board
+    # that never rendered makes the rest of the suite meaningless.
+    if not s.get("rows"):
+        print()
+        print("  the cockpit is not alive -- no rows rendered. Every interaction check below")
+        print("  is unrunnable, and each is reported as its own failure.")
+        return
 
     print()
     print("=" * 74)
@@ -414,6 +433,55 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     c = await bus.snap()
     check("clicking X marked a player", c["pick"] != before,
           "pick {!r} -> {!r}".format(before, c["pick"]))
+
+    print()
+    print("=" * 74)
+    print("6b. THE TWO WAYS ENTER MARKS SOMEBODY YOU DID NOT CHOOSE")
+    print("=" * 74)
+
+    # A space is a plausible mis-press: it is the advertised pause key, and pause is dead
+    # while the box has focus, which it does from load. If a space counts as a query, Enter
+    # marks the top of an UNFILTERED board -- the #1 player overall, gone in two keystrokes.
+    await bus.key("Escape", code="Escape")
+    await bus.drain(0.3)
+    qb = await bus.box("#q")
+    await bus.click(qb["x"], qb["y"])
+    before = (await bus.snap())["pick"]
+    await bus.key(" ", text=" ")
+    await bus.drain(0.5)
+    spaced = await bus.snap()
+    check("a space in the box raises no Enter hint", spaced["hint"] is None,
+          "hint={!r}".format(spaced["hint"]))
+    await bus.key("Enter", code="Enter")
+    await bus.drain(1.0)
+    c = await bus.snap()
+    check("a space in the box never marks anybody", c["pick"] == before,
+          "pick {!r} -> {!r}".format(before, c["pick"]))
+    await bus.key("Escape", code="Escape")
+    await bus.drain(0.3)
+
+    # Enter is the destructive key and it is the one WITHOUT the focused-BUTTON guard that
+    # Space has. Focus stays on a button after any click, so Enter right after touching
+    # pause, undo or a tab fires a mark against whatever row is still selected.
+    row = await bus.box("#bestBody tr", 1)
+    await bus.click(row["x"], row["y"])
+    pb = await bus.box("#pauseBtn")
+    await bus.click(pb["x"], pb["y"])
+    staged = await bus.snap()
+    focus_tag = await bus.ev("(document.activeElement||{}).tagName")
+    before = staged["pick"]
+    await bus.key("Enter", code="Enter")
+    await bus.drain(1.0)
+    c = await bus.snap()
+    # The setup is asserted too. If the click stopped focusing the button or cleared the
+    # selection, this scenario stops exercising the bug -- and a check that silently stops
+    # testing anything is worse than no check, so that fails here rather than passing.
+    check("Enter on a focused button does not mark",
+          c["pick"] == before and staged["selCount"] == 1 and focus_tag == "BUTTON",
+          "sel={} focus={} pick {!r} -> {!r}".format(
+              staged["selCount"], focus_tag, before, c["pick"]))
+    await bus.click(pb["x"], pb["y"])  # unpause: the clock section needs polling alive
+    await bus.drain(0.5)
 
     print()
     print("=" * 74)
