@@ -41,7 +41,11 @@ def dump_board(board) -> dict:
         row = {}
         for n in names:
             v = getattr(e, n)
-            row[n] = sorted(v) if isinstance(v, frozenset) else (list(v) if isinstance(v, tuple) else v)
+            if isinstance(v, frozenset):
+                v = sorted(v)
+            elif isinstance(v, tuple):
+                v = list(v)
+            row[n] = v
         rows.append(row)
     return {
         "schema_version": SCHEMA_VERSION,
@@ -107,7 +111,8 @@ def main() -> int:
 
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     out = fixture_path(args.league)
-    out.write_text(json.dumps(dump_board(board), separators=(",", ":"), sort_keys=True), encoding="utf-8")
+    out.write_text(json.dumps(dump_board(board), separators=(",", ":"), sort_keys=True),
+                   encoding="utf-8")
     print(f"pinned {len(board.entries)} entries -> {out} ({out.stat().st_size / 1024:.0f} KB)")
 
     check = load_board(args.league)

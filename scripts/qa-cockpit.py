@@ -82,6 +82,28 @@ SNAP = """
 """
 
 
+VIEWPORT_SIZES = [(1920, 1080), (2560, 1440)]
+
+LAYOUT = """
+(function(){
+  function m(sel){
+    var e=document.querySelector(sel); if(!e) return null;
+    var r=e.getBoundingClientRect();
+    return {w:Math.round(r.width), h:Math.round(r.height),
+            l:Math.round(r.left), r:Math.round(r.right),
+            rows:e.querySelectorAll("tr").length,
+            vis:!(r.width===0||r.height===0||getComputedStyle(e).display==="none")};
+  }
+  return JSON.stringify({
+    vw:innerWidth, vh:innerHeight,
+    scrollWidth:document.documentElement.scrollWidth,
+    hOverflow:document.documentElement.scrollWidth>innerWidth+1,
+    cols:{left:m(".col-left"), mid:m(".col-mid"), right:m(".col-right")}
+  });
+})()
+"""
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -205,6 +227,54 @@ WRITE_CHECKS: tuple[str, ...] = (
     "key 'b' jumps to the best list",
 )
 
+# Phase 2: what guards picks rather than pixels. These need no browser -- they run
+# in-process against the pinned board with an isolated state dir.
+BOARD_CHECKS: tuple[str, ...] = (
+    "board vorp ranks are a clean 1..N sequence",
+    "DEF vorp stays under the startable skill floor",
+    "K vorp stays under the startable skill floor",
+    "best_available returns a populated board",
+    "player_lookup agrees with best_available",
+    "compare agrees with best_available",
+    "recommend agrees with the same board",
+    "slot-8 dry run fills every starting slot",
+    "slot-8 roster has no short slot",
+    "no D/ST before round 13",
+)
+
+VIEWPORT_CHECKS: tuple[str, ...] = (
+    "no horizontal overflow at 1920x1080",
+    "left column is not stranded at 1920x1080",
+    "mid column is not stranded at 1920x1080",
+    "right column is not stranded at 1920x1080",
+    "no horizontal overflow at 2560x1440",
+    "left column is not stranded at 2560x1440",
+    "mid column is not stranded at 2560x1440",
+    "right column is not stranded at 2560x1440",
+)
+
+# Seat 8 of 8 picks back-to-back at the snake turns: 8+9, 24+25, 40+41, 56+57. Those are
+# the moments the cockpit has to say TWO picks are on the clock, because showing a single
+# pick number there reads as one pick and the second gets made in a hurry.
+CLOCK_CHECKS: tuple[str, ...] = (
+    "clock state is right at pick 8",
+    "cockpit renders the pick-8 clock",
+    "clock state is right at pick 9",
+    "cockpit renders the pick-9 clock",
+    "clock state is right at pick 24",
+    "cockpit renders the pick-24 clock",
+    "clock state is right at pick 25",
+    "cockpit renders the pick-25 clock",
+    "clock state is right at pick 40",
+    "cockpit renders the pick-40 clock",
+    "clock state is right at pick 41",
+    "cockpit renders the pick-41 clock",
+    "clock state is right at pick 56",
+    "cockpit renders the pick-56 clock",
+    "clock state is right at pick 57",
+    "cockpit renders the pick-57 clock",
+)
+
 RESULTS: list[tuple[str, bool, str]] = []
 ABORT: list[str] = []  # non-empty => run_suite raised; the run is INCOMPLETE, not just red
 
@@ -268,6 +338,12 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     check("arrow moves the highlight", b1["selName"] != b2["selName"],
           "{!r} -> {!r}".format(b1["selName"], b2["selName"]))
     check("caret stays in the search box", b2["focus"] == "q", "focus={}".format(b2["focus"]))
+
+    print()
+    print("=" * 74)
+    print("3b. LAYOUT AT EVERY REAL SCREEN")
+    print("=" * 74)
+    await viewport_section(bus)
 
     if readonly:
         print("\n  (read-only mode: skipping every check that would mark a player)")
@@ -349,6 +425,90 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
         got = await bus.ev("(function(){var r=document.querySelector('tr.sel');"
                            "return r?(r.closest('#grabBody')?'grab':'best'):null;})()")
         check(f"key {k!r} jumps to the {want} list", got == want, f"scope={got}")
+
+    print()
+    print("=" * 74)
+    print("8. TWO PICKS ON THE CLOCK AT EVERY SNAKE TURN")
+    print("=" * 74)
+    await clock_section(bus, url)
+
+
+async def viewport_section(bus: Bus) -> None:
+    """Both screens this actually gets read on, and nothing stranded on either.
+
+    The board is a three-column grid whose middle column caps at 1240px, so the outer two
+    absorb everything above that. A column that collapses to nothing, or gets pushed past
+    the right edge, still renders its rows -- every string assertion keeps passing while
+    half the cockpit is off-screen. So this measures geometry, not markup."""
+    for w, h in VIEWPORT_SIZES:
+        await bus.send("Emulation.setDeviceMetricsOverride",
+                       {"width": w, "height": h, "deviceScaleFactor": 1, "mobile": False})
+        await bus.drain(0.7)
+        lay = json.loads(await bus.ev(LAYOUT))
+        tag = f"{w}x{h}"
+        check(f"no horizontal overflow at {tag}", not lay["hOverflow"],
+              "scrollWidth={} vw={}".format(lay["scrollWidth"], lay["vw"]))
+        for name in ("left", "mid", "right"):
+            c = lay["cols"].get(name)
+            ok = bool(c) and c["vis"] and c["w"] >= 150 and c["l"] >= -1 and c["r"] <= w + 1
+            check(f"{name} column is not stranded at {tag}", ok,
+                  "missing" if not c else
+                  "w={} x=[{},{}] rows={}".format(c["w"], c["l"], c["r"], c["rows"]))
+    # every later section clicks by coordinate, so hand the page back at the size they expect
+    await bus.send("Emulation.setDeviceMetricsOverride",
+                   {"width": 1920, "height": 1080, "deviceScaleFactor": 1, "mobile": False})
+    await bus.drain(0.5)
+
+
+def _api(url: str, path: str, payload: dict | None = None) -> dict:
+    req = urllib.request.Request(url.rstrip("/") + path)
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode()
+        req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, data=data, timeout=10) as r:
+        return json.loads(r.read())
+
+
+async def clock_section(bus: Bus, url: str) -> None:
+    """The snake turn: seat 8 of 8 is on the clock twice in a row at 8+9, 24+25, 40+41, 56+57.
+
+    Driven over the API rather than by 56 clicks, because the thing under test is what the
+    cockpit SAYS at that pick, not how the picks got there. The state is asserted against the
+    same `clock` dict the page reads, and then the rendered pick number is read back out of
+    the DOM -- both halves, because either can be right while the other is wrong."""
+    for target in (8, 9, 24, 25, 40, 41, 56, 57):
+        state = _api(url, "/api/state")
+        guard = 0
+        while (state["clock"] or {}).get("current_pick", 0) < target and guard < 200:
+            pool = state.get("best_available") or []
+            if not pool:
+                break
+            state = _api(url, "/api/taken", {"player_id": pool[0]["id"]})
+            guard += 1
+
+        clock = state.get("clock") or {}
+        cur = clock.get("current_pick")
+        # 8, 24, 40, 56 are the turn (two mine); 9, 25, 41, 57 are the far side of it (one).
+        two_expected = target % 16 == 8
+        two_actual = (
+            clock.get("picks_until_me") == 0
+            and clock.get("opponent_picks_until_horizon") == 0
+            and clock.get("survival_horizon") is not None
+        )
+        check(f"clock state is right at pick {target}",
+              cur == target and two_actual == two_expected,
+              "pick={} two={} (want {}) until_me={} rivals={} horizon={}".format(
+                  cur, two_actual, two_expected, clock.get("picks_until_me"),
+                  clock.get("opponent_picks_until_horizon"), clock.get("survival_horizon")))
+
+        await bus.drain(2.6)  # let the page poll (POLL_MS = 2000) and repaint
+        shown = await bus.ev("(document.getElementById('pickNo')||{}).textContent")
+        shown = (shown or "").strip()
+        want = (f"PICK {target}+{clock.get('survival_horizon')}" if two_expected
+                else f"PICK {target}")
+        check(f"cockpit renders the pick-{target} clock", shown == want,
+              f"shows {shown!r} want {want!r}")
 
 
 async def drive(url: str, readonly: bool) -> None:
@@ -466,8 +626,24 @@ def main() -> int:
             finally:
                 proc.terminate()
 
+    print()
+    print("=" * 74)
+    print("9. BOARD INVARIANTS -- picks, not pixels")
+    print("=" * 74)
+    try:
+        import qa_board_invariants
+        with tempfile.TemporaryDirectory(prefix="audible-qa-inv-") as inv:
+            qa_board_invariants.run(check, args.league, Path(inv))
+    except Exception:
+        ABORT.append(traceback.format_exc())
+        print("  board invariants ABORTED:")
+        print(traceback.format_exc())
+
     ran = [r[0] for r in RESULTS]
-    for name in READONLY_CHECKS + (() if args.url else WRITE_CHECKS):
+    expected = READONLY_CHECKS + VIEWPORT_CHECKS + BOARD_CHECKS
+    if not args.url:
+        expected += WRITE_CHECKS + CLOCK_CHECKS
+    for name in expected:
         if name not in ran:
             check(name, False, "THIS CHECK NEVER RAN -- the run is incomplete")
     if ABORT:
