@@ -609,6 +609,30 @@ uv run --extra nflverse python scripts/qa-cockpit.py --url http://localhost:8080
 uv run --extra nflverse python scripts/qa_mutation_gate.py
 ```
 
+### Refreshing the data before Sunday
+
+Every source is fetched once and pinned. Nothing fetches at draft time. To re-pin:
+
+```bash
+# 1. refresh the nflverse disk cache (the ONLY network step)
+uv run --extra nflverse python -c "
+from audible.adapters.nflverse import refreshing
+from audible.draft.usage import load_usage
+with refreshing():
+    print(load_usage().missing_sources or 'all sources refreshed')"
+
+# 2. re-pin the QA fixtures on top of the refreshed cache
+uv run --extra nflverse python scripts/qa_board_fixture.py --league espn_davis_drive
+
+# 3. prove the launcher gate still passes -- must print origin 'disk'
+curl -s localhost:8080/healthz | python -c "import json,sys; print(json.load(sys.stdin)['data'])"
+```
+
+If a usage source is unreachable and uncached, the cockpit shows an amber
+**usage data unavailable** chip beside the sync chip and leaves those columns blank. Blank
+means UNKNOWN, never zero — the board's ranking is unaffected either way, because usage is
+display context and never enters the sort.
+
 The board is **pinned**, not live: `scripts/fixtures/qa-board-<league>.json`. That is what
 makes a red run reproduce tomorrow -- against a live board an overnight ADP move and a UI
 regression look identical. Regenerate deliberately, never inside a debugging loop:
