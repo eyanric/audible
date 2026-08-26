@@ -139,6 +139,7 @@ button,input{font:inherit;color:inherit}
 #syncChip.warn #syncDot{background:var(--warm)}
 #syncChip.bad  #syncDot{background:var(--urgent)}
 #syncChip.off  #syncDot{background:var(--txt-3)}
+#usageNote{color:var(--warm);border-color:var(--warm)}
 #syncChip.warn{color:var(--warm)}
 #syncChip.bad{color:var(--urgent-2)}
 #syncText{font-variant-numeric:tabular-nums}
@@ -257,6 +258,7 @@ col.w-pos{width:44px}
 col.w-team{width:40px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
+col.w-use{width:46px}
 col.w-flags{width:146px}
 col.w-act{width:24px}
 /* WIDE DESKTOP. `table-layout:fixed` with every column but the name at a fixed px width
@@ -304,6 +306,13 @@ col.w-act{width:24px}
 .need-tag[hidden]{display:none}
 .c-opp.dev{color:var(--txt)}
 .c-opp.dev::after{content:"\25B3";font-size:9px;margin-left:3px;vertical-align:1px;color:var(--txt-2)}
+/* Usage is CONTEXT, not a ranking: it is set a step back from the value columns so it
+   reads as supporting evidence rather than another number competing to be the answer. */
+.c-use{color:var(--txt-2);font-variant-numeric:tabular-nums}
+.c-use.none{color:var(--txt-3)}
+/* A bye inside the fantasy playoffs is the one you cannot stream around. */
+.c-team .bye{color:var(--txt-3);font-size:10px;margin-left:3px}
+.c-team .bye.late{color:var(--urgent)}
 .c-surv.low{color:var(--urgent)}
 .c-surv.high{color:var(--safe)}
 .mark{
@@ -425,6 +434,7 @@ col.w-act{width:24px}
   .panel.grow{flex:0 0 auto}
   .pbody.grow{max-height:70vh}
   col.w-flags,.c-flags,th.h-flags{display:none}
+  col.w-use,.c-use,th.h-use{display:none}
   #q{width:110px}
   .phint{display:none}
 }
@@ -540,6 +550,10 @@ col.w-act{width:24px}
       <span id="syncDot" aria-hidden="true"></span>
       <span id="syncText">waiting for first update</span>
     </div>
+    <!-- Usage is context, so a missing source must not look like a broken cockpit -- but a
+         blank column has to be legible as ABSENT rather than as zero, or you read "0% target
+         share" as a fact about the player instead of a fact about the data. -->
+    <span id="usageNote" class="badge" hidden></span>
     <button id="pauseBtn" class="btn" type="button" aria-pressed="false">Pause updates</button>
   </div>
 </header>
@@ -597,7 +611,7 @@ col.w-act{width:24px}
         <table class="ptable" aria-label="Grab now">
           <colgroup>
             <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
-            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+            <col class="w-r"><col class="w-use"><col class="w-use"><col class="w-surv"><col class="w-flags"><col class="w-act">
           </colgroup>
           <tbody id="grabBody"></tbody>
         </table>
@@ -616,7 +630,7 @@ col.w-act{width:24px}
         <table class="ptable" aria-label="Best available">
           <colgroup>
             <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
-            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+            <col class="w-r"><col class="w-use"><col class="w-use"><col class="w-surv"><col class="w-flags"><col class="w-act">
           </colgroup>
           <thead>
             <tr>
@@ -626,6 +640,8 @@ col.w-act{width:24px}
               <th scope="col" class="num" title="Consensus rank — the market's order">Cons</th>
               <th scope="col" class="num" title="VORP rank — value over replacement in this league">VORP</th>
               <th scope="col" class="num" title="Opportunity rank — volume and role. A triangle means it disagrees with consensus.">Opp</th>
+              <th scope="col" class="num h-use" title="Share of his team's targets last season. This league pays 0.5 a reception, so targets are the currency; consensus prices yards and touchdowns.">Tgt%</th>
+              <th scope="col" class="num h-use" title="Route participation PROXY: share of his team's charted-route plays he was on the field for last season. Not charted routes -- a tight end who stays in to block counts.">Rte%</th>
               <th scope="col" class="num" title="Chance he survives to your next pick">Surv</th>
               <th scope="col" class="h-flags" title="Signals">Signals</th>
               <th scope="col"><span class="sr">Mark taken</span></th>
@@ -859,6 +875,8 @@ function createPlayerRow(scope) {
   var tdCons = mk("td", "c-num c-cons num");
   var tdVorp = mk("td", "c-num c-vorp num");
   var tdOpp = mk("td", "c-num c-opp num");
+  var tdTgt = mk("td", "c-num c-use num");
+  var tdRte = mk("td", "c-num c-use num");
   var tdSurv = mk("td", "c-num c-surv num");
   var tdFlags = mk("td", "c-flags");
 
@@ -870,12 +888,13 @@ function createPlayerRow(scope) {
 
   tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
   tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
+  tr.appendChild(tdTgt); tr.appendChild(tdRte);
   tr.appendChild(tdSurv); tr.appendChild(tdFlags); tr.appendChild(tdAct);
 
   var rec = {
     el: tr, scope: scope, id: null,
     name: nameSpan, need: needTag, chip: chip, team: tdTeam,
-    cons: tdCons, vorp: tdVorp, opp: tdOpp, surv: tdSurv,
+    cons: tdCons, vorp: tdVorp, opp: tdOpp, tgt: tdTgt, rte: tdRte, surv: tdSurv,
     flags: tdFlags, btn: btn
   };
 
@@ -892,13 +911,43 @@ function createPlayerRow(scope) {
   return rec;
 }
 
+/* Usage context. A missing value is UNKNOWN, not zero: printing 0% for a player nobody
+   measured reads as "never targeted" when it means "not in the table". */
+function renderUse(el, v) {
+  var known = (v !== null && v !== undefined);
+  setText(el, known ? Math.round(v) + "" : "·");
+  el.classList.toggle("none", !known);
+}
+
+function usageTitle(p) {
+  var bits = [];
+  if (p.target_share != null) bits.push("targets " + p.target_share + "% of team");
+  if (p.air_yards_share != null) bits.push("air yards " + p.air_yards_share + "%");
+  if (p.route_participation != null) bits.push("routes (proxy) " + p.route_participation + "%");
+  if (p.snap_share != null) bits.push("snaps " + p.snap_share + "%");
+  if (p.depth_slot) bits.push("depth " + p.depth_slot);
+  if (p.bye_week != null) bits.push("bye wk " + p.bye_week);
+  return bits.length ? (p.name + " — 2025 usage: " + bits.join(" · ")) : null;
+}
+
+function renderTeam(el, p) {
+  setText(el, p.team || "—");
+  if (p.bye_week != null) {
+    var b = mk("span", "bye", String(p.bye_week));
+    // Weeks 15-17 are the fantasy playoffs here; a bye you cannot stream around.
+    if (p.bye_week >= 15) b.classList.add("late");
+    setAttr(b, "title", "bye week " + p.bye_week);
+    el.appendChild(b);
+  }
+}
+
 function updatePlayerRow(rec, p) {
   rec.id = p.id;
   setAttr(rec.el, "data-id", String(p.id));
   setText(rec.name, p.name || "—");
   setHidden(rec.need, !p.fills_need);
   setPos(rec.chip, p.position);
-  setText(rec.team, p.team || "—");
+  renderTeam(rec.team, p);
   setText(rec.cons, rank(p.consensus_rank));
   setText(rec.vorp, rank(p.vorp_rank));
   setText(rec.opp, rank(p.opp_rank));
@@ -906,6 +955,12 @@ function updatePlayerRow(rec, p) {
   setAttr(rec.opp, "title", p.deviation
     ? "Opportunity disagrees with consensus"
     : null);
+
+  renderUse(rec.tgt, p.target_share);
+  renderUse(rec.rte, p.route_participation);
+  // The tooltip carries what the two columns cannot: a number nobody can read at a
+  // glance is still worth having when you stop to compare two players.
+  setAttr(rec.el, "title", usageTitle(p));
 
   // deliberately narrow bands: if half the column is coloured the run
   // warnings stop registering
@@ -1145,6 +1200,18 @@ function ageSeconds() {
   var base = (S.data.sync && typeof S.data.sync.age_s === "number") ? S.data.sync.age_s : 0;
   if (S.paused && S.pausedAge != null) return S.pausedAge;
   return base + (performance.now() - S.receivedAt) / 1000;
+}
+
+function renderUsageNote(d) {
+  var missing = (d && d.usage_degraded) || [];
+  var el = $("usageNote");
+  setHidden(el, !missing.length);
+  if (missing.length) {
+    setText(el, "usage data unavailable: " + missing.join(", "));
+    setAttr(el, "title",
+      "These usage sources could not be read and were not cached, so the usage columns are "
+      + "blank for want of data -- not zero. Every other number on this board is unaffected.");
+  }
 }
 
 function renderSync() {
@@ -1529,6 +1596,7 @@ function applyState(d) {
   S.data = d;
   S.receivedAt = performance.now();
   S.lastGoodClock = (d.sync && d.sync.last_success) || clockNow();
+  renderUsageNote(d);
   render(d);
 }
 

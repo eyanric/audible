@@ -83,6 +83,30 @@ SNAP = """
 """
 
 
+USAGE_PROBE = """
+(function(){
+  var rows=[].slice.call(document.querySelectorAll("#bestBody tr")).slice(0,40);
+  function nums(sel){
+    return rows.filter(function(r){
+      var c=r.querySelectorAll(sel);
+      return c.length && /^[0-9]+$/.test((c[0].textContent||"").trim());
+    }).length;
+  }
+  return JSON.stringify({
+    rows:rows.length,
+    tgtNums:nums(".c-use"),
+    rteNums:rows.filter(function(r){
+      var c=r.querySelectorAll(".c-use");
+      return c.length>1 && /^[0-9]+$/.test((c[1].textContent||"").trim());
+    }).length,
+    byes:rows.filter(function(r){
+      var b=r.querySelector(".c-team .bye");
+      return !!b && /^[0-9]+$/.test((b.textContent||"").trim());
+    }).length
+  });
+})()
+"""
+
 VIEWPORT_SIZES = [(1920, 1080), (2560, 1440)]
 
 LAYOUT = """
@@ -237,6 +261,8 @@ READONLY_CHECKS: tuple[str, ...] = (
     "search box focused on load",
     "no horizontal overflow at 1920",
     "digit legend matches visible tabs",
+    "usage columns render real numbers",
+    "bye weeks render on the team cell",
     "clicking a row selects exactly one",
     "arrow moves the highlight",
     "caret stays in the search box",
@@ -279,6 +305,17 @@ BOARD_CHECKS: tuple[str, ...] = (
     "slot-8 dry run fills every starting slot",
     "slot-8 roster has no short slot",
     "no D/ST before round 13",
+    # Lane 1: displayed usage context. None of it enters the sort, and the check named
+    # "usage did not enter the sort" is what keeps that true rather than merely intended.
+    "pinned usage table is not degraded",
+    "usage did not enter the sort",
+    "target share covers the draftable window",
+    "route participation covers the draftable window",
+    "every board team resolves to a bye week",
+    "bye weeks are inside the regular season",
+    "usage shares are fractions in 0..1",
+    "_slim carries every usage field",
+    "_slim usage fields are populated, not just present",
 )
 
 VIEWPORT_CHECKS: tuple[str, ...] = (
@@ -401,6 +438,20 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     check("arrow moves the highlight", b1["selName"] != b2["selName"],
           "{!r} -> {!r}".format(b1["selName"], b2["selName"]))
     check("caret stays in the search box", b2["focus"] == "q", "focus={}".format(b2["focus"]))
+
+    print()
+    print("=" * 74)
+    print("3a. USAGE CONTEXT IS ON THE BOARD")
+    print("=" * 74)
+    use = json.loads(await bus.ev(USAGE_PROBE))
+    # A column of dots is what a broken join looks like from the outside: the markup is
+    # perfect and every number is missing. So this counts REAL values, not cells.
+    check("usage columns render real numbers",
+          use["tgtNums"] >= 20 and use["rteNums"] >= 20,
+          "of {} rows: {} target-share, {} route-% ".format(
+              use["rows"], use["tgtNums"], use["rteNums"]))
+    check("bye weeks render on the team cell", use["byes"] >= 20,
+          "{} of {} rows carry a bye".format(use["byes"], use["rows"]))
 
     print()
     print("=" * 74)
@@ -710,6 +761,11 @@ def start_server(league: str, port: int, state_dir: Path,
     src = REPO / "src"
     scripts = REPO / "scripts"
     board_expr = "build_board(cfg)" if live_board else f"load_board({league!r})"
+    # Usage is pinned in the same fixture as the board. A live board gets live usage, so
+    # --live-board stays one honest check against reality rather than a hybrid.
+    usage_expr = ("load_usage()" if live_board else f"load_usage_table({league!r})")
+    usage_import = ("from audible.draft.usage import load_usage" if live_board
+                    else "from qa_board_fixture import load_usage_table")
     board_import = ("from audible.draft.board import build_board" if live_board
                     else "from qa_board_fixture import load_board")
     boot = "\n".join([
@@ -718,6 +774,7 @@ def start_server(league: str, port: int, state_dir: Path,
         "import uvicorn",
         "from audible.config.loader import load_all_leagues",
         board_import,
+        usage_import,
         "from audible.draft.service import CockpitService",
         "from audible.server import create_app",
         f"cfg=load_all_leagues()[{league!r}]",
@@ -725,6 +782,7 @@ def start_server(league: str, port: int, state_dir: Path,
         "[p.unlink() for p in sd.glob('*.json')]",
         "svc=CockpitService(cfg,state_dir=sd,slot_override=8)",
         f"svc.board={board_expr}",
+        f"svc.usage={usage_expr}",
         "svc.session.draft_id='qa'; svc.session.draft_status='drafting'",
         "svc.session.slot, svc.session.slot_source = 8,'override'",
         "svc.health.last_success=time.time()",
@@ -779,6 +837,7 @@ def main() -> int:
         import qa_board_invariants
         with tempfile.TemporaryDirectory(prefix="audible-qa-inv-") as inv:
             qa_board_invariants.run(check, args.league, Path(inv))
+            qa_board_invariants.run_usage(check, args.league, Path(inv))
     except Exception:
         ABORT.append(traceback.format_exc())
         print("  board invariants ABORTED:")

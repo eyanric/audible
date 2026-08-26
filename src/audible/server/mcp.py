@@ -74,6 +74,16 @@ def _slim(player: dict[str, Any]) -> dict[str, Any]:
         "grab_now": player["grab_now"],
         "opportunity_disagrees": player["deviation"],
         "flags": player["flags"],
+        # Displayed usage context, prior season. None is UNKNOWN, never zero -- reporting a
+        # missing target share as 0% would read as "never targeted" rather than "not measured".
+        # `route_participation_pct` is a PROXY: share of the team's charted-route plays he was
+        # on the field for, not charted routes run, so a blocking tight end still counts.
+        "target_share_pct": player.get("target_share"),
+        "air_yards_share_pct": player.get("air_yards_share"),
+        "route_participation_pct": player.get("route_participation"),
+        "snap_share_pct": player.get("snap_share"),
+        "depth_slot": player.get("depth_slot"),
+        "bye_week": player.get("bye_week"),
     }
 
 
@@ -137,7 +147,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         # is "how many LBs are available" (1,136).
         view = service.view()
         rows = s["best_available"] if view is None else [
-            _state_player(c) for c in view.ranked
+            _state_player(c, getattr(service, "usage", None)) for c in view.ranked
         ]
         if position:
             want = position.strip().upper()
@@ -243,7 +253,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         q = name.strip().lower()
         view = service.view()  # search the full pool, not the served slice
         pool = s["best_available"] if view is None else [
-            _state_player(c) for c in view.ranked
+            _state_player(c, getattr(service, "usage", None)) for c in view.ranked
         ]
         hits = [p for p in pool if q in p["name"].lower()]
         if not hits:
@@ -270,7 +280,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             return _not_ready(s)
         view = service.view()  # full pool, so a deep player is comparable
         pool = s["best_available"] if view is None else [
-            _state_player(c) for c in view.ranked
+            _state_player(c, getattr(service, "usage", None)) for c in view.ranked
         ]
         found, missing = [], []
         for n in names:

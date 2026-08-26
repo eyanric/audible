@@ -13,6 +13,7 @@ from typing import Any
 
 from ..draft.live import Candidate, LiveView
 from ..draft.service import CockpitService
+from ..draft.usage import UsageTable
 
 GRAB_NOW_LIMIT = 5
 # The page shows ~25 rows; the rest feed name search and the position tabs.
@@ -25,8 +26,12 @@ RECENT_PICKS_LIMIT = 12
 RUN_WINDOW = 10
 
 
-def _player(cand: Candidate) -> dict[str, Any]:
+def _player(cand: Candidate, usage: UsageTable | None = None) -> dict[str, Any]:
     e = cand.entry
+    # Usage is looked up here, at the SERVING boundary -- after the board is built, ranked and
+    # frozen. That is what makes it display-only by construction rather than by promise.
+    ctx = usage.get(e.player_id) if usage else None
+    pct = lambda v: round(v * 100, 1) if v is not None else None  # noqa: E731
     return {
         "id": e.player_id,
         "name": e.name,
@@ -46,6 +51,17 @@ def _player(cand: Candidate) -> dict[str, Any]:
         "fills_need": cand.fills_need,
         "deviation": e.deviation,
         "flags": list(e.flags),
+        # -- displayed usage context; None means UNKNOWN, never zero ----------------------
+        # Prior-season observed volume. DDAFFL pays 0.5/reception to WR/TE, so target and
+        # route volume is where this league's edge lives and consensus prices yards and TDs.
+        "target_share": pct(ctx.target_share) if ctx else None,
+        "air_yards_share": pct(ctx.air_yards_share) if ctx else None,
+        # A PROXY: pass-snap share, not charted routes. A blocking TE still counts.
+        "route_participation": pct(ctx.route_participation) if ctx else None,
+        "snap_share": pct(ctx.snap_share) if ctx else None,
+        "depth_slot": ctx.depth_slot if ctx else None,
+        # Bye joins on team, so a D/ST gets one even though it has no player row anywhere.
+        "bye_week": usage.bye(e.team) if usage else None,
     }
 
 
@@ -260,8 +276,10 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "unfilled": list(view.unfilled),
         "starters_complete": view.starters_complete,
     }
-    base["grab_now"] = [_player(c) for c in grab]
-    base["best_available"] = [_player(c) for c in _served_pool(service, view)]
+    usage = getattr(service, "usage", None)
+    base["grab_now"] = [_player(c, usage) for c in grab]
+    base["best_available"] = [_player(c, usage) for c in _served_pool(service, view)]
+    base["usage_degraded"] = list(usage.missing_sources) if usage else []
     base["teams"] = _teams(service)
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)

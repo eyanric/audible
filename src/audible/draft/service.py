@@ -30,6 +30,7 @@ from .board import DraftBoard, build_board
 from .identity import SOURCE_DRAFT_ORDER, SOURCE_UNRESOLVED
 from .live import LiveView, Pick, compute_view, my_slot_on_clock
 from .sync import DraftSync, DraftUpdate, build_sync
+from .usage import UsageTable, load_usage
 
 log = logging.getLogger("audible.cockpit")
 
@@ -164,6 +165,10 @@ class CockpitService:
 
         self.board: DraftBoard | None = None
         self.board_error: str | None = None
+        # Displayed usage context. Deliberately NOT on the board: it is looked up by player id
+        # at the state boundary, after the board is built and ranked, so a usage row can never
+        # move a player. Empty until warmed, and an empty table is a blank column, not an error.
+        self.usage: UsageTable = UsageTable()
         self.health = SyncHealth()
         self.session = DraftSession(league_key=config.key, draft_id=draft_id)
         if config.draft_rounds is not None:
@@ -213,6 +218,14 @@ class CockpitService:
             self.board = build_board(self.config)
             self.board_error = None
             log.info("board ready: %d players", len(self.board.entries))
+            # After the board, and never blocking it: usage is display context, so a source
+            # that will not load costs a column rather than the draft.
+            self.usage = load_usage()
+            if self.usage.missing_sources:
+                log.warning("usage context degraded, missing: %s",
+                            ", ".join(self.usage.missing_sources))
+            else:
+                log.info("usage context ready: %d players", len(self.usage.by_player_id))
         except Exception as exc:  # noqa: BLE001 -- surfaced to the UI, never swallowed
             self.board_error = f"{type(exc).__name__}: {exc}"
             log.exception("board build failed")
