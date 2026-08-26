@@ -168,7 +168,14 @@ button,input{font:inherit;color:inherit}
   flex:1;min-height:0;display:grid;gap:9px;padding:9px;
   grid-template-columns:248px minmax(520px,1fr) 328px;
 }
-@media (min-width:1750px){.board{grid-template-columns:288px minmax(0,1fr) 380px}}
+/* Past ~1750px the middle column was the only one allowed to grow, so an ultrawide
+   monitor spent all of its extra pixels stretching one table's whitespace while the
+   roster and the runs/cliffs panels stayed at their minimums. Cap the middle -- more
+   ROWS is a function of height, not width, so widening it past a readable line buys
+   nothing -- and let the side panels, which hold sentences, take the remainder. */
+@media (min-width:1750px){
+  .board{grid-template-columns:minmax(288px,1fr) minmax(0,1240px) minmax(380px,1fr)}
+}
 @media (max-width:1280px){.board{grid-template-columns:206px minmax(0,1fr) 282px}}
 
 .col{display:flex;flex-direction:column;gap:9px;min-width:0;min-height:0}
@@ -252,6 +259,16 @@ col.w-r{width:48px}
 col.w-surv{width:52px}
 col.w-flags{width:146px}
 col.w-act{width:24px}
+/* WIDE DESKTOP. `table-layout:fixed` with every column but the name at a fixed px width
+   makes the NAME column the only elastic one, so on a wide monitor every spare pixel is
+   inserted between a player and his numbers: ~670px of empty row at 1920 and ~1100px at
+   2560, which is an eye-track across the whole screen for every single read. Pin the name
+   and let SIGNALS -- the one variable-length column -- absorb the slack instead, so the
+   numbers stay next to the player they belong to at any width. */
+@media (min-width:1500px){
+  col.w-name{width:360px}
+  col.w-flags{width:auto}
+}
 
 .ptable thead th{
   position:sticky;top:0;z-index:2;background:var(--panel);
@@ -548,12 +565,14 @@ col.w-act{width:24px}
         <div id="draftLine"></div>
         <div class="legend">
           <div><kbd>/</kbd>search</div>
-          <div><kbd>enter</kbd>mark top match</div>
+          <div><kbd>enter</kbd>mark highlighted</div>
           <div><kbd>&uarr;&darr;</kbd>move selection</div>
           <div><kbd>t</kbd>Mark taken</div>
           <div><kbd>u</kbd> / <kbd>ctrl+z</kbd>Undo</div>
+          <div><kbd>g</kbd> / <kbd>b</kbd>grab now / board</div>
+          <div><kbd>r</kbd> / <kbd>c</kbd>roster / runs</div>
           <div><kbd>space</kbd>Pause updates</div>
-          <div><kbd>0-6</kbd>position filter</div>
+          <div><kbd id="legendDigits">0-6</kbd>position filter</div>
         </div>
       </div>
     </div>
@@ -590,7 +609,7 @@ col.w-act{width:24px}
         <span class="ptitle">Best available</span>
         <div id="tabs" role="group" aria-label="Position filter"></div>
         <span class="spacer"></span>
-        <input id="q" type="text" placeholder="Search players — Enter marks the top match" aria-label="Search players by name; Enter marks the top match as taken" autocomplete="off" spellcheck="false">
+        <input id="q" type="text" placeholder="Search players — Enter marks the highlighted" aria-label="Search players by name; arrows move the highlight; Enter marks the highlighted player as taken" autocomplete="off" spellcheck="false">
         <span id="enterHint" class="enter-hint" aria-live="polite" hidden></span>
       </div>
       <div class="pbody grow" id="bestScroll">
@@ -680,8 +699,15 @@ var TICK_MS = 500;
 var MAX_ROWS = 140;        // hard cap on rendered best-available rows
 var GRAB_CAP = 5;
 
-var BASE_TABS = ["ALL", "QB", "RB", "WR", "TE", "K", "LB"];   // keys 0-6
-var EXTRA_TABS = ["DL", "DB", "DEF"];                          // keys 7-9, only when present
+// One ordered list. `opt` tabs render only for leagues that actually have the position.
+// The digit shortcut is the index among the VISIBLE tabs, assigned in buildTabs, so the set
+// is always contiguous with no dead keys: League B gets 0-6 (ALL QB RB WR TE K DEF) and
+// League A gets 0-8 (ALL QB RB WR TE K DL LB DB). It used to be the index into the full
+// array, which left League B a dead LB tab on 6, swallowed 7 and 8, and stranded DEF on 9.
+var TABS = [
+  { k: "ALL" }, { k: "QB" }, { k: "RB" }, { k: "WR" }, { k: "TE" }, { k: "K" },
+  { k: "DEF", opt: true }, { k: "DL", opt: true }, { k: "LB", opt: true }, { k: "DB", opt: true }
+];
 var KNOWN_POS = ["QB","RB","WR","TE","K","DEF","DL","LB","DB"];
 
 /* long slot names blow out the left column and knock the fill markers
@@ -807,7 +833,9 @@ var S = {
   takenStack: [],        // [{id,name}] marks made from this screen
   actionMsg: "",
   actionErr: false,
-  tabsBuilt: false
+  tabsBuilt: false,
+  seenPos: {},           // sticky: a tab that has appeared never disappears
+  tabKeys: []            // digit -> tab key, over the visible tabs only
 };
 
 /* ───────────────────────── player rows ─────────────────────── */
@@ -898,7 +926,7 @@ function updatePlayerRow(rec, p) {
 
 function selKey(scope, id) { return scope + "|" + id; }
 
-function select(scope, id, scroll) {
+function select(scope, id, scroll, keepFocus) {
   if (id == null) return;
   S.sel = { scope: scope, id: id };
   var k = selKey(scope, id);
@@ -909,7 +937,9 @@ function select(scope, id, scroll) {
   if (scroll) {
     var n = currentNavEntry();
     if (n) {
-      n.el.focus({ preventScroll: true });
+      // keepFocus: the highlight is being driven from inside the search box, and focusing
+      // the row would drop the caret out of it mid-word.
+      if (!keepFocus) n.el.focus({ preventScroll: true });
       n.el.scrollIntoView({ block: "nearest" });
     }
   }
@@ -943,7 +973,7 @@ function resolveSelection() {
   paintSelection();
 }
 
-function moveSelection(delta) {
+function moveSelection(delta, keepFocus) {
   if (!S.nav.length) return;
   var idx = S.sel ? S.selIdx : -1;
   idx += delta;
@@ -951,7 +981,23 @@ function moveSelection(delta) {
   if (idx > S.nav.length - 1) idx = S.nav.length - 1;
   var n = S.nav[idx];
   S.selIdx = idx;
-  select(n.scope, n.id, true);
+  select(n.scope, n.id, true, keepFocus);
+}
+
+/* Sections without a pointer. On a phone these swap which column owns the screen; on the
+   desktop all three are already visible, so the useful move is putting the highlight into
+   the list you are about to act on. */
+function jumpToScope(scope) {
+  setThumbView("board");
+  for (var i = 0; i < S.nav.length; i++) {
+    if (S.nav[i].scope === scope) { S.selIdx = i; select(scope, S.nav[i].id, true); return; }
+  }
+}
+
+function showSection(view) {
+  setThumbView(view);
+  var el = document.querySelector(view === "roster" ? ".col-left" : ".col-right");
+  if (el) el.scrollIntoView({ block: "nearest" });
 }
 
 /* ───────────────────────── tabs ────────────────────────────── */
@@ -959,23 +1005,37 @@ function moveSelection(delta) {
 function buildTabs(present) {
   var wrap = $("tabs");
   if (!S.tabsBuilt) {
-    var all = BASE_TABS.concat(EXTRA_TABS);
-    all.forEach(function (key, i) {
-      var b = mk("button", "tab", key);
+    TABS.forEach(function (t) {
+      var b = mk("button", "tab", t.k);
       b.type = "button";
-      b.dataset.key = key;
-      setAttr(b, "title", key === "ALL" ? "All positions (key 0)" : key + " only (key " + i + ")");
-      b.addEventListener("click", function () { setFilter(key); });
+      b.dataset.key = t.k;
+      b.addEventListener("click", function () { setFilter(t.k); });
       wrap.appendChild(b);
     });
     S.tabsBuilt = true;
   }
-  Array.prototype.forEach.call(wrap.children, function (b) {
-    var key = b.dataset.key;
-    var optional = EXTRA_TABS.indexOf(key) >= 0;
-    setHidden(b, optional && !present[key]);
-    setAttr(b, "aria-pressed", S.filter === key ? "true" : "false");
+  // STICKY. `present` comes from the served pool, which is the top N of the board -- so a
+  // position can legitimately drop out of it mid-draft. If a tab vanished, every digit
+  // after it would renumber under the user's fingers between one pick and the next. Tabs
+  // therefore only ever appear.
+  for (var key in present) { if (present[key]) S.seenPos[key] = true; }
+
+  var digit = 0;
+  S.tabKeys = [];
+  TABS.forEach(function (t, i) {
+    var b = wrap.children[i];
+    var hidden = !!t.opt && !S.seenPos[t.k];
+    setHidden(b, hidden);
+    if (hidden) {
+      setAttr(b, "title", null);
+    } else {
+      setAttr(b, "title", (t.k === "ALL" ? "All positions" : t.k + " only") + " (key " + digit + ")");
+      S.tabKeys[digit] = t.k;
+      digit++;
+    }
+    setAttr(b, "aria-pressed", S.filter === t.k ? "true" : "false");
   });
+  setText($("legendDigits"), S.tabKeys.length > 1 ? "0-" + (S.tabKeys.length - 1) : "0");
 }
 
 function setFilter(key) {
@@ -1326,6 +1386,13 @@ function renderCentre(d) {
   // position tabs present in this league's payload
   var present = {};
   for (var i = 0; i < best.length; i++) present[best[i].position] = true;
+  // Seed from the league's STARTING SLOTS as well as the pool, so DEF and K have their
+  // tabs from the first render rather than only once one happens to be in the top N.
+  var rs = (d.roster && d.roster.slots) || [];
+  for (var si = 0; si < rs.length; si++) {
+    var sl = rs[si] && rs[si].slot;
+    if (sl && sl.indexOf("FLEX") === -1) present[sl] = true;
+  }
   buildTabs(present);
   renderEnterHint();
 }
@@ -1511,11 +1578,22 @@ function post(path, id) {
    target is the first row of the FILTERED best-available list -- not S.nav[0], which
    starts with the grab-now rows and ignores the query entirely. */
 function enterTarget() {
+  // Still gated on a query: Enter into an empty box must never mark anybody. The box is
+  // focused on load, so an unguarded Enter would be one stray keystroke from a wrong pick.
   if (!S.query) return null;
-  var first = $("bestBody").firstElementChild;
-  if (!first) return null;
-  var nameEl = first.querySelector(".pname");
-  return { id: first.getAttribute("data-id"), name: nameEl ? nameEl.textContent : "" };
+  var body = $("bestBody");
+  if (!body.firstElementChild) return null;
+  // Prefer the HIGHLIGHTED row. Typing points the highlight at the top match, but the
+  // arrows work inside the box, so what is highlighted is the user's actual choice.
+  var row = null;
+  if (S.sel && S.sel.scope === "best") {
+    for (var c = body.firstElementChild; c; c = c.nextElementSibling) {
+      if (c.getAttribute("data-id") === String(S.sel.id)) { row = c; break; }
+    }
+  }
+  if (!row) row = body.firstElementChild;
+  var nameEl = row.querySelector(".pname");
+  return { id: row.getAttribute("data-id"), name: nameEl ? nameEl.textContent : "" };
 }
 
 function renderEnterHint() {
@@ -1612,6 +1690,15 @@ document.addEventListener("keydown", function (e) {
       e.preventDefault();
       return;
     }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp" ||
+        e.key === "PageDown" || e.key === "PageUp") {
+      // Type a partial name, arrow to the right man, Enter -- without ever leaving the box.
+      // keepFocus is what makes that possible; without it the first arrow drops the caret.
+      moveSelection(e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1
+                    : e.key === "PageDown" ? 10 : -10, true);
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Escape") {
       var q = $("q");
       if (q.value !== "") { q.value = ""; S.query = ""; if (S.data) render(S.data); }
@@ -1627,6 +1714,17 @@ document.addEventListener("keydown", function (e) {
       $("q").focus();
       $("q").select();
       break;
+    case "Enter":
+      if (S.sel) {
+        var en = currentNavEntry();
+        markTaken(S.sel.id, en ? en.el.querySelector(".pname").textContent : S.sel.id);
+        e.preventDefault();
+      }
+      break;
+    case "g": case "G": jumpToScope("grab"); e.preventDefault(); break;
+    case "b": case "B": jumpToScope("best"); e.preventDefault(); break;
+    case "r": case "R": showSection("roster"); e.preventDefault(); break;
+    case "c": case "C": showSection("runs"); e.preventDefault(); break;
     case "t": case "T":
       if (S.sel) {
         var n = currentNavEntry();
@@ -1654,9 +1752,10 @@ document.addEventListener("keydown", function (e) {
       break;
     default:
       if (e.key >= "0" && e.key <= "9") {
-        var all = BASE_TABS.concat(EXTRA_TABS);
         var idx = parseInt(e.key, 10);
-        if (idx < all.length) { setFilter(all[idx]); e.preventDefault(); }
+        // Only consume a digit that actually maps to a visible tab. A swallowed no-op is
+        // worse than a no-op: it looks like the app took the keystroke and did nothing.
+        if (idx < S.tabKeys.length) { setFilter(S.tabKeys[idx]); e.preventDefault(); }
       }
   }
 });
@@ -1682,6 +1781,10 @@ setThumbView("board");
 $("q").addEventListener("input", function () {
   S.query = this.value;
   if (S.data) render(S.data);
+  // Point the highlight at the top match on every keystroke, so the row Enter will take is
+  // always the row that looks selected. Arrows then move it from there.
+  var first = $("bestBody").firstElementChild;
+  if (first) select("best", first.getAttribute("data-id"), false);
   renderEnterHint();
 });
 
@@ -1690,6 +1793,10 @@ $("q").addEventListener("input", function () {
 setInterval(renderSync, TICK_MS);
 setInterval(poll, POLL_MS);
 buildTabs({});
+// The draft is typed, not clicked. Entry speed is the whole bottleneck on the night, so the
+// box is where the cursor starts -- no `/` to remember, no click to make. Ctrl+Z still
+// undoes from inside it, and Escape steps out to the letter shortcuts.
+$("q").focus();
 renderSync();
 poll();
 

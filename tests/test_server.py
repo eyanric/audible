@@ -536,3 +536,83 @@ def test_the_panel_head_wraps_rather_than_overflowing_the_phone(client: TestClie
         "the panel head must wrap on touch or the page overflows the viewport"
     )
     assert "flex:1 0 100%" in touch, "search must take its own line rather than push the row"
+
+
+# --------------------------------------------------------------------------------------
+# KEYBOARD-FIRST ENTRY. Eric drafts from the desktop and entry speed is the bottleneck on
+# the night, so every one of these is about not having to reach for the mouse.
+# --------------------------------------------------------------------------------------
+
+
+def test_the_cursor_starts_in_the_search_box(client: TestClient) -> None:
+    """No `/` to remember and no click to make -- the draft is typed, not clicked."""
+    page = client.get("/").text
+    assert 'buildTabs({});' in page
+    assert '$("q").focus();' in page, "the search box must be focused on load"
+
+
+def test_arrows_move_the_highlight_without_leaving_the_search_box(client: TestClient) -> None:
+    """Type a partial name, arrow to the right man, Enter -- all without losing the caret.
+
+    `select()` focuses the row it selects, which would drop the caret out of the box on the
+    first arrow. keepFocus is what makes type-then-arrow possible.
+    """
+    page = client.get("/").text
+    assert "function select(scope, id, scroll, keepFocus)" in page
+    assert "if (!keepFocus) n.el.focus({ preventScroll: true });" in page
+    assert "function moveSelection(delta, keepFocus)" in page
+    assert 'e.key === "ArrowDown" || e.key === "ArrowUp"' in page, (
+        "arrows must be handled inside the typing branch, not only outside it"
+    )
+
+
+def test_enter_marks_the_highlighted_row_not_whatever_sorted_first(client: TestClient) -> None:
+    """With arrows live inside the box, the highlight is a choice -- Enter must honour it."""
+    page = client.get("/").text
+    assert 'if (S.sel && S.sel.scope === "best")' in page
+    assert "if (!S.query) return null;" in page, (
+        "Enter into an empty box must never mark anybody -- the box is focused on load"
+    )
+
+
+def test_every_action_has_a_key(client: TestClient) -> None:
+    """mark, undo, and section switching must each be reachable with no pointer."""
+    page = client.get("/").text
+    for frag in ('case "t": case "T":',            # mark selected
+                 'case "u": case "U":',            # undo
+                 'case "Enter":',                  # mark selected, outside the box
+                 'case "g": case "G":',            # grab now
+                 'case "b": case "B":',            # best available
+                 'case "r": case "R":',            # roster
+                 'case "c": case "C":'):           # runs & cliffs
+        assert frag in page, f"missing keyboard binding: {frag}"
+    assert "function jumpToScope(scope)" in page
+    assert "function showSection(view)" in page
+
+
+def test_digit_shortcuts_are_contiguous_with_no_dead_keys(client: TestClient) -> None:
+    """The digit was the index into the FULL tab array, so each league carried dead keys.
+
+    League B showed an LB tab that could never match a player and swallowed 7 and 8 while
+    stranding DEF on 9; League A swallowed 9. The index is now over the VISIBLE tabs, so
+    both leagues get a contiguous run and an unmapped digit is left alone rather than eaten.
+    """
+    page = client.get("/").text
+    assert "BASE_TABS" not in page and "EXTRA_TABS" not in page, "the split arrays are gone"
+    assert "var TABS = [" in page
+    assert "if (idx < S.tabKeys.length) { setFilter(S.tabKeys[idx]); e.preventDefault(); }" in page
+    assert 'id="legendDigits"' in page, "the legend must report the real range, not a literal"
+
+
+def test_a_tab_that_has_appeared_never_disappears(client: TestClient) -> None:
+    """`present` is the served pool, which is the top N -- a position can drop out of it.
+
+    If a tab vanished mid-draft every digit after it would renumber under the user's
+    fingers between one pick and the next.
+    """
+    page = client.get("/").text
+    assert "for (var key in present) { if (present[key]) S.seenPos[key] = true; }" in page
+    assert "var hidden = !!t.opt && !S.seenPos[t.k];" in page
+    assert 'if (sl && sl.indexOf("FLEX") === -1) present[sl] = true;' in page, (
+        "seed from the league's own starting slots so DEF and K have tabs from render one"
+    )
