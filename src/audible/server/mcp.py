@@ -44,10 +44,18 @@ def _sync(state: dict[str, Any]) -> dict[str, Any]:
         "age_seconds": age,
         "status": sync.get("status"),
         "last_success": sync.get("last_success"),
+        # A null age is NOT "0s old" and must not render as "Data is Nones old": null means
+        # the sync has never succeeded since this process started, which is a strictly worse
+        # state than stale data and has to read that way. A malformed alarm is a broken alarm.
         "warning": (
             None if sync.get("status") == "live"
-            else f"Data is {age}s old ({sync.get('status')}). "
-                 "Treat availability as unconfirmed and check the draft room before acting."
+            else (
+                f"Data is {age:.0f}s old ({sync.get('status')}). "
+                "Treat availability as unconfirmed and check the draft room before acting."
+                if isinstance(age, int | float)
+                else f"NEVER SYNCED ({sync.get('status')}) -- no successful update since "
+                     "start. Nothing here reflects the live draft room; enter picks by hand."
+            )
         ),
     }
 

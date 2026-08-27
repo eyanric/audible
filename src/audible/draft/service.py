@@ -247,6 +247,16 @@ class CockpitService:
         if update.draft_type is not None:
             session.draft_type = update.draft_type
         if update.identity is not None:
+            # A pinned seat overrides the platform, so a disagreement would otherwise be
+            # invisible -- exactly the failure the pin exists to prevent, inverted.
+            live = update.identity.slot
+            if (self._slot_override is not None and live is not None
+                    and live != self._slot_override):
+                log.error(
+                    "SEAT DRIFT: pinned slot %s but the platform says %s. The pin is winning; "
+                    "verify the draft room before trusting any timing number.",
+                    self._slot_override, live,
+                )
             session.user_id = update.identity.user_id
             session.roster_id = update.identity.roster_id
             session.slot = update.identity.slot

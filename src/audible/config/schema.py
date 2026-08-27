@@ -73,6 +73,14 @@ class LeagueConfig(BaseModel):
     # empty starting slot is still optional.
     draft_rounds: int | None = Field(default=None, gt=0)
 
+    # My seat, when the platform cannot be asked. Draft-day sync resolves the slot from
+    # ESPN's pickOrder, but a dead sync leaves it None -- and an unresolved slot silently
+    # strips picks_until_me, my_next_pick and slack_picks out of every recommendation, so
+    # `recommend` degrades to best-available WITHOUT SAYING SO. Pinning the known seat here
+    # makes the timing term survive an outage. Live pickOrder disagreeing with it is logged
+    # loudly rather than swallowed.
+    draft_slot: int | None = Field(default=None, ge=1)
+
     # Bench rounds per team that the replacement baseline prices in. This is a MODEL knob,
     # not a structural fact: 0 means "price in none", which pins replacement at starters+1.
     #
