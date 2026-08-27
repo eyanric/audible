@@ -54,6 +54,22 @@ tests/                    offline tests over captured fixtures
 
 See `CLAUDE.md` for the full project context and phasing.
 
+## Data sources and attribution
+
+- **Sleeper** — league, rosters, player catalog, projections and stats. Open API, read-only.
+- **nflverse** (via `nflreadpy`) — opportunity components, weekly stats, snap counts,
+  participation, depth charts, schedules, and the `ff_playerids` crosswalk.
+- **ESPN** — league settings, draft results and preseason ranks for league 6012. Unofficial
+  API, read-only, cookie auth.
+- **Fantasy Football Calculator** — historical preseason ADP.
+  *ADP data courtesy of [Fantasy Football Calculator](https://fantasyfootballcalculator.com).*
+  Free for personal and commercial use, attribution requested. Fetched **once per season**
+  and pinned to disk; nothing re-fetches at draft time.
+
+Every source is cached to disk and the cockpit runs from that cache. `/healthz` reports
+`data.origin: "disk"` when nothing touched the network, which is the state it must be in
+before kickoff.
+
 ## Draft-night rollback
 
 The one thing standing between a bad merge and a dead cockpit on draft night.
