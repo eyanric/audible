@@ -62,7 +62,7 @@ def _fill(roster_pos: list[str]) -> list[str]:
     return unfilled
 
 
-def best_lineup_points(roster: list[str], label, position) -> float:
+def best_lineup_points(roster: list[str], label, position, slots=SLOTS) -> float:
     """The best legal starting nine by SEASON actuals. Bench scores nothing.
 
     Season totals rather than a week-by-week optimum: it is deterministic, identical for both
@@ -70,12 +70,12 @@ def best_lineup_points(roster: list[str], label, position) -> float:
     streaming, which is a real limitation and is reported as one -- a roster that cannot field
     a legal lineup in week 7 is scored here as though it could.
     """
-    order = sorted(range(len(SLOTS)), key=lambda i: len(ELIG[SLOTS[i]]))
+    order = sorted(range(len(slots)), key=lambda i: len(ELIG[slots[i]]))
     pool = sorted(roster, key=lambda p: -label.get(p, 0.0))
     used, total = set(), 0.0
     for i in order:
         hit = next((p for p in pool
-                    if p not in used and position.get(p) in ELIG[SLOTS[i]]), None)
+                    if p not in used and position.get(p) in ELIG[slots[i]]), None)
         if hit is not None:
             used.add(hit)
             total += label.get(hit, 0.0)
