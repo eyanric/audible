@@ -95,6 +95,16 @@ def run_fold(config, year: int, espn_map, gsis_map, xwalk_pos) -> dict:
         for arm in (a, b, c, c2):
             acc, pairs = pairwise_accuracy(ids, arm.rank_by_id, label, position)
             row["arms"][arm.name] = {"acc": acc, "pairs": pairs}
+        # TASK 1: pooled accuracy cannot see the construction rule. Under corrected B only WR
+        # and TE move; RB, QB, K and D/ST keep A's ordering exactly, so their B-A must be
+        # EXACTLY 0.000. Anything else is a harness bug, and that would be the finding.
+        row["by_pos"] = {}
+        for pos in ("WR", "TE", "RB", "QB", "K", "DEF"):
+            sub = [p for p in ids if position.get(p) == pos]
+            acc_a, pairs = pairwise_accuracy(sub, a.rank_by_id, label, position)
+            acc_b, _ = pairwise_accuracy(sub, b.rank_by_id, label, position)
+            row["by_pos"][pos] = {"n": len(sub), "pairs": pairs,
+                                  "A": acc_a, "B": acc_b, "B-A": acc_b - acc_a}
         row["B-A"] = paired_bootstrap(ids, b.rank_by_id, a.rank_by_id, label, position)
         row["C-B"] = paired_bootstrap(ids, c.rank_by_id, b.rank_by_id, label, position)
         row["C2-B"] = paired_bootstrap(ids, c2.rank_by_id, b.rank_by_id, label, position)
@@ -159,6 +169,35 @@ def main() -> int:
             pairs = r["arms"][names[0]]["pairs"]
             print(f"  {band:<14}{f['year']:>6}{r['n']:>6}{pairs:>8}  "
                   + "".join(f"{r['arms'][n]['acc']:>22.3f}" for n in names))
+    print("=" * 96)
+    print("TASK 1 -- B - A DECOMPOSED BY POSITION, rounds 3-10")
+    print("=" * 96)
+    print("  Under corrected B only WR and TE move. RB/QB/K/DEF keep A's ordering by")
+    print("  construction, so their B - A must be EXACTLY 0.000 -- a pre-registered check.")
+    print()
+    print(f"  {'pos':<5}{'fold':>6}{'n':>5}{'pairs':>7}{'A':>9}{'B':>9}{'B-A':>10}   verdict")
+    violations = []
+    for pos in ("WR", "TE", "RB", "QB", "K", "DEF"):
+        for f in folds:
+            r = f["bands"]["rounds 3-10"]["by_pos"][pos]
+            note = ""
+            if pos not in ("WR", "TE"):
+                if r["pairs"] == 0:
+                    note = "no pairs"
+                elif r["B-A"] != 0.0:
+                    note = "** HARNESS BUG **"
+                    violations.append((pos, f["year"], r["B-A"]))
+                else:
+                    note = "identical to A, as constructed"
+            print(f"  {pos:<5}{f['year']:>6}{r['n']:>5}{r['pairs']:>7}"
+                  f"{r['A']:>9.3f}{r['B']:>9.3f}{r['B-A']:>+10.3f}   {note}")
+        print()
+    if violations:
+        print(f"  !! {len(violations)} construction violation(s): {violations}")
+        print("  !! B is not what it claims to be. This is the finding; the arm is invalid.")
+    else:
+        print("  All non-WR/TE positions returned exactly 0.000. B is what it claims to be.")
+
     print()
     print(f"  lambda for C = {C_LAMBDA} (pre-registered, not tuned)")
     print("  B is APPROXIMATE: ESPN serves ranks for a past season, not projected points, so B")

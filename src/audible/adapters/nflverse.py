@@ -314,14 +314,26 @@ def route_participation_frame(season: int) -> Any:
     )
 
 
-def depth_chart_slots_frame(season: int) -> Any:
-    """One row per player: his most recent depth-chart slot and rank for the season."""
+def depth_chart_slots_frame(season: int, as_of: str | None = None) -> Any:
+    """One row per player: his depth-chart slot and rank as of `as_of` (default: newest).
+
+    `as_of` is an ISO date. It exists because "newest snapshot" means two different things:
+    for the CURRENT season the newest chart is the draft-day chart, since nothing later
+    exists; for a COMPLETED season it is the week-18 chart. Measured: 2026 spans
+    2026-03-22..2026-08-26, while 2025 spans 2025-08-03..2026-03-14.
+
+    So a backtest fold that asked for season Y without a cutoff would be told who FINISHED
+    the season as WR1 -- a fact about the outcome it is trying to predict. Any arm reading a
+    past season must pass the draft date.
+    """
     nfl = _require_nflreadpy()
 
     def build() -> Any:
         import polars as pl
 
         dc = nfl.load_depth_charts([season]).filter(pl.col("gsis_id").is_not_null())
+        if as_of is not None:
+            dc = dc.filter(pl.col("dt").cast(pl.Utf8).str.slice(0, 10) <= as_of)
         # `dt` is the snapshot timestamp; the LAST one is the current chart. Ties inside a
         # timestamp are broken by the better (lower) rank, so a player listed twice in a
         # week reads as his best listed slot rather than an arbitrary one.
@@ -332,7 +344,7 @@ def depth_chart_slots_frame(season: int) -> Any:
         )
 
     return _cached(
-        _key("depth_chart_slots", season),
+        _key("depth_chart_slots", season, as_of),
         build,
         source="nflverse/depth_charts(derived)",
     )

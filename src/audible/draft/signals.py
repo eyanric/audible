@@ -37,6 +37,19 @@ def current_team_by_gsis(season: int = 2026) -> dict[str, str]:
     from ..adapters.nflverse import rosters_frame
 
     df = rosters_frame([season]).filter(pl.col("gsis_id").is_not_null())
+    # nflverse rosters are WEEKLY. The current season holds week 1 only, so this is a no-op
+    # today -- but a completed season holds weeks 1-18, and taking whichever row happened to
+    # sort first would report a player's week-12 team as his draft-day team. Pin the earliest
+    # week available, which is the closest thing to an August roster the source carries.
+    #
+    # KNOWN LIMITATION, not fixed here because it cannot be: week 1 is still ~2 weeks AFTER
+    # this league's August draft. Final cuts, late signings and week-1 IR have already
+    # happened. That is a small forward-looking edge, not an outcome leak, and any backtest
+    # built on this must say so.
+    if "week" in df.columns:
+        earliest = df.select(pl.col("week").min()).item()
+        if earliest is not None:
+            df = df.filter(pl.col("week") == earliest)
     out: dict[str, str] = {}
     for row in df.select(["gsis_id", "team"]).iter_rows(named=True):
         out.setdefault(str(row["gsis_id"]), str(row["team"]))
