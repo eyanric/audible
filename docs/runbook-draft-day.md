@@ -593,6 +593,73 @@ Two soft spots in the proxy's OAuth, both in the homelab and neither changed her
 
 ---
 
+## SUNDAY ONE-PAGER (verified 2026-08-27)
+
+### Use this, in this order
+
+1. **Local cockpit** — `scripts\draft-day.cmd`. Verified today: `Data: from DISK`,
+   `from_network=0`, seat 8, 9 slots. **This is the primary.** It needs no network at all.
+2. Cluster `http://192.168.1.110` — **only after** the two blockers below are cleared.
+3. Paper board — `uv run audible cheatsheet espn_davis_drive`.
+
+### Two blockers, both outside this repo
+
+**SYNC IS DEAD ON THE CLUSTER.** Pod logs, not inference:
+`EspnAuthError: ESPN credentials missing: set ESPN_SWID ... and ESPN_S2` — 11,925
+consecutive failures since the pod started 2026-08-26T13:27:34Z. The deployment declares
+both cookies as `secretKeyRef` with `optional: true`, so absent keys give absent env vars
+and the container starts clean while never reaching ESPN. **Fix: put ESPN_SWID (keep the
+curly braces) and ESPN_S2 into the `audible-secrets` secret in namespace `audible`, then
+restart the deployment.** Requires cluster write access.
+
+**THE CLUSTER IS RUNNING YESTERDAY'S IMAGE.** `sha256:803a9fd0`, started 2026-08-26 —
+before the seat pin and the alarm fix. Until it is rebuilt from this branch it will keep
+reporting `my_slot: null`.
+
+### If sync fails mid-draft
+
+It already has, and the cockpit is built for it: **manual entry is primary.** Type three
+letters, press Enter, the pick is marked. Nothing about the board depends on sync — sync
+only saves you typing the other seven managers' picks.
+
+What you lose without sync: opponents' picks must be entered by hand. What you do NOT lose:
+the board, VORP, tier cliffs, grab-now, and — since today — the seat and every timing term.
+
+The staleness chip will read **NEVER SYNCED** or an age in seconds. Both are honest; a
+number means it worked once.
+
+### Rollback
+
+```bash
+git checkout pre-loop-known-good        # the QA-verified pre-session tree
+```
+
+Cluster image currently serving: `ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f`
+
+### Fallback ladder
+
+| step | what | verified |
+|---|---|---|
+| 1 | local `draft-day.cmd` | **yes, today** — from DISK, seat 8 |
+| 2 | `uv run audible serve --league espn_davis_drive` (slot now automatic) | yes |
+| 3 | cluster `http://192.168.1.110` | blocked — see above |
+| 4 | paper cheatsheet | print it Saturday |
+
+### Your turns (pure snake, 8 teams, seat 8)
+
+**8/9 · 24/25 · 40/41 · 56/57 · 72/73 · 88/89 · 104/105 · 120/121**
+
+At each turn the header reads **PICK n+m** and "Two picks on the clock". Verified live at
+8/9 and 24/25 in today's rehearsal.
+
+### What the cockpit does NOT show
+
+There is no wire-replacement panel. The **Tier cliffs** panel is live (right column, under
+Runs & cliffs); the waiver-baseline numbers are script-only:
+`uv run --extra nflverse python scripts/waiver_baseline.py`. Run it Saturday and keep the
+output beside you — the headline is that only the two RB byes cost real points
+(wk 7 −4.8/wk, wk 13 −3.2/wk); QB, TE, K and D/ST all patch off the wire for ≈0.
+
 ## Verifying the cockpit before you trust it
 
 ```bash
