@@ -109,8 +109,9 @@ def espn_id_by_name(year: int, league_id: int) -> dict[str, str]:
     drafted player who cannot score looks exactly like a bust, which is why it survived a
     read of the results and only surfaced when a QB showed 0 in a year he played 12 games.
 
-    So a name that resolves to several ids is disambiguated by the position FFC gives, and
-    then by presence in that season's actuals.
+    So a name resolving to several ids is ranked by presence in that season's actuals
+    first, then by whether the crosswalk calls him a fantasy-rosterable position -- which
+    separates a quarterback from a cornerback even in a year with no actuals row.
     """
     import polars as pl
 
@@ -125,11 +126,18 @@ def espn_id_by_name(year: int, league_id: int) -> dict[str, str]:
             cands.setdefault(norm(r["name"]), []).append(
                 (str(r["espn_id"]), NORM_XW.get(r["position"], r["position"]) or ""))
 
+    # A fantasy-rosterable position beats a defensive one. That is what separates the two
+    # Lamar Jacksons, and it works even for a name absent from that season's actuals -- which
+    # the first version of this fix did not, since it ranked on actuals presence alone.
+    fantasy = {"QB", "RB", "WR", "TE", "K", "DEF"}
+
+    def rank(opt: tuple[str, str]) -> tuple[int, int]:
+        eid, pos = opt
+        return (0 if eid in scored else 1, 0 if pos in fantasy else 1)
+
     out: dict[str, str] = {}
     for key, options in cands.items():
-        # a name that scored this season beats one that did not; ties keep the first
-        best = next((eid for eid, _ in options if eid in scored), options[0][0])
-        out[key] = best
+        out[key] = min(options, key=rank)[0]
     out_pos: dict[str, list[tuple[str, str]]] = cands
     rp = REPO / "data" / "cache" / f"espn_ranks_{league_id}_{year}.json"
     if rp.exists():
