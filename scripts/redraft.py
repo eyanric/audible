@@ -47,6 +47,8 @@ SLOTS = ("QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K")
 ELIG = {"QB": {"QB"}, "RB": {"RB"}, "WR": {"WR"}, "TE": {"TE"},
         "FLEX": {"RB", "WR", "TE"}, "DEF": {"DEF"}, "K": {"K"}}
 FFC_POS = {"PK": "K"}
+NORM_XW = {"PK": "K"}
+_AMBIGUOUS: dict[int, dict] = {}
 
 
 def norm(name: str) -> str:
@@ -98,20 +100,44 @@ def _defense_ids(league_id: int) -> dict[str, str]:
 
 
 def espn_id_by_name(year: int, league_id: int) -> dict[str, str]:
-    """Name -> espn_id, preferring that season's own ESPN rank sheet where one exists."""
+    """Name -> espn_id, preferring that season's own ESPN rank sheet where one exists.
+
+    Ambiguous names are the trap here. ff_playerids carries TWO Lamar Jacksons -- the
+    quarterback and a defensive back -- and a plain setdefault took whichever sorted first.
+    For 2023-2025 the rank sheet overrode it; for 2021-2022 there is no sheet, so the wrong
+    id stuck and the "quarterback" scored zero because that id is absent from actuals. A
+    drafted player who cannot score looks exactly like a bust, which is why it survived a
+    read of the results and only surfaced when a QB showed 0 in a year he played 12 games.
+
+    So a name that resolves to several ids is disambiguated by the position FFC gives, and
+    then by presence in that season's actuals.
+    """
     import polars as pl
 
-    out: dict[str, str] = {}
+    actuals_path = REPO / "data" / "cache" / f"espn_actuals_{league_id}_{year}.json"
+    scored = (set(json.loads(actuals_path.read_text(encoding="utf-8")))
+              if actuals_path.exists() else set())
+
+    cands: dict[str, list[tuple[str, str]]] = {}
     ids = pl.read_parquet(REPO / "data/cache/nflverse/ff_playerids.parquet")
-    for r in ids.select(["name", "espn_id"]).iter_rows(named=True):
+    for r in ids.select(["name", "espn_id", "position"]).iter_rows(named=True):
         if r["name"] and r["espn_id"] is not None:
-            out.setdefault(norm(r["name"]), str(r["espn_id"]))
+            cands.setdefault(norm(r["name"]), []).append(
+                (str(r["espn_id"]), NORM_XW.get(r["position"], r["position"]) or ""))
+
+    out: dict[str, str] = {}
+    for key, options in cands.items():
+        # a name that scored this season beats one that did not; ties keep the first
+        best = next((eid for eid, _ in options if eid in scored), options[0][0])
+        out[key] = best
+    out_pos: dict[str, list[tuple[str, str]]] = cands
     rp = REPO / "data" / "cache" / f"espn_ranks_{league_id}_{year}.json"
-    if rp.exists():  # period-appropriate and authoritative for this league
+    if rp.exists():
         for eid, row in json.loads(rp.read_text(encoding="utf-8")).items():
             if row.get("name"):
                 out[norm(row["name"])] = str(eid)
     out.update(_defense_ids(league_id))
+    _AMBIGUOUS[year] = {k: v for k, v in out_pos.items() if len(v) > 1}
     return out
 
 
