@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 
 def _ranks(xs: Sequence[float]) -> list[float]:
@@ -80,3 +80,76 @@ def value_test(
     mt = sum(targets) / len(targets) if targets else math.nan
     mf = sum(fades) / len(fades) if fades else math.nan
     return mt, mf, mt - mf, len(targets), len(fades)
+
+
+def pairwise_accuracy(
+    ids: Sequence[str],
+    rank: Mapping[str, float],
+    actual: Mapping[str, float],
+    position: Mapping[str, str],
+) -> tuple[float, int]:
+    """Within-position pairwise accuracy: of all same-position pairs, how many are ordered right.
+
+    Within position on purpose. Across positions the comparison is dominated by the fact that
+    a WR outscores a kicker, which every arm gets right and which no draft decision turns on.
+    The decision that matters is "these two receivers, which one first", and that is the only
+    pair this counts.
+
+    Ties on either side are skipped rather than scored: two players who finished on the same
+    points do not have a right order, and an arm should be neither rewarded nor punished for
+    the order it happened to put them in.
+
+    Returns (accuracy, pairs_compared); accuracy is 0.5 when nothing is comparable.
+    """
+    by_pos: dict[str, list[str]] = {}
+    for pid in ids:
+        if pid in rank and pid in actual and pid in position:
+            by_pos.setdefault(position[pid], []).append(pid)
+
+    concordant = pairs = 0
+    for group in by_pos.values():
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                a, b = group[i], group[j]
+                if actual[a] == actual[b] or rank[a] == rank[b]:
+                    continue
+                pairs += 1
+                # rank is better-is-lower, actual is better-is-higher
+                if (rank[a] < rank[b]) == (actual[a] > actual[b]):
+                    concordant += 1
+    return (concordant / pairs if pairs else 0.5), pairs
+
+
+def paired_bootstrap(
+    ids: Sequence[str],
+    rank_x: Mapping[str, float],
+    rank_y: Mapping[str, float],
+    actual: Mapping[str, float],
+    position: Mapping[str, str],
+    *,
+    rounds: int = 2000,
+    seed: int = 20260826,
+) -> tuple[float, float, float]:
+    """CI for (accuracy of x) - (accuracy of y), resampling PLAYERS, both arms together.
+
+    Paired on purpose: the two arms are scored on the identical resample every round, so the
+    interval reflects the difference between them rather than the sampling noise they share.
+    Resampling players rather than pairs keeps the unit of independence the player, since
+    every pair involving one player moves together when that player's season does.
+
+    Deterministic: same ids, same seed, same interval, every run.
+    """
+    import random
+
+    rng = random.Random(seed)
+    pool = [p for p in ids if p in actual and p in position]
+    diffs: list[float] = []
+    for _ in range(rounds):
+        sample = [pool[rng.randrange(len(pool))] for _ in range(len(pool))]
+        ax, _ = pairwise_accuracy(sample, rank_x, actual, position)
+        ay, _ = pairwise_accuracy(sample, rank_y, actual, position)
+        diffs.append(ax - ay)
+    diffs.sort()
+    lo = diffs[int(0.025 * len(diffs))]
+    hi = diffs[min(int(0.975 * len(diffs)), len(diffs) - 1)]
+    return (sum(diffs) / len(diffs), lo, hi)

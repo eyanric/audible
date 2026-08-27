@@ -70,6 +70,36 @@ not values, so it cannot leak an outcome into a projection; it can only cause a 
 match or miss a player. Recorded because "the crosswalk is as-of-now" is the kind of fact
 that gets re-derived at 2am otherwise.
 
+## Sleeper historical projections are contaminated — measured, not assumed
+
+The audit's first draft asserted that historical Sleeper projections were unavailable. They
+are **available and unusable**, which is worse, because they look fine.
+
+`get_projections(2023, "WR")` returns 1367 rows. Two weak tests pointed opposite ways:
+
+| test | result | verdict |
+|---|---|---|
+| Spearman(projection, 2023 actual) | 0.880 | inconclusive — a *genuine* ESPN preseason rank scores 0.800 on the same population, because Spearman over 239 WRs is dominated by easy elite-vs-fringe pairs |
+| projected `gp` | flat 18 for all 241 | inconclusive — looks preseason, but only shows games were never updated |
+
+The decisive test is players whose season ended in week 1:
+
+| player | 2023 "projection" | 2023 actual | games |
+|---|---|---|---|
+| Aaron Rodgers | **0.0** | 0.0 | 1 |
+| J.K. Dobbins | **0.0** | 9.7 | 1 |
+| Nick Chubb | **0.0** | 19.1 | 2 |
+| Anthony Richardson | 282.8 | 72.7 | 4 |
+| Kirk Cousins | 277.5 | 149.7 | 8 |
+
+A preseason projection has Rodgers as a top-10 QB and Chubb as a top-10 RB. These are zeroed.
+The endpoint returns the **last** projection state: zeroed for players ruled out, left at
+preseason values for players who merely missed time. `gp` stays 18 while points go to zero —
+the internal inconsistency is itself the tell.
+
+That contamination is correlated exactly with the outcome being predicted, so it would have
+inflated any arm built on it while looking entirely plausible. **Not used.**
+
 ## Not available historically
 
 `raw_player_lines` needs **Sleeper preseason projections for season Y**, and only 2026 is
