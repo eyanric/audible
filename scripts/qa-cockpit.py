@@ -318,6 +318,11 @@ BOARD_CHECKS: tuple[str, ...] = (
     "_slim usage fields are populated, not just present",
     "ADP is priced deep enough to rank the draftable window",
     "ADP value tracks market rank (a pick number, not a round code)",
+    "the realistic draft takes exactly 128",
+    "a startable K is still on the wire after 128 picks",
+    "a startable D/ST is still on the wire after 128 picks",
+    "no startable RB is left on the wire after 128 picks",
+    "one replacement baseline per position",
 )
 
 VIEWPORT_CHECKS: tuple[str, ...] = (
@@ -841,6 +846,7 @@ def main() -> int:
             qa_board_invariants.run(check, args.league, Path(inv))
             qa_board_invariants.run_usage(check, args.league, Path(inv))
             qa_board_invariants.run_adp_calibration(check, args.league)
+            qa_board_invariants.run_waiver_invariants(check, args.league)
     except Exception:
         ABORT.append(traceback.format_exc())
         print("  board invariants ABORTED:")

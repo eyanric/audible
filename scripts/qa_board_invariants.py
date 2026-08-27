@@ -322,3 +322,50 @@ def run_adp_calibration(check: Any, league: str) -> None:
     check("ADP value tracks market rank (a pick number, not a round code)", worst <= 5.0,
           f"max |adp - market_rank| over the top 200 = {worst:.2f} "
           f"(mean {sum(diffs) / len(diffs):.2f})")
+
+
+def run_waiver_invariants(check: Any, league: str) -> None:
+    """The wire numbers the bye-hole answer rests on. Pinned board only, no network.
+
+    These guard a CLAIM, not a ranking: that after 128 picks there is still a startable
+    kicker and defence on the wire, and that there is not a startable RB. Both directions
+    matter -- the first is why weeks 8 and 14 are cheap, the second is why 7 and 13 are not.
+    """
+    from waiver_baseline import STARTER_FLOOR, realistic_draft
+
+    board = load_board(league)
+    gone = realistic_draft(board)
+    check("the realistic draft takes exactly 128", len(gone) == 128, f"took {len(gone)}")
+
+    by_pos: dict[str, list[Any]] = {}
+    for e in board.entries:
+        by_pos.setdefault(e.position, []).append(e)
+    for rows in by_pos.values():
+        rows.sort(key=lambda e: -e.points)
+
+    verdicts = {}
+    for pos, floor_rk in STARTER_FLOOR.items():
+        rows = by_pos.get(pos, [])
+        if len(rows) < floor_rk:
+            continue
+        left = [e for e in rows if e.player_id not in gone]
+        floor = rows[floor_rk - 1].points
+        verdicts[pos] = bool(left) and left[0].points >= floor
+
+    # Specialists are droppable in an 8-team league: nobody rosters a backup, so the wire
+    # always holds a startable one. If this ever flips, streaming a bye is no longer free and
+    # the draft-day advice about K and D/ST changes with it.
+    check("a startable K is still on the wire after 128 picks", verdicts.get("K") is True,
+          f"K startable on the wire: {verdicts.get('K')}")
+    check("a startable D/ST is still on the wire after 128 picks", verdicts.get("DEF") is True,
+          f"DEF startable on the wire: {verdicts.get('DEF')}")
+    # The other half of the same claim: RB is the position the wire CANNOT cover, which is
+    # why the two RB byes are the only ones that cost real points.
+    check("no startable RB is left on the wire after 128 picks", verdicts.get("RB") is False,
+          f"RB startable on the wire: {verdicts.get('RB')}")
+
+    # The replacement baseline must be recoverable from the board, since every wire number is
+    # quoted against it. vorp = points - baseline, so one position must yield one baseline.
+    bad = [p for p, rows in by_pos.items()
+           if len({round(e.points - e.vorp, 3) for e in rows}) != 1]
+    check("one replacement baseline per position", not bad, f"inconsistent at {bad}")
