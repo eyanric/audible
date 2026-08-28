@@ -140,9 +140,15 @@ def serve(
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s | %(message)s"
     )
+    # An explicit --slot still wins; the config seat is the fallback that keeps the timing
+    # term alive when sync cannot answer.
+    seat = slot if slot is not None else config.draft_slot
     service = CockpitService(
-        config, draft_id=draft_id, slot_override=slot, user_name=user_name
+        config, draft_id=draft_id, slot_override=seat, user_name=user_name
     )
+    if seat is not None:
+        log.info("draft slot pinned to %s (%s)", seat,
+                 "--slot" if slot is not None else f"{config.key}.draft_slot")
     token = os.environ.get("MCP_AUTH_TOKEN") or None
     app = create_app(service, mcp_token=token)
     log.info("cockpit for [%s] %s -> http://%s:%d", config.key, config.name, host, port)
