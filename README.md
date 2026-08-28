@@ -63,12 +63,15 @@ The one thing standing between a bad merge and a dead cockpit on draft night.
 | known-good tag | **`pre-draft-known-good`** — `main` @ `6a03bb4`, tagged 2026-08-25 before the pre-draft sprint |
 | pinned image digest | **`ghcr.io/eyanric/audible@sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570`** |
 | that digest is | `main` @ `39a13f3`, set in `scripts/draft-day.cmd` |
-| **current image** | **`ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f`** |
+| previous image | **`ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f`** |
 | that digest is | `main` @ `d01332a` — every fix through PR #28. `latest` and `sha-d01332a…` both resolve to it (checked 2026-08-25) |
+| **current image** | **`ghcr.io/eyanric/audible@sha256:3814af139b68db35e5be672988378386564533c77221402e8aca5c4b1b87e3ad`** |
+| that digest is | `main` @ `1d5096b` — adds the **seat-8 config pin**, the SEAT DRIFT guard and the never-synced alarm fix (PR #37). `latest` and `sha-1d5096b…` both resolve to it (checked 2026-08-28); the build's own push log reports the same digest |
 
-The two rows are deliberate: **the old digest is not replaced, it is kept beside the new
-one.** Rolling back means having somewhere to roll back to, and a digest overwritten in place
-is a rollback target that no longer exists.
+The rows only ever grow: **an old digest is not replaced, it is kept beside the new one.**
+Rolling back means having somewhere to roll back to, and a digest overwritten in place is a
+rollback target that no longer exists. `803a9fd0…` is therefore still listed above even though
+nothing runs it now — it is the one-step-back target if `3814af13…` misbehaves.
 
 ```bash
 git checkout pre-draft-known-good     # source rollback
@@ -83,7 +86,7 @@ happened. To read the digest for whatever `main` is now:
 
 ```bash
 SCOPE='repository:eyanric/audible:pull'
-TOKEN=$(curl -s "https://ghcr.io/token?scope=$SCOPE&service=ghcr.io" | jq -r .token)
+TOKEN=$(curl -s "https://ghcr.io/token?scope=$SCOPE&service=ghcr.io" | cut -d'"' -f4)  # jq is not on the box
 ACCEPT='application/vnd.oci.image.index.v1+json'
 curl -sI -H "Authorization: Bearer $TOKEN" -H "Accept: $ACCEPT" \
   https://ghcr.io/v2/eyanric/audible/manifests/latest | grep -i docker-content-digest
@@ -93,10 +96,16 @@ Pin *that* digest, not `latest` — `latest` moves the moment anything merges, a
 draft night the one restart that matters is the one that quietly picks up a different
 image.
 
-**The pinned digest predates the pre-draft sprint.** It does not contain the
+**The `d3cdb2a…` rollback pin predates the pre-draft sprint.** It does not contain the
 replacement-level fix, the scoring-correction guards, or the phone-drivable cockpit.
-Running the pinned image is the *safe* option, not the *current* one — it is a known-good
-board, and on that image D/ST and K sit far too high (the top D/ST ranks 33rd overall).
+Running it is the *safe* option, not the *current* one — it is a known-good board, and on
+that image D/ST and K sit far too high (the top D/ST ranks 33rd overall).
+
+**`3814af13…` is what the cluster runs as of 2026-08-28.** It is the first image that
+resolves the draft seat with no network at all: `draft_slot = 8` is config, so
+`picks_until_mine`, `my_next_pick`, `rival_picks_before_my_next` and `slack_picks` survive
+an ESPN outage instead of going null and silently stripping the timing term out of
+`recommend`.
 
 To ship the fixes instead, rebuild, re-pin, and **record the new digest here before
 changing `draft-day.cmd`** — the digest above must stay readable as the thing to fall back
