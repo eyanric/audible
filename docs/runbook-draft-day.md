@@ -337,17 +337,30 @@ Come back with `git checkout main`. The repo *is* the version on this machine, s
 answers "what am I running" and a fix found at 19:45 is one restart away, not one CI build
 away.
 
-**Digests are for the CLUSTER** (rung 2), where the version is whatever `haven@main` pins:
+**Digests are for the CLUSTER** (rung 2). **Do not assume the table below says what is
+running** — haven's Renovate automerges digest bumps for this image, so every push to
+`audible@main` moves the cluster within minutes. Read the truth from
+`kubernetes/apps/audible/deployment.yaml` on `haven@main`:
+
+```bash
+curl -s https://raw.githubusercontent.com/eyanric/haven/main/kubernetes/apps/audible/deployment.yaml   | grep 'image: ghcr'
+```
+
+These are rollback *targets* — they exist whether or not anything points at them:
 
 | | digest | is |
 |---|---|---|
-| **current** | `sha256:3814af139b68db35e5be672988378386564533c77221402e8aca5c4b1b87e3ad` | `main` @ `1d5096b` — seat-8 pin, SEAT DRIFT guard, alarm fix |
+| first with the seat pin | `sha256:3814af139b68db35e5be672988378386564533c77221402e8aca5c4b1b87e3ad` | `main` @ `1d5096b` — seat-8 pin, SEAT DRIFT guard, alarm fix |
 | previous | `sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f` | `main` @ `d01332a` — every fix through PR #28 |
 | **rollback** | `sha256:d3cdb2a101aaddfb88515956e93163d2f7bfa106273dd5da6e688d67339be570` | `main` @ `39a13f3` — known-good, **predates the replacement-level fix** |
 
+Anything at or after `1d5096b` has the seat pin. Rolling back **past** it reintroduces
+`my_slot: unresolved` on the cluster, and with it the silent loss of every timing term —
+so prefer rung 1 over a deep cluster rollback.
+
 Rolling the cluster back is a commit to `haven@main` (Flux reverts a `kubectl` edit within
-ten minutes — see the kubectl section). **If the laptop still works, use rung 1 instead;
-it is faster and entirely in your hands.**
+ten minutes — see the kubectl section), and Renovate may bump it forward again afterwards.
+**If the laptop still works, use rung 1 instead; it is faster and entirely in your hands.**
 
 > **What the rollback costs you.** On `d3cdb2a1` the top D/ST ranks 33rd overall and D/ST and
 > K are the eleven biggest "value" targets on the board. It is *known-good*, not *good*. Roll

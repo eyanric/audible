@@ -65,13 +65,37 @@ The one thing standing between a bad merge and a dead cockpit on draft night.
 | that digest is | `main` @ `39a13f3`, set in `scripts/draft-day.cmd` |
 | previous image | **`ghcr.io/eyanric/audible@sha256:803a9fd04c6cb2f10381dc9c3e69986d9d7adb9b9bd3a447091f429ebd17969f`** |
 | that digest is | `main` @ `d01332a` — every fix through PR #28. `latest` and `sha-d01332a…` both resolve to it (checked 2026-08-25) |
-| **current image** | **`ghcr.io/eyanric/audible@sha256:3814af139b68db35e5be672988378386564533c77221402e8aca5c4b1b87e3ad`** |
-| that digest is | `main` @ `1d5096b` — adds the **seat-8 config pin**, the SEAT DRIFT guard and the never-synced alarm fix (PR #37). `latest` and `sha-1d5096b…` both resolve to it (checked 2026-08-28); the build's own push log reports the same digest |
+| first image with the seat pin | **`ghcr.io/eyanric/audible@sha256:3814af139b68db35e5be672988378386564533c77221402e8aca5c4b1b87e3ad`** |
+| that digest is | `main` @ `1d5096b` — adds the **seat-8 config pin**, the SEAT DRIFT guard and the never-synced alarm fix (PR #37). Verified on the cluster 2026-08-28: `my_slot 8`, all timing terms non-null |
+| **what the cluster runs** | read it from `haven@main` — see the warning below. It was `sha256:9d84d5df…` (`main` @ `448863b`) at 04:24 UTC on 2026-08-28 |
 
 The rows only ever grow: **an old digest is not replaced, it is kept beside the new one.**
 Rolling back means having somewhere to roll back to, and a digest overwritten in place is a
-rollback target that no longer exists. `803a9fd0…` is therefore still listed above even though
-nothing runs it now — it is the one-step-back target if `3814af13…` misbehaves.
+rollback target that no longer exists.
+
+> ### ⚠️ The cluster's digest is NOT frozen — Renovate moves it
+>
+> Do not read "what the cluster runs" above as a pin that holds. `haven`'s Renovate
+> automerges digest bumps by standing policy, and it tracks this image. **Every push to
+> `audible@main` republishes `latest`, Renovate opens a bump, and it merges itself** — which
+> rolls the cluster pod.
+>
+> That is exactly what happened on 2026-08-28: haven #330 pinned `3814af13…` at 04:09, and
+> by 04:23 Renovate's #302 had rebased onto it and moved the cluster to `9d84d5df…` — the
+> image built from a **docs-only** commit. Code-identical, so nothing broke, and the seat
+> still resolved to 8. But the pin did not hold for fifteen minutes.
+>
+> Two consequences worth knowing before Sunday:
+>
+> 1. **A digest written down here goes stale on the next push to `main`.** To learn what is
+>    actually running, read `kubernetes/apps/audible/deployment.yaml` on `haven@main`, or ask
+>    the cluster.
+> 2. **Each bump restarts the pod**, and the cluster's cache is an `emptyDir` — so every
+>    Renovate merge wipes its board cache and forces a full network rebuild. Harmless on a
+>    Tuesday; it is the spare, not the primary.
+>
+> The rollback digests below are unaffected: they are *targets*, and they exist whether or
+> not anything currently points at them.
 
 ```bash
 git checkout pre-draft-known-good     # source rollback
@@ -101,8 +125,9 @@ replacement-level fix, the scoring-correction guards, or the phone-drivable cock
 Running it is the *safe* option, not the *current* one — it is a known-good board, and on
 that image D/ST and K sit far too high (the top D/ST ranks 33rd overall).
 
-**`3814af13…` is what the cluster runs as of 2026-08-28.** It is the first image that
-resolves the draft seat with no network at all: `draft_slot = 8` is config, so
+**`3814af13…` is the first image that resolves the draft seat with no network at all**
+(what the cluster runs *now* may be a later, code-identical build — see the Renovate
+warning above). `draft_slot = 8` is config, so
 `picks_until_mine`, `my_next_pick`, `rival_picks_before_my_next` and `slack_picks` survive
 an ESPN outage instead of going null and silently stripping the timing term out of
 `recommend`.
