@@ -33,6 +33,12 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 # first successful poll.
 draft_rounds = 16
 
+# Seat 8 of 8, confirmed directly with the commissioner 2026-08-27, and the seat the turns
+# 8/9, 24/25, 40/41, 56/57 are computed from. Pinned because ESPN sync is the only other
+# source of it: when sync is down my_slot reads null, and every timing term in `recommend`
+# goes null with it while the tool keeps answering as though nothing were missing.
+draft_slot = 8
+
 replacement_bench_slots = 7
 
 expected_reception_points = 0.5  # drift guard: the WR/TE reception value (see [scoring_by_position])
