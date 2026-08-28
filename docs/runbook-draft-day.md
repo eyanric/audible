@@ -64,28 +64,32 @@ one of its upstream URLs already 404'd once this month.
 uv run audible cheatsheet espn_davis_drive
 ```
 
-**The image is already pinned.** `scripts/draft-day.cmd` points at an explicit digest —
-`ghcr.io/eyanric/audible@sha256:d3cdb2a1…`, which is main @ `39a13f3`. `latest` can move
-under you the night before; a digest cannot. **Freeze Renovate for the week** so nothing
-auto-merges a base-image bump.
+**There is no image on the laptop path any more.** `scripts/draft-day.cmd` runs
+`uv run audible serve --host 127.0.0.1 --port 8080 --league espn_davis_drive` straight from
+this repo — no Docker, no digest, no pull. (This section used to say the launcher "points at
+an explicit digest, `sha256:d3cdb2a1…`". It does not, and has not since the launcher went
+source-based.) **The version on this machine is `git log -1`.** Digests govern the CLUSTER
+only; see [Fallback ladder](#fallback-ladder) rung 5.
 
-Note the launcher **overrides the image's baked command**. The image defaults to
-`--league sleeper_boyfun`; draft night is League B, so `draft-day.cmd` passes
-`audible serve --league espn_davis_drive` explicitly. One image serves either league and the
-one you are drafting is visible in the launcher rather than buried in a layer.
+Renovate IS frozen for the week, but for the cluster rather than the laptop:
+`ghcr.io/eyanric/audible` digest automerge is disabled in `haven`'s `renovate.json5` through
+**2026-08-31**, with CI failing after that date until the rule is removed.
 
-**Re-prove the offline property on the pinned image — double-click
-`scripts/verify-offline.cmd`.**
+> **`scripts/verify-offline.cmd` cannot run as written.** It is a Docker-path artifact: it
+> pins `sha256:d3cdb2a1…` and its own header says to run it "AFTER draft-day.cmd has pulled
+> the image at least once" — which never happens now, because the launcher pulls nothing.
+> Docker Desktop was not even running on the drafting machine when this was checked
+> (2026-08-28). The offline property on the laptop is instead evidenced by `/healthz`
+> reporting `data.origin: "disk"`, measured below.
 
-This is not the same check as the development one. It pulls the pinned digest, fills the cache
-volume *using that same image*, then rebuilds both boards with `--network none` — the
-container's network namespace removed entirely, so there is no interface to reach. It is the
-check most likely to catch a packaging difference: a missing file, a wrong path, a volume that
-is not where the code looks for it.
+That script pulls the pinned digest, fills the cache volume *using that same image*, then
+rebuilds both boards with `--network none`. It is a good check **of the cluster artifact**,
+and it is the check most likely to catch a packaging difference. It is not a check of what
+the laptop runs, because the laptop no longer runs an image at all.
 
-It prints **PASS** or **FAIL**. **Do not freeze on a digest that prints FAIL.**
+It prints **PASS** or **FAIL**. **Do not pin a digest that prints FAIL.**
 
-**Start the pinned container and confirm it is running offline-capable:**
+**Start the local cockpit and confirm it is running offline-capable:**
 
 ```bash
 curl localhost:8080/healthz
@@ -116,7 +120,8 @@ waiting on.
 
 ## T-30m — Sunday 18:30
 
-1. **Start the local container** — double-click `scripts/draft-day.cmd`.
+1. **Start the local cockpit** — double-click `scripts/draft-day.cmd`. (It is a process in
+   its own window, not a container; closing that window stops the cockpit.)
 2. **Confirm the draft was found.** On `/healthz`, `draft_id` should read `6012`. For ESPN the
    league *is* the draft; there is no separate draft id to rediscover.
 3. **Confirm picks read `0`, not `128`.** Pre-draft, ESPN serves a complete 128-entry
@@ -204,10 +209,13 @@ VORP-versus-market structure, not receptions, and nothing has established which 
 Each has one concrete first action.
 
 ### `/healthz` shows `data.origin: network` or the board will not build
-**On the LOCAL cockpit** the offline cache is not reaching the container: check the
-`audible-cache` volume is mounted at `/app/data/cache`, then `uv run audible refresh-data`
-on the host and restart. If the network is also down and there is no cache, you are on the
+**On the LOCAL cockpit** the disk cache is not being found. It lives in this repo at
+`data/cache/` — there is no volume and no mount to check. Run `uv run audible refresh-data`,
+then restart the launcher. If the network is also down and there is no cache, you are on the
 paper board — go to rung 4.
+
+Measured 2026-08-28, this is what a healthy laptop looks like:
+`{"from_disk": 5, "from_network": 0, "origin": "disk"}`.
 
 **On the cluster, `mixed` is normal and is not a fault** — the cache volume is an
 `emptyDir` and is wiped every restart by design. Do not chase it mid-draft:
@@ -218,7 +226,7 @@ Symptom: `/healthz` shows a board but `sync_status: failing`, or `my_slot_source
 or the CLI prints **"ESPN credentials expired, re-pull cookies"**.
 
 fantasy.espn.com → DevTools → Application → Cookies. Copy `SWID` (**keep the curly braces**)
-and `espn_s2` into `.env`, then restart the container. **This does not stop you drafting** —
+and `espn_s2` into `.env`, then restart the launcher. **This does not stop you drafting** —
 manual entry needs no cookies at all, only the board, and the board is already built.
 
 ### Picks read 128 before the draft starts
@@ -231,12 +239,16 @@ Nothing to do if manual is primary. If you had switched to sync-primary: check t
 room, and if its last pick does not match the cockpit, mark the missing picks by hand and keep
 going. Do not restart mid-pick; a restart costs a board rebuild.
 
-### The container dies
-1. `docker start audible-cockpit`, or double-click `scripts/draft-day.cmd` again.
-2. **Synced picks are not lost** — state persists to the `audible-cache` volume and restores
-   on start. **Manual marks made in this instance are lost.** If you have been entering by
-   hand all night, this is expensive: re-enter from the ESPN draft room's pick history.
-3. If it will not start: `docker logs audible-cockpit`, then drop to the cluster copy.
+### The cockpit dies
+1. Double-click `scripts/draft-day.cmd` again. **There is no `docker start audible-cockpit`**
+   — that command, and the `audible-cache` volume it referenced, belong to a container path
+   this launcher no longer uses.
+2. **Synced picks are not lost** — they re-sync from ESPN on the next poll, and the session
+   state file under `data/cache/` is reloaded on start. **Manual marks made in this instance
+   are lost.** If you have been entering by hand all night, this is expensive: re-enter from
+   the ESPN draft room's pick history.
+3. If it will not start: read the server window — it is a foreground process and the error is
+   in it, not in `docker logs`. Then drop to the cluster copy.
 
 ### The board looks obviously wrong
 Trust the draft room, not the tool. Then ask which kind of wrong:
@@ -263,8 +275,9 @@ A manual mark is a **real pick** — numbered, attributed to whoever is on the c
 advances the clock. That is what happened in the room, so that is what gets recorded.
 
 This is **local state only** — nothing is ever written to ESPN. It survives a refresh and a
-restart of the same container, but **does not transfer between instances**: failing over from
-local to cluster loses your manual marks. Everything else reconstructs.
+restart of the same cockpit (the session file under `data/cache/` is reloaded on start), but
+**does not transfer between instances**: failing over from local to cluster loses your manual
+marks. Everything else reconstructs.
 
 ---
 
@@ -278,46 +291,69 @@ failure this page exists to prevent.
 > **The draft does not need the internet, the tunnel, the cluster, or Flux.** It needs the
 > laptop on the same wifi as the phone. Everything below is a way of getting back to that.
 
+> ### ⚠️ READ THIS FIRST: the phone cannot reach the normal cockpit
+>
+> **`scripts\draft-day.cmd` binds `127.0.0.1`, on purpose** — "LOCALHOST ONLY … keeps the
+> cockpit off the LAN entirely", added when the desktop became the primary surface. So the
+> laptop's own browser works and **the phone is refused**, measured 2026-08-28:
+>
+> ```
+> GET http://127.0.0.1:8080/healthz    -> 200 {"ok":true,...}
+> GET http://192.168.1.21:8080/healthz -> WinError 10061, connection actively refused
+> ```
+>
+> That is not an outage and rebooting will not change it. **To use the phone at all you must
+> start the cockpit on `0.0.0.0` — go straight to step 4.** Steps 1 and 2 below apply only
+> once you have done that.
+
 ### 1. Find out what is actually down — 10 seconds
 
 Open both in Safari.
 
 | tap | loads | does not load |
 |---|---|---|
-| `http://192.168.1.21:8080/healthz` | laptop cockpit is alive → **step 2** | → **step 3** |
+| `http://192.168.1.21:8080/healthz` | laptop cockpit is alive **and LAN-bound** → **step 2** | → **step 4** (not 3 — see the box above) |
 | `https://mcp-audible.havenhomelab.org` | tunnel + cluster alive | ignore it — no rung below needs it |
 
-`192.168.1.21` is the drafting machine (`iBUYPOWER`) on the LAN. If the phone is on cellular
-it will not resolve — **turn wifi back on first.** That is the single most likely "outage".
+`192.168.1.21` is the drafting machine (`iBUYPOWER`) on the LAN, confirmed 2026-08-28. If the
+phone is on cellular it will not resolve — **turn wifi back on first.** Between that and the
+loopback binding above, the two most likely "outages" are both not outages.
 
 ### 2. Cockpit is alive, so just use it — you are done
 
 `http://192.168.1.21:8080` on the phone. Mark with the ✕ on each row, undo from the bottom
 bar. Nothing else on this page applies.
 
-### 3. Cockpit is dead → restart the container — 30 seconds at the laptop
+### 3. Cockpit is dead → restart it — 30 seconds at the laptop
 
 ```cmd
 scripts\draft-day.cmd
 ```
 
-Re-running is always safe; it force-removes the old container first. Synced picks survive on
-the `audible-cache` volume. **Manual marks made in the dead instance do not** — re-enter them
-from the ESPN draft room's pick history.
+Re-running is always safe. **There is no container and no Docker on this path** — the
+launcher runs `uv run audible serve` from this repo. (An earlier version of this step said it
+"force-removes the old container first" and that "synced picks survive on the `audible-cache`
+volume". Neither object exists any more; nothing here uses Docker.) Picks re-sync from ESPN on
+the next poll. **Manual marks made in the dead instance do not survive** — re-enter them from
+the ESPN draft room's pick history.
 
-If Docker itself is down, skip to step 4.
+This gives you a LOOPBACK cockpit. If you need the phone, use step 4 instead.
 
-### 4. Docker will not start → serve from source — 1 minute
+### 4. The phone needs it → serve on the LAN — 1 minute
 
 ```bash
 uv run audible serve --league espn_davis_drive --host 0.0.0.0 --port 8080
 ```
 
-**`--host 0.0.0.0` is not optional.** `serve` defaults to `127.0.0.1`, which the phone cannot
-reach — the laptop would be serving a cockpit only the laptop can see. Then open
-`http://192.168.1.21:8080` on the phone exactly as in step 2.
+**`--host 0.0.0.0` is the whole point of this step**, and it is what step 3 does not do.
+`serve` defaults to `127.0.0.1`, and so does `draft-day.cmd` deliberately — the laptop would
+otherwise be serving a cockpit only the laptop can see. Verified 2026-08-28: with
+`--host 0.0.0.0`, `GET http://192.168.1.21:8080/healthz` returns **200**; with the launcher's
+default it is refused outright.
 
-This runs whatever is checked out. `main` is current and carries the phone fixes.
+Then open `http://192.168.1.21:8080` on the phone exactly as in step 2.
+
+This runs whatever is checked out, so `git log -1` is the version.
 
 ### 5. The board itself is wrong → roll back
 
@@ -425,6 +461,70 @@ Rung 4 is why you print the cheat sheet the day before. If the laptop dies you s
 paper, and the top of the board barely moves in 24 hours.
 
 ---
+
+## The manual-mark session file has no backstop
+
+Found the hard way on 2026-08-28: `data/cache/draft-state-espn_davis_drive.json` was
+discovered **corrupted to 225 bytes of spaces** part-way through a QA session, and had to be
+restored from a copy taken beforehand. The cause was not established, so this is written as a
+property of where the file lives rather than as a diagnosis.
+
+What is certain, and each part is checked:
+
+- It is the **only** record of manual marks. Synced picks reconstruct from ESPN; marks do not.
+- It is **gitignored** (`.gitignore:16` -> `data/cache/`), so `git checkout` cannot bring it
+  back. There is no copy of it anywhere in the repo.
+- It sits inside **`C:\Users\eyanr\OneDrive\...`**, a cloud-synced directory. Sync, dedup and
+  on-demand placeholder behaviour all operate on files under that root.
+
+**Before the draft, take a copy outside OneDrive:**
+
+```cmd
+copy data\cache\draft-state-espn_davis_drive.json %TEMP%\draft-state-backup.json
+```
+
+If the cockpit comes up with picks missing or a broken session, that copy is the fastest route
+back. Failing that, re-enter from the ESPN draft room's pick history -- the marks are
+recoverable by hand, they are just tedious, and knowing that in advance is the point.
+
+## Rung-by-rung verification — measured 2026-08-28, not remembered
+
+Every rung was exercised against a live cockpit with an **isolated state_dir**; the real
+draft session hash was unchanged at exit. Command on the left, literal result on the right.
+
+| rung | what was run | what came back |
+|---|---|---|
+| 1 · local, loopback | `GET http://127.0.0.1:PORT/healthz` | **200** `{"ok":true,"players":3302,...,"origin":"disk"}` |
+| 1 · local, from the phone's address | `GET http://192.168.1.21:PORT/healthz` | **refused** — `WinError 10061`. The launcher binds `127.0.0.1` |
+| seat, no `--slot`, no network | `/api/state` → `clock.my_slot` | **8**, `my_slot_source: "override"` |
+| 2 · cluster spare | `GET http://192.168.1.110/healthz` + `/api/state` | **200**, `draft_id 6012`, `players 3303`, `clock.my_slot 8` |
+| 4 · LAN serve | `audible serve … --host 0.0.0.0` then `GET http://192.168.1.21:PORT/healthz` | **200** — this is the rung the phone needs |
+| 5 · source rollback | `git checkout pre-draft-known-good` | tag exists; **no `AUDIBLE_IMAGE` to edit** — that variable is gone |
+| 6 · paper | `uv run audible cheatsheet espn_davis_drive` | **rc=0**, 3302 players, CSV + HTML written to `cheatsheets/` |
+| ladder note | `uv run audible live espn_davis_drive --slot 8` | **rc=1**, *"`live` polls Sleeper directly and is Sleeper-only…"* — the documented refusal is real |
+
+**Three rungs were broken and are now fixed above:** the phone could not reach rung 1/2 at
+all, rung 3 told you to restart a container that does not exist, and rung 5 told you to edit
+a variable that does not exist. Each was true when written; each was falsified by a change
+somewhere else.
+
+### Standing rule: this file is re-verified after any change to the DEPLOY PATH
+
+Not only after changes to this file. Every stale entry found on 2026-08-28 was introduced by
+editing something else — the launcher dropping Docker, the cluster's league arg, the image
+digest moving. The runbook was never wrong when written and nobody had to touch it for it to
+become wrong.
+
+So re-run the verification above whenever any of these changes, and correct what it
+falsifies **in the same PR**:
+
+- `scripts/draft-day.cmd` (or anything about how the cockpit is started locally)
+- the Deployment in `eyanric/haven` — image digest, args, volumes
+- the `serve` CLI surface: flags, defaults, or the host it binds
+- `leagues/*.toml` seat, roster, or scoring structure
+
+`uv run --extra nflverse python scripts/qa-desktop.py` covers the cockpit's own behaviour;
+this table covers the rungs around it. Neither is optional after a deploy-path change.
 
 ## If latency gets measured
 

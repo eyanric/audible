@@ -37,6 +37,14 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+# The cockpit's Enter hint is "↵ marks <player>" (U+21B5). Printing that through
+# a Windows console defaulting to cp1252 raises UnicodeEncodeError *inside
+# check()*, which killed the whole run at check 11 of ~82 -- on the machine the
+# draft is actually run from. The suite reported a traceback instead of a
+# verdict, so a green claim was never reachable here.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 EDGE_CANDIDATES = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
