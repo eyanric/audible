@@ -397,6 +397,11 @@ col.w-act{width:140px}
    -- and mixed case at 13px rather than 11.5px condensed caps, so the NAME on it is
    readable at a glance ("Undo: Bijan Robinson", not "UNDO: BIJAN ROBINSON"). */
 #undoBtn{font-family:var(--f-data);font-size:13px;text-transform:none;letter-spacing:.01em}
+/* A 40px control does not fit a 29px header -- measured, it overhung by 6px top and 5px
+   bottom and sat across the panel border. Only the header that actually carries Undo
+   grows; the others keep their 29px. The grab panel's height stays CONSTANT either way,
+   so Fix 4's no-shift guarantee is unaffected. */
+#grabPanel .phead{height:48px}
 @media (hover:hover){#undoBtn{min-height:40px;min-width:96px}}
 #undoBtn[hidden]{display:none}
 

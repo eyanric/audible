@@ -525,6 +525,19 @@ def test_best_available_does_not_move_when_the_grab_list_empties(browser, live) 
         ctx.close()
 
 
+def test_undo_fits_inside_its_panel_header(live) -> None:
+    """Raising Undo to the new 96x40 floor made it overhang a 29px .phead by 6px top and
+    5px bottom, sitting across the panel border. Controls live inside their container."""
+    page, _ = live
+    box = page.evaluate(
+        """() => { const h = document.querySelector('#grabPanel .phead').getBoundingClientRect();
+                   const u = document.getElementById('undoBtn').getBoundingClientRect();
+                   return {over_top: h.top - u.top, over_bottom: u.bottom - h.bottom}; }"""
+    )
+    assert box["over_top"] <= 0.5, box
+    assert box["over_bottom"] <= 0.5, box
+
+
 # ---------------------------------------------------------------------------------------
 # FIX 2. THE REASONING COLUMN HAS TO BE READABLE
 # ---------------------------------------------------------------------------------------
