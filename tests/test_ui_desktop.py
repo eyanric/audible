@@ -539,6 +539,84 @@ def test_undo_fits_inside_its_panel_header(live) -> None:
 
 
 # ---------------------------------------------------------------------------------------
+# C2. THE HELP PANEL
+# ---------------------------------------------------------------------------------------
+FLAG_TERMS = ["opp+80", "opp-28", "riser", "faller", "vac+15%",
+              "rookie:offense", "R1.008", "need"]
+
+
+def test_help_panel_opens_from_a_button_and_from_the_key(live) -> None:
+    page, _ = live
+    fresh(page)
+    assert page.evaluate("() => document.getElementById('helpPanel').hidden") is True
+
+    page.locator("#legendToggle").click()
+    assert page.evaluate("() => document.getElementById('helpPanel').hidden") is False
+    page.locator("#helpClose").click()
+    assert page.evaluate("() => document.getElementById('helpPanel').hidden") is True
+
+    page.keyboard.press("?")            # a shortcut alone is not an affordance, but it must work
+    assert page.evaluate("() => document.getElementById('helpPanel').hidden") is False
+    page.keyboard.press("Escape")
+    assert page.evaluate("() => document.getElementById('helpPanel').hidden") is True
+
+
+def test_opening_help_does_not_move_the_board(live) -> None:
+    """Same discipline as the Grab now fix: nothing the reader opens may shift the board."""
+    page, _ = live
+    fresh(page)
+    top = "() => document.getElementById('bestPanel').getBoundingClientRect().top"
+    before = page.evaluate(top)
+    page.locator("#legendToggle").click()
+    page.wait_for_timeout(200)
+    during = page.evaluate(top)
+    page.locator("#helpClose").click()
+    page.wait_for_timeout(200)
+    after = page.evaluate(top)
+    assert before == during == after, f"board moved: {before} -> {during} -> {after}"
+
+
+def test_help_panel_is_readable_and_complete(live) -> None:
+    page, _ = live
+    fresh(page)
+    page.locator("#legendToggle").click()
+    page.wait_for_timeout(200)
+
+    style = page.evaluate(
+        """() => { const c = getComputedStyle(document.getElementById('helpCard'));
+                   return {fs: parseFloat(c.fontSize), color: c.color}; }"""
+    )
+    assert style["fs"] >= 12.5, style
+    # --txt-2 (154,162,177) or brighter; --txt-3 (106,114,128) is too dim to qualify
+    rgb = [int(v) for v in style["color"].strip("rgb()").split(",")[:3]]
+    assert min(rgb) >= 154, f"help text dimmer than --txt-2: {style['color']}"
+
+    text = page.locator("#helpCard").inner_text()
+    for col in ("Rank", "Value", "Usage", "Lasts"):
+        assert col in text, f"help panel omits the {col} column"
+    for flag in FLAG_TERMS:
+        assert flag in text, f"help panel omits the {flag!r} signal"
+    page.locator("#helpClose").click()
+
+
+def test_column_headers_are_words(live) -> None:
+    page, _ = live
+    heads = page.eval_on_selector_all(
+        "#bestPanel thead th.num", "els => els.map(e => e.textContent.trim())"
+    )
+    assert heads == ["Rank", "Value", "Usage", "Lasts"], heads
+    # every one carries the three-part tooltip, not a bare phrase
+    for i in range(4):
+        t = page.eval_on_selector_all(
+            "#bestPanel thead th.num", "els => els.map(e => e.getAttribute('title'))"
+        )[i]
+        for part in ("WHAT IT IS:", "WHAT THE NUMBER MEANS:", "WHAT TO DO:"):
+            assert part in t, f"header {heads[i]} tooltip missing {part}"
+        for banned in ("VORP", "replacement level", "marginal", "z-score", "expected value"):
+            assert banned.lower() not in t.lower(), f"{heads[i]} tooltip uses banned {banned!r}"
+
+
+# ---------------------------------------------------------------------------------------
 # FIX 2. THE REASONING COLUMN HAS TO BE READABLE
 # ---------------------------------------------------------------------------------------
 def test_signals_and_numbers_are_legible(live) -> None:
