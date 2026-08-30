@@ -638,6 +638,43 @@ def test_the_gap_column_is_present_and_sortable(live) -> None:
     page.locator("#sortReset").click()
 
 
+def test_signals_render_as_chips_with_polarity(live) -> None:
+    """Part 6: countable chips, not one run-on string, and the colour must mean something."""
+    page, _ = live
+    fresh(page)
+    chips = page.evaluate(
+        """() => [...document.querySelectorAll('#bestBody tr.prow .c-flags')]
+                 .flatMap(c => [...c.querySelectorAll('.chipf')])
+                 .map(e => ({t: e.textContent.trim(), c: e.className,
+                             fs: parseFloat(getComputedStyle(e).fontSize)}))"""
+    )
+    assert chips, "no signal chips rendered at all"
+    # Signals must stay at the 12.5px floor -- the chip is what is actually read now.
+    assert min(c["fs"] for c in chips) >= 12.5, min(c["fs"] for c in chips)
+
+    def cls(prefix):
+        return {c["c"] for c in chips if c["t"].startswith(prefix)}
+    for pos_flag in ("opp+", "vac+"):
+        for c in cls(pos_flag):
+            assert "f-pos" in c, f"{pos_flag} should argue FOR: {c}"
+    for c in cls("opp-"):
+        assert "f-neg" in c, f"opp- should argue AGAINST: {c}"
+    for c in {x["c"] for x in chips if x["t"] == "riser"}:
+        assert "f-pos" in c
+    for c in {x["c"] for x in chips if x["t"] == "faller"}:
+        assert "f-neg" in c
+    # rookie/draft-capital chips are context, never a verdict
+    for c in {x["c"] for x in chips if x["t"].startswith("rookie:")}:
+        assert "f-pos" not in c and "f-neg" not in c, f"rookie must stay neutral: {c}"
+
+    # never more than the cap, and the overflow is advertised
+    per_row = page.evaluate(
+        """() => [...document.querySelectorAll('#bestBody tr.prow .c-flags')]
+                 .map(c => c.querySelectorAll('.chipf').length)"""
+    )
+    assert max(per_row) <= 4, per_row   # 3 signals + the "+N" affordance
+
+
 # ---------------------------------------------------------------------------------------
 # C2. THE HELP PANEL
 # ---------------------------------------------------------------------------------------

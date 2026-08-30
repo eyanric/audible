@@ -382,6 +382,19 @@ col.w-act{width:140px}
    third larger, and one step up the text ramp. Presentation only -- nothing about what
    a flag means or how it is computed changes. */
 .c-flags{font-family:var(--f-data);font-size:12.5px;color:var(--txt-2);letter-spacing:.01em}
+
+/* PART 6 -- one chip per signal, so they are COUNTABLE at a glance instead of being one
+   run-on string. Tinted background rather than coloured text, same as the gap column and
+   for the same reason. Polarity is what the flag MEASURES, not how loud it is: green
+   argues for the player, red against, grey is context that argues neither way. */
+.chipf{
+  display:inline-block;font-family:var(--f-data);font-size:12.5px;line-height:19px;
+  padding:0 7px;border-radius:10px;margin-right:4px;white-space:nowrap;
+  background:rgba(255,255,255,.07);color:var(--txt-2);border:1px solid transparent;
+}
+.chipf.f-pos{background:rgba(70,207,156,.16);color:#8fe6c4;border-color:rgba(70,207,156,.30)}
+.chipf.f-neg{background:rgba(255,106,60,.16);color:#ffb59a;border-color:rgba(255,106,60,.30)}
+.chipf.f-more{background:transparent;color:var(--txt-3);border-color:var(--line)}
 /* most of the board fills a need once the roster opens up, so this stays
    quiet on purpose — its absence is the signal, not its presence */
 .need-tag{
@@ -778,7 +791,13 @@ col.w-act{width:140px}
             number and come back for a high one.</span></dd>
       </dl>
 
-      <h3>Signals — the short notes beside each player</h3>
+      <h3>Signals — one chip per note beside each player</h3>
+      <p style="margin:0 0 10px;color:var(--txt-3)">
+        <span class="chipf f-pos">green</span> argues <b>for</b> the player &nbsp;
+        <span class="chipf f-neg">red</span> argues <b>against</b> &nbsp;
+        <span class="chipf">grey</span> is context that argues neither way &nbsp;
+        <span class="chipf f-more">+2</span> means two more not shown — hover the cell for all of them.
+      </p>
       <dl>
         <dt><code>opp+80</code></dt>
         <dd>The workload model puts him <b>80 points above</b> the points projection. It only
@@ -1226,6 +1245,44 @@ function gapBand(gap) {
   return (gap > 0 ? " gp" : " gn") + step;
 }
 
+/* POLARITY. Decided by what the flag measures, not by how it reads:
+     opp+N   the workload model is ABOVE the points projection      -> for  (green)
+     opp-N   the workload model is BELOW it                         -> against (red)
+     riser   his role grew through last season                      -> for
+     faller  his role shrank                                        -> against
+     vac+N%  unclaimed touches he is in line to inherit             -> for
+     rookie: first NFL season                                       -> neutral
+     R1.008  where the NFL drafted him                              -> neutral
+     manual  entered by hand rather than synced                     -> neutral
+   The two rookie flags stay NEUTRAL deliberately: board.py prices draft capital zero times
+   because consensus already prices it, so calling them green would double-count. */
+function flagPolarity(flag) {
+  if (flag.indexOf("opp+") === 0) return " f-pos";
+  if (flag.indexOf("opp-") === 0 || flag.indexOf("opp\u2212") === 0) return " f-neg";
+  if (flag === "riser") return " f-pos";
+  if (flag === "faller") return " f-neg";
+  if (flag.indexOf("vac+") === 0) return " f-pos";
+  return "";                       // rookie:*, R<rd>.<pick>, manual -- context, not a verdict
+}
+
+var FLAG_CHIP_CAP = 3;   // three loud chips beat six quiet ones
+
+function renderFlagChips(cell, flags) {
+  var shown = flags.slice(0, FLAG_CHIP_CAP);
+  var rest = flags.length - shown.length;
+  // Rebuild only when the content actually changes -- this runs for every row on every
+  // poll, and the reconciler exists precisely so the board does not churn its DOM.
+  var signature = shown.join("|") + (rest > 0 ? "|+" + rest : "");
+  if (cell.dataset.sig === signature) return;
+  cell.dataset.sig = signature;
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  for (var i = 0; i < shown.length; i++) {
+    cell.appendChild(mk("span", "chipf" + flagPolarity(shown[i]), shown[i]));
+  }
+  if (rest > 0) cell.appendChild(mk("span", "chipf f-more", "+" + rest));
+  setAttr(cell, "title", flags.join("  ") || null);
+}
+
 function updatePlayerRow(rec, p) {
   rec.id = p.id;
   setAttr(rec.el, "data-id", String(p.id));
@@ -1259,10 +1316,9 @@ function updatePlayerRow(rec, p) {
   rec.surv.classList.toggle("low", s != null && s < 0.15);
   rec.surv.classList.toggle("high", s != null && s >= 0.80);
 
-  var f = (p.flags && p.flags.length) ? p.flags.join(" ") : "";
-  if (p.manual) f = f ? (f + " manual") : "manual";
-  setText(rec.flags, f);
-  setAttr(rec.flags, "title", f || null);
+  var flags = (p.flags || []).slice();
+  if (p.manual) flags.push("manual");
+  renderFlagChips(rec.flags, flags);
 
   setAttr(rec.btn, "aria-label", "Mark taken: " + (p.name || p.id));
 }
