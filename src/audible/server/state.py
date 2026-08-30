@@ -7,12 +7,15 @@ is a breaking change to the UI.
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
 from typing import Any
 
 from ..draft.live import Candidate, LiveView, my_slot_on_clock
 from ..draft.service import CockpitService
+
+log = logging.getLogger(__name__)
 
 GRAB_NOW_LIMIT = 5
 # The page shows ~25 rows; the rest feed name search and the position tabs.
@@ -25,9 +28,13 @@ RECENT_PICKS_LIMIT = 12
 RUN_WINDOW = 10
 
 
-def _player(cand: Candidate) -> dict[str, Any]:
+def _player(cand: Candidate, gaps: dict[str, int] | None = None) -> dict[str, Any]:
     e = cand.entry
+    gap = (gaps or {}).get(e.player_id)
     return {
+        # Part 3, additive: how far our order departs from the one the room drafts off.
+        # None means "not comparable", which the page renders as blank rather than as 0.
+        "vs_espn": gap,
         "id": e.player_id,
         "name": e.name,
         "position": e.position,
@@ -173,6 +180,79 @@ def _cliffs(view: LiveView) -> list[dict[str, Any]]:
     return out
 
 
+# Part 3: how our order differs from the one the room is drafting off.
+#
+# WITHIN POSITION, and only over the DRAFTABLE population. Both restrictions are load-bearing
+# and were measured, not assumed. Across positions the comparison is dominated by structure --
+# kickers came out at +832 and quarterbacks at -690, which is VORP-vs-market shape, not the
+# reception seam, and `rank-check` explicitly says not to draft off those. Over the whole 1007
+# shared players the extremes are the junk tail, where both orderings are noise: the top ten
+# were receivers projected zero catches. Restricted this way the extremes are real draftable
+# players in a +-20 band, and the RB direction matches the prediction (Spearman -0.40 against
+# receptions: pass-catching backs move DOWN because this league pays them 0.0 a catch).
+_GAP_POPULATION = 200
+_gap_cache: dict[str, int] | None = None
+
+
+def _espn_gaps(service: CockpitService) -> dict[str, int]:
+    """``board id -> (ESPN position rank - our position rank)``. Positive = we like him more.
+
+    Computed once per process and cached; on any failure this returns {} and the column
+    simply does not appear, because a board with no gap column is much better than a board
+    with a wrong one.
+    """
+    global _gap_cache
+    if _gap_cache is not None:
+        return _gap_cache
+    _gap_cache = {}
+    board = service.board
+    if board is None or service.config.platform.value != "espn":
+        return _gap_cache
+    try:
+        from ..adapters.espn import EspnAdapter, _draft_rank
+        from ..adapters.sleeper import SleeperAdapter
+        from ..draft.espn_ids import build_supplement
+
+        with SleeperAdapter() as sleeper:
+            catalog = sleeper.get_players_catalog()
+        with EspnAdapter() as espn:
+            pool = espn.get_player_pool(service.config)
+        by_espn = {
+            str(entry["espn_id"]): str(pid)
+            for pid, entry in catalog.items()
+            if isinstance(entry, dict) and entry.get("espn_id")
+        }
+        for espn_id, board_id in build_supplement(pool, catalog).items():
+            by_espn.setdefault(espn_id, board_id)
+        ranks: dict[str, float] = {}
+        for row in pool:
+            player = row.get("player") or row
+            rank = _draft_rank(player)
+            board_id = by_espn.get(str(player.get("id")))
+            if rank is not None and board_id:
+                ranks[board_id] = rank
+        shared = [
+            e for e in board.entries
+            if e.player_id in ranks
+            and e.vorp_rank <= _GAP_POPULATION
+            and ranks[e.player_id] <= _GAP_POPULATION
+        ]
+        for position in {e.position for e in shared}:
+            group = [e for e in shared if e.position == position]
+            if len(group) < 3:
+                continue
+            theirs = {e.player_id: i for i, e in enumerate(
+                sorted(group, key=lambda e: ranks[e.player_id]), start=1)}
+            ours = {e.player_id: i for i, e in enumerate(
+                sorted(group, key=lambda e: e.vorp_rank), start=1)}
+            for e in group:
+                _gap_cache[e.player_id] = theirs[e.player_id] - ours[e.player_id]
+    except Exception as exc:  # noqa: BLE001 -- no column beats a wrong column
+        log.warning("ESPN gap column unavailable (%s); it will not be shown", exc)
+        _gap_cache = {}
+    return _gap_cache
+
+
 def _next_mark(service: CockpitService) -> dict[str, Any]:
     """The pick number and seat that the NEXT `mark_taken` would be attributed to.
 
@@ -290,8 +370,9 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "unfilled": list(view.unfilled),
         "starters_complete": view.starters_complete,
     }
-    base["grab_now"] = [_player(c) for c in grab]
-    base["best_available"] = [_player(c) for c in _served_pool(service, view)]
+    gaps = _espn_gaps(service)
+    base["grab_now"] = [_player(c, gaps) for c in grab]
+    base["best_available"] = [_player(c, gaps) for c in _served_pool(service, view)]
     base["teams"] = _teams(service)
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)

@@ -223,10 +223,18 @@ class EspnIdBridge:
     cannot name him. Those are counted and logged, never silently absorbed.
     """
 
-    def __init__(self, id_map: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, id_map: dict[str, str] | None = None, *, adapter: Any | None = None,
+        config: LeagueConfig | None = None,
+    ) -> None:
         # A preset map skips the catalog read entirely -- which is how tests stay offline.
         self._map: dict[str, str] | None = id_map
         self.unmatched: set[str] = set()
+        # For the name-match supplement: the ESPN pool comes from the adapter that is already
+        # authenticated, so this costs one extra request at STARTUP and none per pick.
+        self._adapter = adapter
+        self._config = config
+        self.supplement_size = 0
 
     def _load(self) -> dict[str, str]:
         if self._map is None:
@@ -234,13 +242,41 @@ class EspnIdBridge:
 
             with SleeperAdapter() as sleeper:
                 catalog = sleeper.get_players_catalog()
-            self._map = {
+            built = {
                 str(entry["espn_id"]): str(player_id)
                 for player_id, entry in catalog.items()
                 if isinstance(entry, dict) and entry.get("espn_id")
             }
+            # ADDITIVE. The catalog is authoritative where it has an answer; the name match
+            # only fills ids it left blank, which is 143 of the top 200. `setdefault` is the
+            # whole guarantee -- this can add coverage and can never overwrite it.
+            if self._adapter is not None and self._config is not None:
+                from .espn_ids import build_supplement
+
+                try:
+                    pool = self._adapter.get_player_pool(self._config)
+                    supplement = build_supplement(pool, catalog)
+                except Exception as exc:  # noqa: BLE001 -- degrade to catalog-only, never fail
+                    log.warning("ESPN name-match supplement unavailable (%s); "
+                                "falling back to the catalog-only bridge", exc)
+                    supplement = {}
+                before = len(built)
+                for espn_id, board_id in supplement.items():
+                    built.setdefault(espn_id, board_id)
+                self.supplement_size = len(built) - before
+                log.info("ESPN->board id bridge: %d from the catalog, %d added by name match",
+                         before, self.supplement_size)
+            self._map = built
             log.info("ESPN->board id bridge: %d players", len(self._map))
         return self._map
+
+    def warm(self) -> int:
+        """Build the map NOW rather than on the first pick translation.
+
+        The lazy load fired on the first pick of the draft, which is when a cold Sleeper
+        catalog would have been fetched over the network -- at the worst possible moment.
+        """
+        return len(self._load())
 
     def to_board_id(self, espn_player_id: int | str) -> str:
         espn_id = str(espn_player_id)
@@ -254,6 +290,13 @@ class EspnIdBridge:
                 "named or removed from the board", espn_id,
             )
         return espn_id
+
+    def translate_logged(self, espn_player_id: int | str) -> str:
+        """`to_board_id`, but announcing every hit -- the evening has to be auditable."""
+        board_id = self.to_board_id(espn_player_id)
+        if str(board_id) != str(espn_player_id):
+            log.info("ESPN %s -> board %s", espn_player_id, board_id)
+        return board_id
 
 
 def espn_picks(
@@ -279,7 +322,7 @@ def espn_picks(
                 pick_no=int(row.get("overallPickNumber") or 0),
                 round=int(row.get("roundId") or 0),
                 draft_slot=slot_by_team.get(int(team_id), 0) if team_id is not None else 0,
-                player_id=bridge.to_board_id(player_id),
+                player_id=bridge.translate_logged(player_id),
             )
         )
     return sorted(picks, key=lambda p: p.pick_no)
@@ -303,7 +346,15 @@ class EspnSync:
         self._config = config
         self._adapter = adapter if adapter is not None else EspnAdapter()
         self._slot_override = slot_override
-        self._bridge = bridge if bridge is not None else EspnIdBridge()
+        self._bridge = bridge if bridge is not None else EspnIdBridge(
+            adapter=self._adapter, config=config
+        )
+        # Eagerly, at startup: see EspnIdBridge.warm.
+        try:
+            self._bridge.warm()
+        except Exception as exc:  # noqa: BLE001 -- a cold bridge must not stop the cockpit
+            log.warning("could not warm the ESPN id bridge at startup (%s); "
+                        "it will build on the first pick", exc)
 
     def close(self) -> None:
         self._adapter.close()
