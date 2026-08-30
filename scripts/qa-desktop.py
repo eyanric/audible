@@ -288,8 +288,10 @@ async def task_layout(bus, port):
 # without complaint -- which is precisely how a button that no human could find
 # passed ten green checks three times running.
 # --------------------------------------------------------------------------
-MIN_H, MIN_W = 30.0, 64.0
-HUMAN_AIM_SLOP = 12   # px of aiming error a real target must absorb
+# Raised after Eric drove it at pick speed: 64x30 cleared the old floor and was still
+# hard to hit. The floor was too low, not the button.
+MIN_H, MIN_W = 40.0, 96.0
+HUMAN_AIM_SLOP = 16   # px of aiming error a real target must absorb
 
 REST_JS = """(function(){
   var e=document.querySelector('#bestBody tr.prow button.mark');
@@ -347,7 +349,7 @@ async def task_affordance(bus, port):
           painted,
           f"border={r['border']} ({r['bw']}) bg={r['bg']} opacity={r['opacity']}")
     check("row action button carries a word, not a bare glyph",
-          r["text"] in ("TAKEN", "DRAFT"),
+          r["text"] in ("TAKEN", "DRAFT HIM"),
           f"label = {r['text']!r}")
 
     # 4. MOUSE ONLY, END TO END. Aimed at the centre of the action CELL and then missed
