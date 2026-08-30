@@ -253,6 +253,32 @@ def _espn_gaps(service: CockpitService) -> dict[str, int]:
     return _gap_cache
 
 
+def _undo(service: CockpitService) -> dict[str, Any]:
+    """Whether an undoable pick exists, from SERVER truth rather than the browser's stack.
+
+    `takenStack` lives in one page session, so a reload greyed Undo out while the manual
+    picks were still sitting on the server and `undo_taken` would still have worked. Over
+    three hours and a hundred-odd marks a reload is likely, and a mis-mark right after one
+    left no way back through the UI.
+
+    Only MANUAL picks are undoable, and that is a property of `undo_taken` rather than a
+    convention observed here: it reads `session.manual_picks`, rejects any id not in that
+    list, and the only assignment it makes is back to `session.manual_picks`. It never
+    references `session.picks`, so a synced pick cannot be removed by it.
+    """
+    manual = service.session.manual_picks
+    if not manual:
+        return {"available": False, "player_id": None, "name": None}
+    last = manual[-1]
+    board = service.board
+    entry = ({e.player_id: e for e in board.entries}.get(last.player_id)) if board else None
+    return {
+        "available": True,
+        "player_id": last.player_id,
+        "name": entry.name if entry else last.player_id,
+    }
+
+
 def _next_mark(service: CockpitService) -> dict[str, Any]:
     """The pick number and seat that the NEXT `mark_taken` would be attributed to.
 
@@ -307,6 +333,9 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         # record? Recomputed from the same inputs `_renumber_manual` uses rather than read
         # off the ESPN clock, so it is true while mirroring by hand and under live sync.
         "next_mark": _next_mark(service),
+        # Additive: the Undo control reads its enabled state from here, not from the
+        # browser's own stack, so it survives a reload.
+        "undo": _undo(service),
         "sync": {
             "age_s": round(age, 1) if age is not None else None,
             "status": health.status(now),

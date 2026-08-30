@@ -1992,20 +1992,29 @@ function renderAction() {
   // thumb that is already on its way down. F4: the desktop Undo now works the same way,
   // for the same reason -- it used to appear only once it was needed, which is the one
   // moment you cannot afford to go looking for where a control moved to.
+  // PART 1. SERVER TRUTH decides whether Undo is enabled, never the browser's own stack.
+  // `takenStack` lives in one page session, so a reload used to grey this out while the
+  // manual picks were still on the server and `undo_taken` would have worked fine. The
+  // stack is kept ONLY as an optimisation: it names the player instantly after a mark,
+  // before the next poll lands. It may make the label sharper; it may never disable.
   var thumb = $("thumbUndo");
-  var empty = S.takenStack.length === 0;
+  var srv = (S.data && S.data.undo) || {};
+  var local = S.takenStack.length ? S.takenStack[S.takenStack.length - 1] : null;
+  var can = (srv.available === true) || !!local;
+  var name = local ? local.name : (srv.name || null);
+
   setHidden(btn, false);
-  btn.disabled = empty;
-  if (thumb) thumb.disabled = empty;
-  if (empty) {
+  btn.disabled = !can;
+  if (thumb) thumb.disabled = !can;
+  if (!can) {
     setText(btn, "Undo");
     setAttr(btn, "title", "Nothing to undo");
     if (thumb) setAttr(thumb, "title", "Nothing to undo");
   } else {
-    var top = S.takenStack[S.takenStack.length - 1];
-    setText(btn, "Undo: " + top.name);
-    setAttr(btn, "title", "Undo: " + top.name);
-    if (thumb) setAttr(thumb, "title", "Undo: " + top.name);
+    var label = name ? ("Undo: " + name) : "Undo last pick";
+    setText(btn, label);
+    setAttr(btn, "title", label);
+    if (thumb) setAttr(thumb, "title", label);
   }
 }
 
@@ -2144,6 +2153,26 @@ function markTaken(id, name) {
 }
 
 function undoTaken() {
+  // Server truth again: after a reload the stack is empty but the pick is still undoable.
+  var srvUndo = (S.data && S.data.undo) || {};
+  if (!S.takenStack.length && srvUndo.available === true) {
+    var who = srvUndo.name || "last pick";
+    // The id explicitly, not null: `post` stringifies, so a null would arrive as "null"
+    // and match no pick. The payload already names the one that would be undone.
+    post("/api/taken/undo", srvUndo.player_id).then(function (j) {
+      S.actionMsg = "Undone: " + who;
+      S.actionErr = false;
+      S.fetchFail = 0;
+      S.lastFetchError = null;
+      applyState(j);
+    }).catch(function (err) {
+      console.error("[audible] undo failed:", err);
+      S.actionMsg = "Undo failed: " + who;
+      S.actionErr = true;
+      renderAction();
+    });
+    return;
+  }
   if (!S.takenStack.length) {
     S.actionMsg = "Nothing to undo";
     S.actionErr = false;
