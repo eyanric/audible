@@ -279,6 +279,116 @@ async def task_layout(bus, port):
 
 
 # --------------------------------------------------------------------------
+# a0) AFFORDANCE - can the one action on a row be SEEN and HIT with a mouse
+#
+# This runs FIRST and touches nothing before it measures. That ordering is the
+# test: "visible at rest" is only a fact if no pointer has been near the row.
+# Every earlier check in this file drove the page by keyboard or by selector,
+# and a selector finds an invisible 18x18 control and clicks its exact centre
+# without complaint -- which is precisely how a button that no human could find
+# passed ten green checks three times running.
+# --------------------------------------------------------------------------
+MIN_H, MIN_W = 30.0, 64.0
+HUMAN_AIM_SLOP = 12   # px of aiming error a real target must absorb
+
+REST_JS = """(function(){
+  var e=document.querySelector('#bestBody tr.prow button.mark');
+  var c2=document.querySelector('#bestBody tr.prow td.c-act');
+  if(!e||!c2) return 'null';
+  var r=e.getBoundingClientRect(), c=getComputedStyle(e);
+  var rc=c2.getBoundingClientRect();
+  var u=document.getElementById('undoBtn');
+  return JSON.stringify({
+    w:r.width, h:r.height,
+    cellX:rc.x+rc.width/2, cellY:rc.y+rc.height/2,
+    border:c.borderTopColor, bw:c.borderTopWidth, bg:c.backgroundColor,
+    opacity:c.opacity, vis:c.visibility, disp:c.display,
+    text:e.textContent.trim(),
+    hoverBranch: window.matchMedia('(hover:hover)').matches,
+    undoHidden: !!(u&&u.hidden), undoDisabled: !!(u&&u.disabled),
+    undoText: u?u.textContent.trim():null,
+    firstName: (document.querySelector('#bestBody .pname')||{}).textContent
+  });
+})()"""
+
+
+def _alpha(css):
+    """Alpha of a computed rgb()/rgba(). `transparent` computes to rgba(0,0,0,0)."""
+    if css.startswith("rgba"):
+        return float(css.split(",")[-1].strip(" )"))
+    return 1.0 if css.startswith("rgb") else 0.0
+
+
+async def task_affordance(bus, port):
+    banner("3a0. AFFORDANCE - the action must be visible at rest and hittable by mouse")
+    await viewport(bus, 1920, 1080)
+    raw = await bus.ev(REST_JS)
+    if not raw or raw == "null":
+        check("the row action button exists at all", False, "no button.mark in #bestBody")
+        return
+    r = json.loads(raw)
+
+    # Which media branch are we actually measuring? If this is false the whole task is
+    # measuring the touch layer, which was never the broken one.
+    check("desktop matches (hover:hover), not the touch branch",
+          r["hoverBranch"] is True,
+          f"matchMedia('(hover:hover)') = {r['hoverBranch']}")
+
+    # 1. SIZE FLOOR
+    check("row action button meets the desktop size floor",
+          r["w"] >= MIN_W and r["h"] >= MIN_H,
+          f"measured {r['w']:g}x{r['h']:g} CSS px, floor {MIN_W:g}x{MIN_H:g}")
+
+    # 2. VISIBLE AT REST -- nothing has hovered or focused this row yet
+    painted = (_alpha(r["border"]) > 0 and r["bw"] != "0px"
+               and _alpha(r["bg"]) > 0 and float(r["opacity"]) == 1.0
+               and r["disp"] != "none" and r["vis"] == "visible")
+    check("row action button is painted at rest (no hover, no focus)",
+          painted,
+          f"border={r['border']} ({r['bw']}) bg={r['bg']} opacity={r['opacity']}")
+    check("row action button carries a word, not a bare glyph",
+          r["text"] in ("TAKEN", "DRAFT"),
+          f"label = {r['text']!r}")
+
+    # 4. MOUSE ONLY, END TO END. Aimed at the centre of the action CELL and then missed
+    # by HUMAN_AIM_SLOP px -- a real target absorbs that, an 18px one does not.
+    before = api(port)["clock"]["current_pick"]
+    victim = (r["firstName"] or "").strip()
+    check("undo is present and disabled before any mark",
+          (not r["undoHidden"]) and r["undoDisabled"],
+          f"hidden={r['undoHidden']} disabled={r['undoDisabled']} "
+          f"text={r['undoText']!r}")
+
+    await bus.click(r["cellX"] + HUMAN_AIM_SLOP, r["cellY"])
+    await bus.drain(1.2)
+    after = api(port)["clock"]["current_pick"]
+    check(f"a mouse click {HUMAN_AIM_SLOP}px off centre marks exactly one player",
+          after == before + 1,
+          f"current_pick {before} -> {after} after one off-centre click on {victim!r}")
+
+    post = json.loads(await bus.ev(REST_JS) or "null") or {}
+    check("undo becomes enabled and names the player just marked",
+          post.get("undoDisabled") is False and post.get("undoText") == "Undo: " + victim,
+          f"undo reads {post.get('undoText')!r} (wanted {'Undo: ' + victim!r})")
+    check("the marked player left the board",
+          (post.get("firstName") or "").strip() != victim,
+          f"board now starts at {(post.get('firstName') or '').strip()!r}")
+
+    # PUT THE BOARD BACK. Every task after this one shares this server, and a stray
+    # extra pick shifts every downstream pick number and changes which players are on
+    # the board -- which silently rewrites what the later tasks are even testing.
+    # Undoing by mouse is also the only mouse-driven undo in this file.
+    u = await bus.box("#undoBtn")
+    if u:
+        await bus.click(u["x"], u["y"])
+        await bus.drain(1.2)
+    restored = api(port)["clock"]["current_pick"]
+    check("undo by mouse puts the board back for the rest of the suite",
+          restored == before,
+          f"current_pick {after} -> {restored}, wanted {before}")
+
+
+# --------------------------------------------------------------------------
 # b) KEYBOARD, EYES-OFF — no pointer is used anywhere in here
 # --------------------------------------------------------------------------
 async def task_keyboard(bus, port):
@@ -729,6 +839,7 @@ async def main_async(keep: bool) -> int:
             check("no console.error at load", not bus.console, "; ".join(bus.console[:3]))
             load_errs, load_cons = len(bus.errors), len(bus.console)
 
+            await task_affordance(bus, port)
             await task_layout(bus, port)
             await task_keyboard(bus, port)
             await task_run(bus, port, picks=25)

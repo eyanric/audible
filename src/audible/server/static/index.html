@@ -249,6 +249,15 @@ button,input{font:inherit;color:inherit}
   border-radius:2px;padding:0 4px;color:var(--txt-2);margin-right:4px;
 }
 .legend div{margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* F5: nine lines is a wall nobody reads at pick speed. Five stay; the rest are one
+   keystroke (`?`) or one click away, which is the right cost for keys you look up once. */
+#legendMore[hidden]{display:none}
+.legend-more{
+  margin-top:3px;padding:0;background:none;border:0;cursor:pointer;
+  font-family:var(--f-cond);font-size:10.5px;letter-spacing:.06em;color:var(--txt-3);
+}
+@media (hover:hover){.legend-more:hover{color:var(--txt-2)}}
+@media (hover:none){.legend-more{min-height:44px;font-size:12px}}
 
 /* ── player tables ───────────────────────────────────────── */
 .ptable{table-layout:fixed;width:100%;border-collapse:collapse}
@@ -258,7 +267,7 @@ col.w-team{width:40px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
 col.w-flags{width:146px}
-col.w-act{width:24px}
+col.w-act{width:84px}
 /* WIDE DESKTOP. `table-layout:fixed` with every column but the name at a fixed px width
    makes the NAME column the only elastic one, so on a wide monitor every spare pixel is
    inserted between a player and his numbers: ~670px of empty row at 1920 and ~1100px at
@@ -282,10 +291,10 @@ col.w-act{width:24px}
 @media (hover:hover){.ptable thead th{cursor:help}}
 .ptable th.num,.ptable td.num{text-align:right}
 .ptable td{
-  padding:0 6px;height:23px;border-bottom:1px solid var(--line-soft);
+  padding:0 6px;height:31px;border-bottom:1px solid var(--line-soft);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.prow{cursor:default}
+.prow{cursor:pointer;user-select:none;-webkit-user-select:none}
 @media (hover:hover){.prow:hover{background:var(--row-hover)}}
 .prow.sel{background:#232935;box-shadow:inset 2px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
 .prow:focus-visible{outline:none;box-shadow:inset 2px 0 0 0 var(--focus),inset 0 0 0 1px var(--focus)}
@@ -306,19 +315,28 @@ col.w-act{width:24px}
 .c-opp.dev::after{content:"\25B3";font-size:9px;margin-left:3px;vertical-align:1px;color:var(--txt-2)}
 .c-surv.low{color:var(--urgent)}
 .c-surv.high{color:var(--safe)}
+/* THE ACTION, VISIBLE AT REST. This was an 18x18 glyph with a TRANSPARENT border in a
+   24px column, revealed only by `.prow:hover` -- so on a mouse-driven desktop the one
+   control on the row did not exist until the pointer was already on top of it, and then
+   said only "X". Every enlargement shipped for `hover:none` and desktop matched none of
+   it. The button is now always painted, always labeled, and sized to be aimed at. */
 .mark{
-  width:18px;height:18px;line-height:1;padding:0;border-radius:2px;cursor:pointer;
-  background:transparent;border:1px solid transparent;color:var(--txt-3);font-size:12px;
+  min-width:64px;height:30px;line-height:28px;padding:0 8px;border-radius:3px;cursor:pointer;
+  background:#20252e;border:1px solid var(--line);color:var(--txt-2);
+  font-family:var(--f-cond);font-size:11px;font-weight:600;
+  letter-spacing:.09em;text-transform:uppercase;white-space:nowrap;
 }
-/* `.prow.sel .mark` is NOT gated -- selection is a real state a finger can reach.
-   `.prow:hover .mark` is, and that matters beyond tidiness: it outweighs the touch rule
-   below on specificity (0,3,0 against 0,1,0), so while it exists the mark button's
-   appearance on a phone depends on a hover rule that happens to set identical values.
-   Gated, the touch rule is the only thing styling it and cannot be silently overridden. */
-.prow.sel .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
+/* MY pick, not someone else's. `picks_until_me === 0` means pressing this records MY
+   selection -- the server already attributes the synthetic pick to the seat on the
+   clock -- so it must not keep wearing an X, which everywhere else means dismiss. */
+.mark.is-draft{border-color:var(--safe);color:var(--safe);background:var(--safe-bg)}
+/* F3: the confirmation lands in the cell that was clicked, not only in a grey string
+   in a panel header 900px away. Held for ~1.2s, then the row leaves on the next poll. */
+.mark.is-done{border-color:var(--txt-2);background:#2f3742;color:var(--txt)}
+.mark.is-done.is-draft{border-color:var(--safe);background:var(--safe-bg);color:var(--safe)}
 @media (hover:hover){
-  .prow:hover .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
-  .mark:hover{border-color:var(--urgent);color:var(--urgent)}
+  .mark:hover{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
+  .mark.is-draft:hover{border-color:var(--safe);color:var(--safe);background:rgba(70,207,156,.18)}
 }
 
 /* grab now */
@@ -337,6 +355,15 @@ col.w-act{width:24px}
 
 .note{font-family:var(--f-cond);font-size:11px;letter-spacing:.04em;color:var(--txt-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px}
 .note.err{color:var(--urgent)}
+/* F4: this used to be `hidden` until `takenStack` was non-empty, so the control MOVED
+   the first time it was ever needed. Permanent and disabled instead -- the same reason
+   `#thumbUndo` is disabled rather than hidden on the phone. */
+#undoBtn{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+#undoBtn:disabled{opacity:.4;color:var(--txt-3);border-color:var(--line);cursor:default}
+/* Desktop-only floor. An unscoped `#undoBtn{min-height:30px}` is (1,0,0) and would beat
+   the touch block's `.btn{min-height:44px}` (0,1,0) -- measured: it shrank the phone's
+   Undo from 44px to 30px. Gate it so the phone keeps the taller target. */
+@media (hover:hover){#undoBtn{min-height:30px;min-width:64px}}
 #undoBtn[hidden]{display:none}
 
 /* tabs + search */
@@ -453,18 +480,20 @@ col.w-act{width:24px}
 @media (hover:none){
   /* Reveal-on-hover is a desktop affordance. With no hover there is no reveal,
      so the button must simply always be visible. */
+  /* The label is a word now, not a glyph, so the target grows WIDER (44 -> 64) and
+     keeps its full 44px height. `min-width` is restated because the desktop base rule
+     sets it and `width` alone cannot shrink past it. */
   .mark{
-    width:44px;height:44px;font-size:19px;
+    min-width:64px;width:64px;height:44px;font-size:12px;line-height:42px;padding:0 6px;
     border-color:var(--line);background:#20252e;color:var(--txt-2);
   }
-  /* `.prow.sel .mark` (0,3,0) is ungated and sets these same three properties, and the row
-     is ALWAYS selected at the moment of the press: the button's stopPropagation is on its
-     `click` listener, so `pointerdown` has already bubbled to the row and painted `.sel`
-     while the finger is still down. At (0,2,0) this rule lost every time, so a tap on the
-     phone produced no visual change at all -- the only confirmation was the network round
-     trip. `.prow.sel .mark:active` is (0,4,0) and wins. */
+  /* The reveal-on-hover and reveal-on-select rules are gone -- the button is painted at
+     rest now -- so nothing outranks this any more. Both selectors are kept because the row
+     is ALWAYS `.sel` at the moment of the press: the button's stopPropagation is on its
+     `click` listener, so `pointerdown` has already bubbled to the row while the finger is
+     still down. */
   .mark:active,.prow.sel .mark:active{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
-  col.w-act{width:52px}
+  col.w-act{width:72px}
   .ptable td{height:44px;padding:0 8px}
   #grabBody td{height:48px}
   .c-name{font-size:15px}
@@ -567,12 +596,16 @@ col.w-act{width:24px}
           <div><kbd>/</kbd>search</div>
           <div><kbd>enter</kbd>mark highlighted</div>
           <div><kbd>&uarr;&darr;</kbd>move selection</div>
-          <div><kbd>t</kbd>Mark taken</div>
           <div><kbd>u</kbd> / <kbd>ctrl+z</kbd>Undo</div>
-          <div><kbd>g</kbd> / <kbd>b</kbd>grab now / board</div>
-          <div><kbd>r</kbd> / <kbd>c</kbd>roster / runs</div>
           <div><kbd>space</kbd>Pause updates</div>
-          <div><kbd id="legendDigits">0-6</kbd>position filter</div>
+          <div id="legendMore" hidden>
+            <div><kbd>t</kbd>Mark taken</div>
+            <div><kbd>g</kbd> / <kbd>b</kbd>grab now / board</div>
+            <div><kbd>r</kbd> / <kbd>c</kbd>roster / runs</div>
+            <div><kbd id="legendDigits">0-6</kbd>position filter</div>
+          </div>
+          <button id="legendToggle" class="legend-more" type="button" aria-expanded="false"
+                  aria-controls="legendMore">? more keys</button>
         </div>
       </div>
     </div>
@@ -587,7 +620,7 @@ col.w-act{width:24px}
         <span id="grabHint" class="phint">won&rsquo;t last to your next pick</span>
         <span class="spacer"></span>
         <span id="actionNote" class="note"></span>
-        <button id="undoBtn" class="btn" type="button" hidden>Undo</button>
+        <button id="undoBtn" class="btn" type="button" disabled>Undo</button>
       </div>
       <div id="grabEmpty" hidden>
         <b>Nobody at risk before your next pick.</b>
@@ -623,8 +656,8 @@ col.w-act{width:24px}
               <th scope="col" title="Player">Player</th>
               <th scope="col" title="Position">Pos</th>
               <th scope="col" class="h-team" title="NFL team">Tm</th>
-              <th scope="col" class="num" title="Consensus rank — the market's order">Cons</th>
-              <th scope="col" class="num" title="VORP rank — value over replacement in this league">VORP</th>
+              <th scope="col" class="num" title="Consensus rank — the market's order">Rank</th>
+              <th scope="col" class="num" title="VORP rank — value over replacement in this league">Value</th>
               <th scope="col" class="num" title="Opportunity rank — volume and role. A triangle means it disagrees with consensus.">Opp</th>
               <th scope="col" class="num" title="Chance he survives to your next pick">Surv</th>
               <th scope="col" class="h-flags" title="Signals">Signals</th>
@@ -831,6 +864,8 @@ var S = {
   selIdx: 0,
   nav: [],               // [{scope,id,el}] in visual order
   takenStack: [],        // [{id,name}] marks made from this screen
+  myPick: false,         // clock.picks_until_me === 0 -> the row button says DRAFT
+  markPending: {},       // id -> true while its POST is in flight (double-click guard)
   actionMsg: "",
   actionErr: false,
   tabsBuilt: false,
@@ -863,9 +898,9 @@ function createPlayerRow(scope) {
   var tdFlags = mk("td", "c-flags");
 
   var tdAct = mk("td", "c-act");
-  var btn = mk("button", "mark", "✕");
+  var btn = mk("button", "mark", "TAKEN");
   btn.type = "button";
-  setAttr(btn, "title", "Mark taken");
+  setAttr(btn, "title", "Mark taken by someone else");
   tdAct.appendChild(btn);
 
   tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
@@ -886,15 +921,65 @@ function createPlayerRow(scope) {
   btn.addEventListener("click", function (ev) {
     ev.preventDefault();
     ev.stopPropagation();
-    markTaken(rec.id, rec.name.textContent);
+    fireMark(rec);
+  });
+  // F2: the row is the recovery path for a miss on the button. Single click stays
+  // pure selection -- it is the keyboard-nav anchor -- so the action goes on dblclick.
+  tr.addEventListener("dblclick", function (ev) {
+    ev.preventDefault();
+    fireMark(rec);
   });
 
   return rec;
 }
 
+/* THE ONE ACTION, from either entry point. `markTaken` is guarded per id, so a
+   double-click cannot push two entries onto `takenStack`; the flash is optimistic
+   because the row leaves the board on the next poll and the confirmation has to be
+   visible before it goes. */
+function fireMark(rec) {
+  if (rec.id == null) return;
+  if (S.markPending[String(rec.id)]) return;
+  flashMark(rec, !!S.myPick);
+  markTaken(rec.id, rec.name.textContent);
+}
+
+function flashMark(rec, mine) {
+  var b = rec.btn;
+  b.dataset.flash = "1";
+  b.dataset.flashId = String(rec.id);
+  setText(b, mine ? "DRAFTED" : "TAKEN");
+  b.classList.add("is-done");
+  b.classList.toggle("is-draft", mine);
+  setTimeout(function () {
+    if (b.dataset.flash !== "1") return;
+    delete b.dataset.flash;
+    delete b.dataset.flashId;
+    b.classList.remove("is-done");
+  }, 1200);
+}
+
+/* Re-labelled on EVERY render, so it flips live the moment the clock comes round to
+   my seat -- including the back-to-back 8/9 turn, which is still picks_until_me === 0. */
+function setMarkLabel(rec) {
+  var b = rec.btn;
+  if (b.dataset.flash === "1") {
+    // a recycled row now holds a different player; the stale flash must not stick to him
+    if (b.dataset.flashId === String(rec.id)) return;
+    delete b.dataset.flash;
+    delete b.dataset.flashId;
+    b.classList.remove("is-done");
+  }
+  var mine = !!S.myPick;
+  setText(b, mine ? "DRAFT" : "TAKEN");
+  setAttr(b, "title", mine ? "Draft him — this is your pick" : "Mark taken by someone else");
+  b.classList.toggle("is-draft", mine);
+}
+
 function updatePlayerRow(rec, p) {
   rec.id = p.id;
   setAttr(rec.el, "data-id", String(p.id));
+  setMarkLabel(rec);
   setText(rec.name, p.name || "—");
   setHidden(rec.need, !p.fills_need);
   setPos(rec.chip, p.position);
@@ -1068,6 +1153,11 @@ function renderTop(d) {
   // the clock and the next pick I control, so zero means both are mine right now. Showing a
   // single pick number here reads as one pick, and the second one gets made in a hurry
   // against a board that never said it was coming.
+  // The row action reads DRAFT instead of TAKEN whenever the pick on the clock is mine.
+  // `mark_taken` already attributes the synthetic pick to the seat on the clock, so this
+  // is a LABEL change only -- same endpoint, same payload, correctly recorded either way.
+  S.myPick = started && !complete && clock.picks_until_me === 0;
+
   var twoOnClock = started && !complete
     && clock.picks_until_me === 0
     && clock.opponent_picks_until_horizon === 0
@@ -1496,14 +1586,23 @@ function renderAction() {
   var note = $("actionNote"), btn = $("undoBtn");
   setText(note, S.actionMsg || "");
   setClassName(note, "note" + (S.actionErr ? " err" : ""));
-  setHidden(btn, S.takenStack.length === 0);
   // The thumb bar's Undo is DISABLED rather than hidden: on a phone the bar is fixed
   // furniture, and a control that appears and vanishes moves the other three under a
-  // thumb that is already on its way down.
+  // thumb that is already on its way down. F4: the desktop Undo now works the same way,
+  // for the same reason -- it used to appear only once it was needed, which is the one
+  // moment you cannot afford to go looking for where a control moved to.
   var thumb = $("thumbUndo");
-  if (thumb) thumb.disabled = S.takenStack.length === 0;
-  if (S.takenStack.length) {
+  var empty = S.takenStack.length === 0;
+  setHidden(btn, false);
+  btn.disabled = empty;
+  if (thumb) thumb.disabled = empty;
+  if (empty) {
+    setText(btn, "Undo");
+    setAttr(btn, "title", "Nothing to undo");
+    if (thumb) setAttr(thumb, "title", "Nothing to undo");
+  } else {
     var top = S.takenStack[S.takenStack.length - 1];
+    setText(btn, "Undo: " + top.name);
     setAttr(btn, "title", "Undo: " + top.name);
     if (thumb) setAttr(thumb, "title", "Undo: " + top.name);
   }
@@ -1578,6 +1677,15 @@ function post(path, id) {
    target is the first row of the FILTERED best-available list -- not S.nav[0], which
    starts with the grab-now rows and ignores the query entirely. */
 function enterTarget() {
+  // A HIDDEN BOARD IS STILL A BOARD IN THE DOM. `renderCentre` returns early when the
+  // payload is not ready -- it hides #bestPanel and clears S.nav/S.sel, but the rows it
+  // rendered last time are still children of #bestBody, and this function falls back to
+  // `body.firstElementChild`. So with a query still sitting in the box, one Enter would
+  // mark a player off a stale, invisible board at exactly the moment the feed went bad --
+  // which is exactly when you are typing fastest. Same readiness test as renderCentre.
+  // The guard can only ever PREVENT a mark, never cause one: it fails to "Enter does
+  // nothing", which is immediately visible and recoverable.
+  if (!S.data || S.data.ok === false || S.data.board_ready === false) return null;
   // Still gated on a query: Enter into an empty box must never mark anybody. The box is
   // focused on load, so an unguarded Enter would be one stray keystroke from a wrong pick.
   if (!S.query) return null;
@@ -1605,7 +1713,14 @@ function renderEnterHint() {
 function markTaken(id, name) {
   if (id == null) return;
   var label = name || id;
+  // Keyed on the id rather than one global flag: two DIFFERENT players marked in quick
+  // succession from the keyboard must both go through, but the same player twice
+  // (double-click, or a fat-fingered double Enter) must not push two entries.
+  var key = String(id);
+  if (S.markPending[key]) return;
+  S.markPending[key] = true;
   post("/api/taken", id).then(function (j) {
+    delete S.markPending[key];
     S.takenStack.push({ id: String(id), name: label });
     S.actionMsg = "Marked taken: " + label;
     S.actionErr = false;
@@ -1613,6 +1728,7 @@ function markTaken(id, name) {
     S.lastFetchError = null;
     applyState(j);
   }).catch(function (err) {
+    delete S.markPending[key];
     console.error("[audible] mark taken failed:", err);
     S.actionMsg = "Mark taken failed: " + label;
     S.actionErr = true;
@@ -1736,6 +1852,11 @@ document.addEventListener("keydown", function (e) {
       undoTaken();
       e.preventDefault();
       break;
+    // `?` is shift+/, a distinct e.key from "/", so the search shortcut is untouched.
+    case "?":
+      toggleLegend();
+      e.preventDefault();
+      break;
     case " ":
       if (e.target && e.target.tagName === "BUTTON") return;
       setPaused(!S.paused);
@@ -1763,6 +1884,15 @@ document.addEventListener("keydown", function (e) {
 /* ───────────────────────── wiring ──────────────────────────── */
 
 $("pauseBtn").addEventListener("click", function () { setPaused(!S.paused); });
+function toggleLegend() {
+  var more = $("legendMore"), b = $("legendToggle");
+  var open = more.hidden;
+  setHidden(more, !open);
+  setAttr(b, "aria-expanded", open ? "true" : "false");
+  setText(b, open ? "? fewer keys" : "? more keys");
+}
+$("legendToggle").addEventListener("click", function () { toggleLegend(); });
+
 $("undoBtn").addEventListener("click", function () { undoTaken(); });
 $("thumbUndo").addEventListener("click", function () { undoTaken(); });
 

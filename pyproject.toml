@@ -21,7 +21,12 @@ nflverse = ["nflreadpy>=0.1.5"]
 audible = "audible.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pyright>=1.1",
+    "playwright>=1.62.0",
+]
 
 [build-system]
 requires = ["hatchling"]
