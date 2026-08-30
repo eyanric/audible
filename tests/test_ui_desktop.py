@@ -539,6 +539,102 @@ def test_undo_fits_inside_its_panel_header(live) -> None:
 
 
 # ---------------------------------------------------------------------------------------
+# PART 4. SORTABLE COLUMNS
+# ---------------------------------------------------------------------------------------
+SORTABLE = [("cons", "consensus_rank", 1), ("vorp", "vorp_rank", 1),
+            ("opp", "opp_rank", 1), ("surv", "survival", -1)]
+
+
+def _col(page, key: str):
+    """The values currently rendered, read from the payload the rows were built from."""
+    return page.evaluate(
+        """(k) => [...document.querySelectorAll('#bestBody tr.prow')].map(r => {
+             const cells = {cons: 3, vorp: 4, opp: 5, surv: 6};
+             return r.children[cells[k]].textContent.trim();
+           })""", key)
+
+
+def test_each_column_sorts_and_reverses(live) -> None:
+    page, _ = live
+    fresh(page)
+    for key, _field, _best_dir in SORTABLE:
+        th = page.locator(f"#bestPanel thead th[data-sort='{key}']")
+        th.click(); page.wait_for_timeout(250)
+        first = _col(page, key)[:1]
+        assert page.locator(f"#bestPanel thead th[data-sort='{key}'].sorted").count() == 1, key
+        arrow = th.locator(".sarrow").inner_text()
+        assert arrow in ("▲", "▼"), f"{key}: no direction arrow"
+
+        th.click(); page.wait_for_timeout(250)          # second click reverses
+        rev = _col(page, key)[:1]
+        assert page.locator(f"#bestPanel thead th[data-sort='{key}'].sorted").count() == 1
+        assert th.locator(".sarrow").inner_text() != arrow, f"{key}: arrow did not flip"
+        assert first != rev, f"{key}: reversing changed nothing ({first} vs {rev})"
+
+    page.locator("#sortReset").click(); page.wait_for_timeout(250)
+    assert page.locator("#bestPanel thead th.sorted").count() == 0
+    assert page.locator("#sortReset").is_hidden()
+
+
+def test_sorting_by_value_puts_the_true_extreme_first(live) -> None:
+    page, _ = live
+    fresh(page)
+    page.locator("#bestPanel thead th[data-sort='vorp']").click()
+    page.wait_for_timeout(250)
+    vals = [int(v) for v in _col(page, "vorp") if v]
+    assert vals == sorted(vals), "ascending sort is not ascending"
+    page.locator("#bestPanel thead th[data-sort='vorp']").click()
+    page.wait_for_timeout(250)
+    vals = [int(v) for v in _col(page, "vorp") if v]
+    assert vals == sorted(vals, reverse=True), "reversed sort is not descending"
+    page.locator("#sortReset").click()
+
+
+def test_marking_after_a_resort_marks_that_row(live) -> None:
+    """The row a button belongs to must survive a re-sort -- otherwise sorting is a trap."""
+    page, _ = live
+    fresh(page)
+    page.locator("#bestPanel thead th[data-sort='opp']").click()
+    page.wait_for_timeout(300)
+    victim = page.locator("#bestBody tr.prow:first-child .pname").inner_text().strip()
+
+    click_like_a_human(page)
+    page.wait_for_function(
+        "name => !Array.from(document.querySelectorAll('#bestBody .pname'))"
+        "  .some(e => e.textContent.trim() === name)", arg=victim, timeout=10_000)
+    assert undo_state(page)["label"] == f"Undo: {victim}", undo_state(page)
+    page.locator("#undoBtn").click()
+    page.wait_for_timeout(400)
+    page.locator("#sortReset").click()
+
+
+def test_sorting_does_not_move_the_panels(live) -> None:
+    page, _ = live
+    fresh(page)
+    top = "() => document.getElementById('bestPanel').getBoundingClientRect().top"
+    before = page.evaluate(top)
+    for key, _f, _d in SORTABLE:
+        page.locator(f"#bestPanel thead th[data-sort='{key}']").click()
+        page.wait_for_timeout(150)
+        assert page.evaluate(top) == before, f"sorting by {key} moved the board"
+    page.locator("#sortReset").click()
+    page.wait_for_timeout(200)
+    assert page.evaluate(top) == before
+
+
+def test_the_gap_column_is_present_and_sortable(live) -> None:
+    page, _ = live
+    fresh(page)
+    th = page.locator("#bestPanel thead th[data-sort='gap']")
+    assert th.count() == 1
+    # inner_text() applies text-transform:uppercase; the source text is "vs ESPN"
+    assert th.inner_text().strip().upper().startswith("VS ESPN")
+    th.click(); page.wait_for_timeout(250)
+    assert page.locator("#bestPanel thead th[data-sort='gap'].sorted").count() == 1
+    page.locator("#sortReset").click()
+
+
+# ---------------------------------------------------------------------------------------
 # C2. THE HELP PANEL
 # ---------------------------------------------------------------------------------------
 FLAG_TERMS = ["opp+80", "opp-28", "riser", "faller", "vac+15%",

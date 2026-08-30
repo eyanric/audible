@@ -352,6 +352,17 @@ col.w-act{width:140px}
    affordance with no touch equivalent, so on a phone the cursor promised an explanation
    that no gesture can retrieve. Gated: the promise is only made where it can be kept. */
 @media (hover:hover){.ptable thead th{cursor:help}}
+/* PART 4 -- sortable headers. The active one is BRIGHTER as well as arrowed, because an
+   arrow alone is four pixels of state on a board being read at pick speed. */
+.ptable thead th.sortable{cursor:pointer;user-select:none}
+@media (hover:hover){.ptable thead th.sortable:hover{color:var(--txt-2)}}
+.ptable thead th.sorted{color:var(--txt)}
+.sarrow{margin-left:3px;font-size:9px;color:var(--txt)}
+#sortReset{
+  margin-left:8px;min-height:24px;padding:0 8px;font-size:11px;text-transform:none;
+  font-family:var(--f-data);letter-spacing:0;
+}
+#sortReset[hidden]{display:none}
 .ptable th.num,.ptable td.num{text-align:right}
 .ptable td{
   padding:0 6px;height:44px;border-bottom:1px solid var(--line-soft);
@@ -851,6 +862,7 @@ col.w-act{width:140px}
         <div id="tabs" role="group" aria-label="Position filter"></div>
         <span class="spacer"></span>
         <input id="q" type="text" placeholder="Search players — Enter marks the highlighted" aria-label="Search players by name; arrows move the highlight; Enter marks the highlighted player as taken" autocomplete="off" spellcheck="false">
+        <button id="sortReset" class="btn" type="button" hidden>Reset sort</button>
         <span id="enterHint" class="enter-hint" aria-live="polite" hidden></span>
       </div>
       <div class="pbody grow" id="bestScroll">
@@ -864,11 +876,11 @@ col.w-act{width:140px}
               <th scope="col" title="Player">Player</th>
               <th scope="col" title="Position">Pos</th>
               <th scope="col" class="h-team" title="NFL team">Tm</th>
-              <th scope="col" class="num" title="WHAT IT IS: where he sits when every player is put in order by the points we expect him to score under THIS league&#39;s scoring.&#10;&#10;WHAT THE NUMBER MEANS: Ja&#39;Marr Chase shows 25, so 24 players are expected to outscore him this season.&#10;&#10;WHAT TO DO: start from this order, then let VALUE and USAGE argue with it.">Rank</th>
-              <th scope="col" class="num" title="WHAT IT IS: how many more points he scores than the best player at his position you could still pick up for free, once this 8-team league&#39;s starting slots are full.&#10;&#10;WHAT THE NUMBER MEANS: Jahmyr Gibbs shows 1 while his RANK is 18 - seventeen players score more, but none of them puts a bigger gap between you and the free option.&#10;&#10;WHAT TO DO: when two players look close on RANK, take the better VALUE.">Value</th>
-              <th scope="col" class="num" title="WHAT IT IS: a second opinion built only from the work he gets - carries, targets, and the share of touches left behind by team-mates who have gone.&#10;&#10;WHAT THE NUMBER MEANS: Christian McCaffrey shows 10 against a RANK of 35: the workload says top-10 even though the points projection does not.&#10;&#10;WHAT TO DO: a much better USAGE than RANK is a buy signal. A small triangle marks the players where the two disagree most.">Usage</th>
-              <th scope="col" class="num" title="WHAT IT IS: the chance he is still unpicked when your next turn comes round.&#10;&#10;WHAT THE NUMBER MEANS: Derrick Henry shows 93% - he will very likely still be there. Jahmyr Gibbs shows 9% - he will very likely be gone.&#10;&#10;WHAT TO DO: spend this pick on a low number and come back for a high one.">Lasts</th>
-              <th scope="col" class="num" title="WHAT IT IS: how far this board&#39;s order departs from the order ESPN serves the room, compared only against players at the SAME position.&#10;&#10;WHAT THE NUMBER MEANS: Mike Evans shows +20 - twenty receivers the room takes ahead of him, this board takes behind him. He is the bargain. A negative number means the room likes him more than we do.&#10;&#10;WHAT TO DO: green is where this league&#39;s scoring disagrees with the room, and that is the edge. Sort by it to find who is underpriced.">vs ESPN</th>
+              <th scope="col" class="num sortable" data-sort="cons" title="WHAT IT IS: where he sits when every player is put in order by the points we expect him to score under THIS league&#39;s scoring.&#10;&#10;WHAT THE NUMBER MEANS: Ja&#39;Marr Chase shows 25, so 24 players are expected to outscore him this season.&#10;&#10;WHAT TO DO: start from this order, then let VALUE and USAGE argue with it.">Rank<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="vorp" title="WHAT IT IS: how many more points he scores than the best player at his position you could still pick up for free, once this 8-team league&#39;s starting slots are full.&#10;&#10;WHAT THE NUMBER MEANS: Jahmyr Gibbs shows 1 while his RANK is 18 - seventeen players score more, but none of them puts a bigger gap between you and the free option.&#10;&#10;WHAT TO DO: when two players look close on RANK, take the better VALUE.">Value<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="opp" title="WHAT IT IS: a second opinion built only from the work he gets - carries, targets, and the share of touches left behind by team-mates who have gone.&#10;&#10;WHAT THE NUMBER MEANS: Christian McCaffrey shows 10 against a RANK of 35: the workload says top-10 even though the points projection does not.&#10;&#10;WHAT TO DO: a much better USAGE than RANK is a buy signal. A small triangle marks the players where the two disagree most.">Usage<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="surv" title="WHAT IT IS: the chance he is still unpicked when your next turn comes round.&#10;&#10;WHAT THE NUMBER MEANS: Derrick Henry shows 93% - he will very likely still be there. Jahmyr Gibbs shows 9% - he will very likely be gone.&#10;&#10;WHAT TO DO: spend this pick on a low number and come back for a high one.">Lasts<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="gap" title="WHAT IT IS: how far this board&#39;s order departs from the order ESPN serves the room, compared only against players at the SAME position.&#10;&#10;WHAT THE NUMBER MEANS: Mike Evans shows +20 - twenty receivers the room takes ahead of him, this board takes behind him. He is the bargain. A negative number means the room likes him more than we do.&#10;&#10;WHAT TO DO: green is where this league&#39;s scoring disagrees with the room, and that is the edge. Sort by it to find who is underpriced.">vs ESPN<span class="sarrow"></span></th>
               <th scope="col" class="h-flags" title="WHAT IT IS: short notes explaining WHY a player is where he is.&#10;&#10;WHAT THE NUMBER MEANS: &#39;opp+80&#39; means the workload model puts him 80 points above the projection; &#39;vac+15%&#39; means 15% of his team&#39;s touches were left behind by players who are gone.&#10;&#10;WHAT TO DO: open the help panel (the ? button, bottom left) for the full list - every flag is spelled out there.">Signals</th>
               <th scope="col"><span class="sr">Mark taken</span></th>
             </tr>
@@ -1075,6 +1087,8 @@ var S = {
   takenStack: [],        // [{id,name}] marks made from this screen
   myPick: false,         // clock.picks_until_me === 0 -> the row button says DRAFT
   complete: false,       // every pick in the draft has been made; nothing can be marked
+  sortKey: null,         // null = the board's own order (by value rank)
+  sortDir: 0,            // +1 ascending, -1 descending
   markPending: {},       // id -> true while its POST is in flight (double-click guard)
   actionMsg: "",
   actionErr: false,
@@ -1636,6 +1650,35 @@ function renderRoster(d) {
 
 /* ───────────────────────── centre board ────────────────────── */
 
+/* Which field each header sorts on, and which way round is "best first". Ranks are
+   ascending because 1 is the good end; survival and the ESPN gap are descending because
+   the big number is. */
+var SORTS = {
+  cons: { get: function (p) { return p.consensus_rank; }, dir: 1 },
+  vorp: { get: function (p) { return p.vorp_rank; }, dir: 1 },
+  opp:  { get: function (p) { return p.opp_rank; }, dir: 1 },
+  surv: { get: function (p) { return p.survival; }, dir: -1 },
+  gap:  { get: function (p) { return p.vs_espn; }, dir: -1 }
+};
+
+/* Nulls always sink, whichever way the sort runs: a player with no ESPN rank is not the
+   biggest bargain on the board, he is simply not comparable. */
+function sortRows(rows) {
+  var spec = SORTS[S.sortKey];
+  if (!spec || !S.sortDir) return rows;
+  var dir = S.sortDir;
+  rows.sort(function (a, b) {
+    var x = spec.get(a), y = spec.get(b);
+    var xn = (x == null), yn = (y == null);
+    if (xn && yn) return a.vorp_rank - b.vorp_rank;
+    if (xn) return 1;
+    if (yn) return -1;
+    if (x === y) return a.vorp_rank - b.vorp_rank;   // stable, by the board's own order
+    return (x < y ? -1 : 1) * dir;
+  });
+  return rows;
+}
+
 function filteredBest(list) {
   var q = S.query.trim().toLowerCase();
   var out = [];
@@ -1644,9 +1687,43 @@ function filteredBest(list) {
     if (S.filter !== "ALL" && p.position !== S.filter) continue;
     if (q && String(p.name || "").toLowerCase().indexOf(q) < 0) continue;
     out.push(p);
-    if (out.length >= MAX_ROWS) break;
   }
-  return { rows: out, total: countMatches(list, q) };
+  // Sort BEFORE the cap. Capping first would sort only the first MAX_ROWS of the board's
+  // own order, so "sort by vs ESPN" would miss every bargain below row 140 -- which is
+  // most of them.
+  var total = out.length;
+  sortRows(out);
+  return { rows: out.slice(0, MAX_ROWS), total: total };
+}
+
+function setSort(key) {
+  if (S.sortKey === key) {
+    S.sortDir = -S.sortDir;                 // second click reverses
+  } else {
+    S.sortKey = key;
+    S.sortDir = SORTS[key].dir;
+  }
+  if (S.data) render(S.data);
+}
+
+function resetSort() {
+  S.sortKey = null; S.sortDir = 0;
+  if (S.data) render(S.data);
+}
+
+/* The header is the only place the sort state is visible, so it carries BOTH an arrow and
+   a brightness change, and the Reset appears only when there is something to reset. */
+function renderSortHeaders() {
+  var heads = document.querySelectorAll("#bestPanel thead th.sortable");
+  Array.prototype.forEach.call(heads, function (th) {
+    var key = th.dataset.sort;
+    var on = (key === S.sortKey && S.sortDir !== 0);
+    th.classList.toggle("sorted", on);
+    setAttr(th, "aria-sort", on ? (S.sortDir === 1 ? "ascending" : "descending") : null);
+    var arrow = th.querySelector(".sarrow");
+    if (arrow) setText(arrow, on ? (S.sortDir === 1 ? "\u25B2" : "\u25BC") : "");
+  });
+  setHidden($("sortReset"), S.sortKey === null);
 }
 
 function countMatches(list, q) {
@@ -1702,6 +1779,7 @@ function renderCentre(d) {
   setText($("grabHint"), hint);
 
   // best available
+  renderSortHeaders();
   var res = filteredBest(best);
   reconcile($("bestBody"), res.rows,
     function (p) { return String(p.id); },
@@ -2164,6 +2242,12 @@ function toggleLegend(force) {
   setAttr(b, "aria-expanded", open ? "true" : "false");
   if (open) $("helpClose").focus(); else $("q").focus();
 }
+Array.prototype.forEach.call(
+  document.querySelectorAll("#bestPanel thead th.sortable"),
+  function (th) { th.addEventListener("click", function () { setSort(th.dataset.sort); }); }
+);
+$("sortReset").addEventListener("click", function () { resetSort(); });
+
 $("legendToggle").addEventListener("click", function () { toggleLegend(true); });
 $("helpClose").addEventListener("click", function () { toggleLegend(false); });
 $("helpPanel").addEventListener("click", function (ev) {
