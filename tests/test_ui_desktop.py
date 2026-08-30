@@ -628,6 +628,66 @@ def test_undo_is_disabled_when_only_synced_picks_exist(browser, tmp_path_factory
 
 
 # ---------------------------------------------------------------------------------------
+# PART 2b / PART 3. CONFIDENCE CUE AND DATA VINTAGE
+# ---------------------------------------------------------------------------------------
+def test_the_gap_is_muted_outside_the_band_it_was_measured_in(live) -> None:
+    """A confidence cue, never a filter: the number stays, stays signed, stays sortable."""
+    page, _ = live
+    fresh(page)
+    rows = page.evaluate(
+        """() => [...document.querySelectorAll('#bestBody tr.prow')].map(r => {
+             const g = r.querySelector('.c-gap');
+             return {text: g.textContent.trim(), cls: g.className,
+                     op: parseFloat(getComputedStyle(g).opacity)};
+           })"""
+    )
+    assert rows, "no rows"
+    muted = [r for r in rows if "unsure" in r["cls"]]
+    for r in muted:
+        # muted, but never blanked and never unsigned
+        assert r["op"] < 1.0, r
+        if r["text"]:
+            assert r["text"][0] in "+-−" or r["text"] == "0", r["text"]
+    # the class only ever attaches where a gap actually exists
+    for r in rows:
+        if "unsure" in r["cls"]:
+            assert r["text"] != "", "muted an empty cell"
+
+
+def test_help_panel_says_where_the_gap_is_trustworthy(live) -> None:
+    page, _ = live
+    fresh(page)
+    page.locator("#legendToggle").click()
+    page.wait_for_timeout(200)
+    text = page.locator("#helpCard").inner_text().lower()
+    assert "where to trust it" in text
+    assert "faded" in text
+    # the news caveat (2c)
+    assert "news" in text
+    for jargon in ("spearman", "correlation", "rho", "coefficient"):
+        assert jargon not in text, f"jargon leaked into the help panel: {jargon}"
+    page.locator("#helpClose").click()
+
+
+def test_data_vintage_is_on_screen(live) -> None:
+    page, cp = live
+    fresh(page)
+    dv = cp.state()["data"]
+    el = page.evaluate(
+        """() => { const e = document.getElementById('dataAge');
+                   return {hidden: e.hidden, text: e.textContent.trim(),
+                           stale: e.classList.contains('stale')}; }"""
+    )
+    if dv["oldest_days"] is None:
+        assert el["hidden"] is True
+    else:
+        assert el["hidden"] is False
+        assert "board data:" in el["text"]
+        assert str(dv["oldest_days"]) in el["text"]
+        assert el["stale"] == (dv["stale"] is True)
+
+
+# ---------------------------------------------------------------------------------------
 # PART 4. SORTABLE COLUMNS
 # ---------------------------------------------------------------------------------------
 SORTABLE = [("cons", "consensus_rank", 1), ("vorp", "vorp_rank", 1),
