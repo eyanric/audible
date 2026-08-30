@@ -179,7 +179,20 @@ def _boot(tmp: Path, picks: int, index_html: Path | None = None) -> Iterator[Coc
 @pytest.fixture(scope="module")
 def browser():
     with sync_playwright() as pw:
-        b = pw.chromium.launch()
+        try:
+            b = pw.chromium.launch()
+        except Exception as exc:  # the browser binary, not the package, is missing
+            msg = "\n".join([
+                f"could not launch Chromium: {exc}",
+                "The playwright PACKAGE installs without the browser it drives. Run:",
+                "    uv run playwright install --with-deps chromium",
+                "In CI this is the 'playwright browser' step in .github/workflows/ci.yml.",
+            ])
+            if UI_REQUIRED:
+                # Loud on purpose. A UI suite that passes by running nothing is the exact
+                # failure mode AUDIBLE_UI_REQUIRED exists to prevent.
+                pytest.fail(msg, pytrace=False)
+            pytest.skip(msg)
         try:
             yield b
         finally:
@@ -228,16 +241,36 @@ def on_the_clock(tmp_path_factory, browser):
             ctx.close()
 
 
+def _prefix_html_bytes() -> bytes:
+    """The page as it ships on main.
+
+    A CI pull-request checkout has no local `main` branch -- only the remote-tracking
+    ref -- so try both. This RAISES rather than skipping on purpose: a negative control
+    that quietly does not run is worse than not having one, because the suite still
+    reports green for a claim it never checked.
+    """
+    tried = []
+    for ref in ("main", "origin/main", "refs/remotes/origin/main"):
+        r = subprocess.run(
+            ["git", "show", f"{ref}:src/audible/server/static/index.html"],
+            cwd=REPO, capture_output=True,
+        )
+        if r.returncode == 0 and r.stdout:
+            return r.stdout
+        tried.append(f"  {ref}: {r.stderr.decode(errors='replace').strip()}")
+    raise RuntimeError("\n".join([
+        "cannot read the pre-fix page from main, so the negative control cannot run.",
+        "CI needs actions/checkout with fetch-depth: 0.",
+        *tried,
+    ]))
+
+
 @pytest.fixture(scope="module")
 def prefix_page(tmp_path_factory, browser):
     """The page as it exists on `main` -- the control the new assertions must reject."""
     tmp = tmp_path_factory.mktemp("ui-prefix")
     old = tmp / "index.html"
-    blob = subprocess.run(
-        ["git", "show", "main:src/audible/server/static/index.html"],
-        cwd=REPO, capture_output=True, check=True,
-    ).stdout
-    old.write_bytes(blob)
+    old.write_bytes(_prefix_html_bytes())
     for cp in _boot(tmp / "state", NOT_MY_TURN_PICKS, index_html=old):
         page, ctx = _page(browser, cp.url)
         try:
@@ -512,6 +545,91 @@ def test_the_phone_targets_do_not_shrink(browser, tmp_path_factory) -> None:
             assert page.locator("#thumbBar").is_visible(), "the thumb bar must still show"
         finally:
             ctx.close()
+
+
+# ---------------------------------------------------------------------------------------
+# ENTER MUST NOT MARK OFF A HIDDEN, STALE BOARD
+# ---------------------------------------------------------------------------------------
+def test_enter_does_not_mark_off_a_hidden_stale_board(browser, live) -> None:
+    """The failure this closes: the feed goes bad mid-draft with a query in the box.
+
+    `renderCentre` hides #bestPanel and clears S.nav/S.sel, but the rows it rendered last
+    time are still children of #bestBody -- and `enterTarget` fell back to
+    `body.firstElementChild`. One Enter would then mark a player off a stale, invisible
+    board, at the exact moment you are typing fastest.
+    """
+    _, cp = live
+    ctx = browser.new_context(viewport=DESKTOP, has_touch=False)
+    page = ctx.new_page()
+    posts: list[str] = []
+    page.on(
+        "request",
+        lambda r: posts.append(r.url) if r.method == "POST" and "/api/taken" in r.url else None,
+    )
+    try:
+        page.goto(cp.url, wait_until="domcontentloaded")
+        page.wait_for_selector("#bestBody tr.prow button.mark", timeout=20_000)
+
+        # a real query, still matching real rows (the box holds focus on load)
+        page.keyboard.type("Player 01")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#bestBody tr.prow').length > 0", timeout=10_000
+        )
+
+        # now the server starts reporting an unusable board
+        def not_ready(route):
+            body = route.fetch().json()
+            body["board_ready"] = False
+            route.fulfill(
+                status=200, content_type="application/json", body=json.dumps(body)
+            )
+
+        page.route("**/api/state*", not_ready)
+        page.wait_for_function(
+            "() => document.getElementById('bestPanel').hidden === true", timeout=15_000
+        )
+
+        # the precondition that makes this bug possible: hidden panel, rows still in the DOM
+        stale = page.eval_on_selector_all("#bestBody tr.prow", "els => els.length")
+        assert stale > 0, "precondition failed: no stale rows left to mark off"
+        assert undo_state(page)["disabled"] is True
+
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(1500)
+
+        assert posts == [], f"Enter marked off a hidden board: {posts}"
+        # takenStack lives in a closure; a disabled Undo is depth 0.
+        assert undo_state(page)["disabled"] is True, "something reached takenStack"
+
+        # WHY THAT ALONE PROVES LITTLE, AND WHAT ACTUALLY HOLDS IT UP.
+        # Today the mark is blocked twice over, and neither block is the guard:
+        #   * #q lives INSIDE #bestPanel, so hiding the panel blurs the box -- measured:
+        #     document.activeElement becomes <body>. `isTyping` is false, so Enter never
+        #     reaches enterTarget(); it falls to `case "Enter"`, where S.sel was nulled.
+        #   * renderEnterHint() is called from inside renderCentre AFTER the early return,
+        #     so the hint is not re-rendered when the board is unready either.
+        # Both are accidents of structure, one DOM move from being false. So exercise the
+        # condition the guard actually exists for: the search box reachable while the
+        # payload still says the board is not usable.
+        assert page.evaluate("() => document.activeElement.tagName") == "BODY"
+
+        page.keyboard.press(" ")  # pause polling so the panel cannot be re-hidden under us
+        page.evaluate(
+            """() => { document.getElementById('bestPanel').hidden = false;
+                       document.getElementById('q').focus(); }"""
+        )
+        assert page.evaluate("() => document.activeElement.id") == "q"
+        assert page.eval_on_selector_all("#bestBody tr.prow", "e => e.length") > 0
+
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(1200)
+
+        assert posts == [], (
+            "Enter marked a player off a board the payload says is not usable: " + str(posts)
+        )
+        assert undo_state(page)["disabled"] is True, "something reached takenStack"
+    finally:
+        ctx.close()
 
 
 # ---------------------------------------------------------------------------------------

@@ -1677,6 +1677,15 @@ function post(path, id) {
    target is the first row of the FILTERED best-available list -- not S.nav[0], which
    starts with the grab-now rows and ignores the query entirely. */
 function enterTarget() {
+  // A HIDDEN BOARD IS STILL A BOARD IN THE DOM. `renderCentre` returns early when the
+  // payload is not ready -- it hides #bestPanel and clears S.nav/S.sel, but the rows it
+  // rendered last time are still children of #bestBody, and this function falls back to
+  // `body.firstElementChild`. So with a query still sitting in the box, one Enter would
+  // mark a player off a stale, invisible board at exactly the moment the feed went bad --
+  // which is exactly when you are typing fastest. Same readiness test as renderCentre.
+  // The guard can only ever PREVENT a mark, never cause one: it fails to "Enter does
+  // nothing", which is immediately visible and recoverable.
+  if (!S.data || S.data.ok === false || S.data.board_ready === false) return null;
   // Still gated on a query: Enter into an empty box must never mark anybody. The box is
   // focused on load, so an unguarded Enter would be one stray keystroke from a wrong pick.
   if (!S.query) return null;
