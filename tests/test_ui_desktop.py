@@ -559,19 +559,22 @@ def test_each_column_sorts_and_reverses(live) -> None:
     fresh(page)
     for key, _field, _best_dir in SORTABLE:
         th = page.locator(f"#bestPanel thead th[data-sort='{key}']")
-        th.click(); page.wait_for_timeout(250)
+        th.click()
+        page.wait_for_timeout(250)
         first = _col(page, key)[:1]
         assert page.locator(f"#bestPanel thead th[data-sort='{key}'].sorted").count() == 1, key
         arrow = th.locator(".sarrow").inner_text()
         assert arrow in ("▲", "▼"), f"{key}: no direction arrow"
 
-        th.click(); page.wait_for_timeout(250)          # second click reverses
+        th.click()                                      # second click reverses
+        page.wait_for_timeout(250)
         rev = _col(page, key)[:1]
         assert page.locator(f"#bestPanel thead th[data-sort='{key}'].sorted").count() == 1
         assert th.locator(".sarrow").inner_text() != arrow, f"{key}: arrow did not flip"
         assert first != rev, f"{key}: reversing changed nothing ({first} vs {rev})"
 
-    page.locator("#sortReset").click(); page.wait_for_timeout(250)
+    page.locator("#sortReset").click()
+    page.wait_for_timeout(250)
     assert page.locator("#bestPanel thead th.sorted").count() == 0
     assert page.locator("#sortReset").is_hidden()
 
@@ -629,7 +632,8 @@ def test_the_gap_column_is_present_and_sortable(live) -> None:
     assert th.count() == 1
     # inner_text() applies text-transform:uppercase; the source text is "vs ESPN"
     assert th.inner_text().strip().upper().startswith("VS ESPN")
-    th.click(); page.wait_for_timeout(250)
+    th.click()
+    page.wait_for_timeout(250)
     assert page.locator("#bestPanel thead th[data-sort='gap'].sorted").count() == 1
     page.locator("#sortReset").click()
 
