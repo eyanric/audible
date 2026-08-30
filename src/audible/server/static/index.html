@@ -156,6 +156,22 @@ button,input{font:inherit;color:inherit}
 @media (hover:hover){.btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}}
 .btn[aria-pressed="true"]{border-color:var(--warm);color:var(--warm);background:rgba(224,145,63,.10)}
 
+/* ── the wall (Part 2) ───────────────────────────────────────
+   8 teams x 16 rounds = 128 picks and there is no 129th. `mark_taken` rejects it cleanly
+   -- returns False, stores nothing, throws nothing -- but `/api/taken` returns 200 with
+   state either way, so the page flashed TAKEN and pushed an undo entry for a pick that was
+   never recorded. A live-looking button that does nothing is what read as a freeze. */
+#pickOf{
+  font-family:var(--f-cond);font-size:11px;letter-spacing:.08em;color:var(--txt-3);
+  margin-left:6px;white-space:nowrap;
+}
+.mark:disabled,.mark[disabled]{
+  opacity:.45;cursor:not-allowed;background:#171b22;border-color:#2b313c;color:var(--txt-3);
+  border-style:dashed;
+}
+@media (hover:hover){.mark:disabled:hover{background:#171b22;border-color:#2b313c;color:var(--txt-3)}}
+#board.complete .prow{cursor:default}
+
 /* ── help panel (C2) ─────────────────────────────────────────
    A FIXED OVERLAY, not an in-flow block. The requirement is that opening it must not move
    the board; reserving space for a panel this size would cost that space permanently, and
@@ -312,6 +328,7 @@ col.w-pos{width:44px}
 col.w-team{width:40px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
+col.w-gap{width:62px}
 col.w-flags{width:200px}
 col.w-act{width:140px}
 /* WIDE DESKTOP. `table-layout:fixed` with every column but the name at a fixed px width
@@ -364,6 +381,20 @@ col.w-act{width:140px}
 .c-opp.dev{color:var(--txt)}
 .c-opp.dev::after{content:"\25B3";font-size:9px;margin-left:3px;vertical-align:1px;color:var(--txt-2)}
 .c-surv.low{color:var(--urgent)}
+
+/* PART 3 -- how far our order departs from the one the room is drafting off.
+   BACKGROUND TINT, never coloured text: small coloured numerals on this dark ground are
+   the thing that has been hardest to read all day. The sign is always printed, so the
+   colour is a second channel rather than the only one, and a +-2 band stays neutral so
+   noise does not light the board up. */
+.c-gap{font-family:var(--f-mono);font-size:14px;font-variant-numeric:tabular-nums;color:var(--txt)}
+.c-gap.g0,.c-vorp.g0{background:transparent}
+.c-gap.gp1,.c-vorp.gp1{background:rgba(70,207,156,.13)}
+.c-gap.gp2,.c-vorp.gp2{background:rgba(70,207,156,.24)}
+.c-gap.gp3,.c-vorp.gp3{background:rgba(70,207,156,.36)}
+.c-gap.gn1,.c-vorp.gn1{background:rgba(255,106,60,.13)}
+.c-gap.gn2,.c-vorp.gn2{background:rgba(255,106,60,.24)}
+.c-gap.gn3,.c-vorp.gn3{background:rgba(255,106,60,.36)}
 .c-surv.high{color:var(--safe)}
 /* THE ACTION, VISIBLE AT REST. This was an 18x18 glyph with a TRANSPARENT border in a
    24px column, revealed only by `.prow:hover` -- so on a mouse-driven desktop the one
@@ -629,7 +660,7 @@ col.w-act{width:140px}
 <header id="top">
   <div class="t-left">
     <div class="t-pick">
-      <span id="pickNo">—</span>
+      <span id="pickNo">—</span><span id="pickOf"></span>
       <span id="pickRound" class="mono"></span>
     </div>
     <div class="t-league">
@@ -720,6 +751,15 @@ col.w-act{width:140px}
             top ten even though the points projection does not. A small triangle marks the
             players where the two disagree most.</span></dd>
 
+        <dt>vs ESPN</dt>
+        <dd>How far this board&rsquo;s order departs from the order <b>ESPN serves the room</b>,
+          compared only against players at the <b>same position</b>. Positive means this board
+          takes him earlier than the room does &mdash; he is a bargain.
+          <span class="eg">Mike Evans shows +20: twenty receivers the room takes ahead of him,
+            this board takes behind him. <b>Green</b> is a bargain, <b>red</b> means the room
+            likes him more, and anything within &plusmn;2 stays grey because that is noise.
+            The same tint is on the Value number, because that is the number it argues about.</span></dd>
+
         <dt>Lasts</dt>
         <dd>The chance he is <b>still unpicked when your next turn comes round</b>.
           <span class="eg">Derrick Henry shows 93% — he will very likely still be there.
@@ -798,7 +838,7 @@ col.w-act{width:140px}
         <table class="ptable" aria-label="Grab now">
           <colgroup>
             <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
-            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+            <col class="w-r"><col class="w-surv"><col class="w-gap"><col class="w-flags"><col class="w-act">
           </colgroup>
           <tbody id="grabBody"></tbody>
         </table>
@@ -817,7 +857,7 @@ col.w-act{width:140px}
         <table class="ptable" aria-label="Best available">
           <colgroup>
             <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
-            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+            <col class="w-r"><col class="w-surv"><col class="w-gap"><col class="w-flags"><col class="w-act">
           </colgroup>
           <thead>
             <tr>
@@ -828,6 +868,7 @@ col.w-act{width:140px}
               <th scope="col" class="num" title="WHAT IT IS: how many more points he scores than the best player at his position you could still pick up for free, once this 8-team league&#39;s starting slots are full.&#10;&#10;WHAT THE NUMBER MEANS: Jahmyr Gibbs shows 1 while his RANK is 18 - seventeen players score more, but none of them puts a bigger gap between you and the free option.&#10;&#10;WHAT TO DO: when two players look close on RANK, take the better VALUE.">Value</th>
               <th scope="col" class="num" title="WHAT IT IS: a second opinion built only from the work he gets - carries, targets, and the share of touches left behind by team-mates who have gone.&#10;&#10;WHAT THE NUMBER MEANS: Christian McCaffrey shows 10 against a RANK of 35: the workload says top-10 even though the points projection does not.&#10;&#10;WHAT TO DO: a much better USAGE than RANK is a buy signal. A small triangle marks the players where the two disagree most.">Usage</th>
               <th scope="col" class="num" title="WHAT IT IS: the chance he is still unpicked when your next turn comes round.&#10;&#10;WHAT THE NUMBER MEANS: Derrick Henry shows 93% - he will very likely still be there. Jahmyr Gibbs shows 9% - he will very likely be gone.&#10;&#10;WHAT TO DO: spend this pick on a low number and come back for a high one.">Lasts</th>
+              <th scope="col" class="num" title="WHAT IT IS: how far this board&#39;s order departs from the order ESPN serves the room, compared only against players at the SAME position.&#10;&#10;WHAT THE NUMBER MEANS: Mike Evans shows +20 - twenty receivers the room takes ahead of him, this board takes behind him. He is the bargain. A negative number means the room likes him more than we do.&#10;&#10;WHAT TO DO: green is where this league&#39;s scoring disagrees with the room, and that is the edge. Sort by it to find who is underpriced.">vs ESPN</th>
               <th scope="col" class="h-flags" title="WHAT IT IS: short notes explaining WHY a player is where he is.&#10;&#10;WHAT THE NUMBER MEANS: &#39;opp+80&#39; means the workload model puts him 80 points above the projection; &#39;vac+15%&#39; means 15% of his team&#39;s touches were left behind by players who are gone.&#10;&#10;WHAT TO DO: open the help panel (the ? button, bottom left) for the full list - every flag is spelled out there.">Signals</th>
               <th scope="col"><span class="sr">Mark taken</span></th>
             </tr>
@@ -1033,6 +1074,7 @@ var S = {
   nav: [],               // [{scope,id,el}] in visual order
   takenStack: [],        // [{id,name}] marks made from this screen
   myPick: false,         // clock.picks_until_me === 0 -> the row button says DRAFT
+  complete: false,       // every pick in the draft has been made; nothing can be marked
   markPending: {},       // id -> true while its POST is in flight (double-click guard)
   actionMsg: "",
   actionErr: false,
@@ -1063,6 +1105,7 @@ function createPlayerRow(scope) {
   var tdVorp = mk("td", "c-num c-vorp num");
   var tdOpp = mk("td", "c-num c-opp num");
   var tdSurv = mk("td", "c-num c-surv num");
+  var tdGap = mk("td", "c-gap num");
   var tdFlags = mk("td", "c-flags");
 
   var tdAct = mk("td", "c-act");
@@ -1073,13 +1116,13 @@ function createPlayerRow(scope) {
 
   tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
   tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
-  tr.appendChild(tdSurv); tr.appendChild(tdFlags); tr.appendChild(tdAct);
+  tr.appendChild(tdSurv); tr.appendChild(tdGap); tr.appendChild(tdFlags); tr.appendChild(tdAct);
 
   var rec = {
     el: tr, scope: scope, id: null,
     name: nameSpan, need: needTag, chip: chip, team: tdTeam,
     cons: tdCons, vorp: tdVorp, opp: tdOpp, surv: tdSurv,
-    flags: tdFlags, btn: btn
+    flags: tdFlags, gap: tdGap, btn: btn
   };
 
   // pointerdown, not mousedown: iOS synthesises mouse events late and drops them
@@ -1107,6 +1150,10 @@ function createPlayerRow(scope) {
    visible before it goes. */
 function fireMark(rec) {
   if (rec.id == null) return;
+  // The server rejects a 129th pick but `/api/taken` still answers 200 with state, so
+  // without this the page would flash a confirmation and push an undo entry for a pick
+  // that was never recorded.
+  if (S.complete) return;
   if (S.markPending[String(rec.id)]) return;
   flashMark(rec, !!S.myPick);
   markTaken(rec.id, rec.name.textContent);
@@ -1138,12 +1185,31 @@ function setMarkLabel(rec) {
     delete b.dataset.flashId;
     b.classList.remove("is-done");
   }
+  // Visibly dead at the wall, not merely inert: dashed, dimmed, and `disabled` so the
+  // pointer says so too. The old button looked identical whether or not it would work.
+  b.disabled = !!S.complete;
+  if (S.complete) {
+    setText(b, "DRAFT OVER");
+    setAttr(b, "title", "Every pick in this draft has been made");
+    b.classList.remove("is-draft");
+    return;
+  }
   var mine = !!S.myPick;
   setText(b, mine ? "DRAFT HIM" : "TAKEN");
   setAttr(b, "title", mine
     ? "Draft him — the next pick recorded is yours"
     : "Mark taken by someone else");
   b.classList.toggle("is-draft", mine);
+}
+
+/* Three steps each way, on the magnitude of the gap. Returns a class suffix so the same
+   scale can tint both the gap itself and the VALUE it is arguing about. */
+function gapBand(gap) {
+  if (gap == null) return "";
+  var a = gap < 0 ? -gap : gap;
+  if (a <= 2) return " g0";            // noise
+  var step = a <= 7 ? "1" : (a <= 14 ? "2" : "3");
+  return (gap > 0 ? " gp" : " gn") + step;
 }
 
 function updatePlayerRow(rec, p) {
@@ -1161,6 +1227,16 @@ function updatePlayerRow(rec, p) {
   setAttr(rec.opp, "title", p.deviation
     ? "Opportunity disagrees with consensus"
     : null);
+
+  // PART 3. Signed text plus a background tint, and a neutral band either side of zero:
+  // a +-2 gap is two ranks of noise, not a signal, and lighting it up would train the eye
+  // to ignore the colour entirely. Bands are deliberately coarse -- three steps a glance
+  // can tell apart, not a gradient.
+  var gap = p.vs_espn;
+  setText(rec.gap, gap == null ? "" : (gap > 0 ? "+" + gap : String(gap)));
+  var band = gapBand(gap);
+  setClassName(rec.gap, "c-gap num" + band);
+  setClassName(rec.vorp, "c-num c-vorp num" + band);
 
   // deliberately narrow bands: if half the column is coloured the run
   // warnings stop registering
@@ -1323,6 +1399,14 @@ function renderTop(d) {
   // the clock and the next pick I control, so zero means both are mine right now. Showing a
   // single pick number here reads as one pick, and the second one gets made in a hurry
   // against a board that never said it was coming.
+  // THE WALL. Capacity is teams x rounds and the server will refuse pick 129, so the page
+  // has to stop offering it. Derived from the payload rather than hardcoded, because a
+  // league with different structure has a different wall.
+  var capacity = (lg.num_teams || 0) * (draft.rounds || 0);
+  S.complete = complete || (capacity > 0 && (clock.current_pick || 0) > capacity);
+  setText($("pickOf"), capacity ? " of " + capacity : "");
+  $("board").classList.toggle("complete", !!S.complete);
+
   // Driven by where the NEXT MARK LANDS, not by the ESPN clock. The old gate was
   // `started && picks_until_me === 0`, and League B reports `pre_draft` for the whole of a
   // hand-mirrored round -- so `started` was false exactly when the distinction mattered and
@@ -1477,7 +1561,9 @@ function renderAlert() {
     kind = ""; head = "Not started";
     body = "The draft has not started. Board and roster shape are live; there is no clock yet.";
   } else if (d && d.clock && d.clock.complete === true) {
-    kind = ""; head = "Draft complete";
+    var cap = (d.league && d.league.num_teams ? d.league.num_teams : 0)
+            * (d.draft && d.draft.rounds ? d.draft.rounds : 0);
+    kind = ""; head = cap ? "Draft complete · " + cap + " of " + cap : "Draft complete";
     body = "The draft is over. This board is frozen at the final state.";
   } else if (d && d.message) {
     kind = ""; head = "Note";
@@ -1885,6 +1971,12 @@ function renderEnterHint() {
 
 function markTaken(id, name) {
   if (id == null) return;
+  if (S.complete) {
+    S.actionMsg = "Draft complete — every pick has been made";
+    S.actionErr = false;
+    renderAction();
+    return;
+  }
   var label = name || id;
   // Keyed on the id rather than one global flag: two DIFFERENT players marked in quick
   // succession from the keyboard must both go through, but the same player twice

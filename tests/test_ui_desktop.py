@@ -604,9 +604,9 @@ def test_column_headers_are_words(live) -> None:
     heads = page.eval_on_selector_all(
         "#bestPanel thead th.num", "els => els.map(e => e.textContent.trim())"
     )
-    assert heads == ["Rank", "Value", "Usage", "Lasts"], heads
+    assert heads == ["Rank", "Value", "Usage", "Lasts", "vs ESPN"], heads
     # every one carries the three-part tooltip, not a bare phrase
-    for i in range(4):
+    for i in range(5):
         t = page.eval_on_selector_all(
             "#bestPanel thead th.num", "els => els.map(e => e.getAttribute('title'))"
         )[i]
