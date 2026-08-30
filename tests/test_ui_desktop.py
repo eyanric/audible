@@ -344,9 +344,24 @@ def undo_state(page: Page) -> dict:
 
 
 def fresh(page: Page) -> None:
-    """Reload so `takenStack` starts empty. Marks already sent to the server stay made;
-    only the client-side undo stack resets, which is exactly the isolation these tests
-    need to make a claim about ONE action."""
+    """Start from a genuinely empty session: no manual picks on the SERVER, then reload.
+
+    A reload alone used to be enough, because Undo was driven by the browser's own stack.
+    Now that it reads server truth (Part 1), a reload correctly leaves it ENABLED while
+    manual picks remain -- so isolating a test means clearing them, not just reloading.
+    """
+    page.evaluate(
+        """async () => {
+             for (let i = 0; i < 200; i++) {
+               const s = await (await fetch('/api/state', {cache: 'no-store'})).json();
+               if (!s.undo || s.undo.available !== true) break;
+               await fetch('/api/taken/undo', {
+                 method: 'POST',
+                 headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({player_id: s.undo.player_id})});
+             }
+           }"""
+    )
     page.reload(wait_until="domcontentloaded")
     page.wait_for_selector("#bestBody tr.prow button.mark", timeout=20_000)
     page.wait_for_function(
@@ -536,6 +551,140 @@ def test_undo_fits_inside_its_panel_header(live) -> None:
     )
     assert box["over_top"] <= 0.5, box
     assert box["over_bottom"] <= 0.5, box
+
+
+# ---------------------------------------------------------------------------------------
+# PART 1. UNDO SURVIVES A RELOAD
+# ---------------------------------------------------------------------------------------
+def test_undo_survives_a_page_reload(browser, tmp_path_factory) -> None:
+    """The failure this closes: three hours, a hundred marks, one reload, and the only way
+    back through the UI is gone -- while the picks sit on the server, undoable."""
+    tmp = tmp_path_factory.mktemp("ui-undo-reload")
+    for cp in _boot(tmp, NOT_MY_TURN_PICKS):
+        page, ctx = _page(browser, cp.url)
+        try:
+            first = board_names(page)[0]
+            click_like_a_human(page)
+            page.wait_for_function(
+                "n => !Array.from(document.querySelectorAll('#bestBody .pname'))"
+                "  .some(e => e.textContent.trim() === n)", arg=first, timeout=10_000)
+            second = board_names(page)[0]
+            click_like_a_human(page)
+            page.wait_for_function(
+                "n => !Array.from(document.querySelectorAll('#bestBody .pname'))"
+                "  .some(e => e.textContent.trim() === n)", arg=second, timeout=10_000)
+            assert cp.state()["undo"] == {
+                "available": True, "player_id": cp.state()["undo"]["player_id"], "name": second}
+
+            # THE RELOAD. takenStack is gone; the picks are not.
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector("#bestBody tr.prow button.mark", timeout=20_000)
+            page.wait_for_timeout(400)
+            u = undo_state(page)
+            assert u["disabled"] is False, "Undo greyed out after a reload"
+            assert u["label"] == f"Undo: {second}", u["label"]
+
+            # undo it: the right player comes back
+            page.locator("#undoBtn").click()
+            page.wait_for_function(
+                "n => Array.from(document.querySelectorAll('#bestBody .pname'))"
+                "  .some(e => e.textContent.trim() === n)", arg=second, timeout=10_000)
+
+            # reload again -- still one manual pick left, still undoable
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector("#bestBody tr.prow button.mark", timeout=20_000)
+            page.wait_for_timeout(400)
+            u = undo_state(page)
+            assert u["disabled"] is False, "Undo greyed out with a pick still undoable"
+            assert u["label"] == f"Undo: {first}", u["label"]
+
+            page.locator("#undoBtn").click()
+            page.wait_for_function(
+                "() => document.getElementById('undoBtn').disabled === true", timeout=10_000)
+            assert cp.state()["undo"]["available"] is False
+        finally:
+            ctx.close()
+
+
+def test_undo_is_disabled_when_only_synced_picks_exist(browser, tmp_path_factory) -> None:
+    """Synced picks are not undoable, and the button must not pretend otherwise.
+
+    `undo_taken` reads and writes only `session.manual_picks` and never references
+    `session.picks`, so a synced pick cannot be removed by it -- this pins the UI to that.
+    """
+    tmp = tmp_path_factory.mktemp("ui-undo-synced")
+    for cp in _boot(tmp, 7):          # seven SYNCED picks, zero manual
+        page, ctx = _page(browser, cp.url)
+        try:
+            st = cp.state()
+            assert st["clock"]["current_pick"] == 8, st["clock"]
+            assert st["undo"] == {"available": False, "player_id": None, "name": None}
+            u = undo_state(page)
+            assert u["present"] is True
+            assert u["disabled"] is True, "Undo offered to remove a synced pick"
+            assert u["label"] == "Undo"
+        finally:
+            ctx.close()
+
+
+# ---------------------------------------------------------------------------------------
+# PART 2b / PART 3. CONFIDENCE CUE AND DATA VINTAGE
+# ---------------------------------------------------------------------------------------
+def test_the_gap_is_muted_outside_the_band_it_was_measured_in(live) -> None:
+    """A confidence cue, never a filter: the number stays, stays signed, stays sortable."""
+    page, _ = live
+    fresh(page)
+    rows = page.evaluate(
+        """() => [...document.querySelectorAll('#bestBody tr.prow')].map(r => {
+             const g = r.querySelector('.c-gap');
+             return {text: g.textContent.trim(), cls: g.className,
+                     op: parseFloat(getComputedStyle(g).opacity)};
+           })"""
+    )
+    assert rows, "no rows"
+    muted = [r for r in rows if "unsure" in r["cls"]]
+    for r in muted:
+        # muted, but never blanked and never unsigned
+        assert r["op"] < 1.0, r
+        if r["text"]:
+            assert r["text"][0] in "+-−" or r["text"] == "0", r["text"]
+    # the class only ever attaches where a gap actually exists
+    for r in rows:
+        if "unsure" in r["cls"]:
+            assert r["text"] != "", "muted an empty cell"
+
+
+def test_help_panel_says_where_the_gap_is_trustworthy(live) -> None:
+    page, _ = live
+    fresh(page)
+    page.locator("#legendToggle").click()
+    page.wait_for_timeout(200)
+    text = page.locator("#helpCard").inner_text().lower()
+    assert "where to trust it" in text
+    assert "faded" in text
+    # the news caveat (2c)
+    assert "news" in text
+    for jargon in ("spearman", "correlation", "rho", "coefficient"):
+        assert jargon not in text, f"jargon leaked into the help panel: {jargon}"
+    page.locator("#helpClose").click()
+
+
+def test_data_vintage_is_on_screen(live) -> None:
+    page, cp = live
+    fresh(page)
+    dv = cp.state()["data"]
+    el = page.evaluate(
+        """() => { const e = document.getElementById('dataAge');
+                   return {hidden: e.hidden, text: e.textContent.trim(),
+                           stale: e.classList.contains('stale')}; }"""
+    )
+    if dv["oldest_days"] is None:
+        assert el["hidden"] is True
+    else:
+        assert el["hidden"] is False
+        assert "board data:" in el["text"]
+        assert str(dv["oldest_days"]) in el["text"]
+        assert el["stale"] == (dv["stale"] is True)
 
 
 # ---------------------------------------------------------------------------------------
@@ -958,14 +1107,16 @@ def test_enter_does_not_mark_off_a_hidden_stale_board(browser, live) -> None:
         # the precondition that makes this bug possible: hidden panel, rows still in the DOM
         stale = page.eval_on_selector_all("#bestBody tr.prow", "els => els.length")
         assert stale > 0, "precondition failed: no stale rows left to mark off"
-        assert undo_state(page)["disabled"] is True
+        # Undo now reads SERVER truth, so earlier tests sharing this server may legitimately
+        # leave it enabled. The claim here is that Enter changes NOTHING, so compare the
+        # state either side rather than asserting an absolute.
+        undo_before = undo_state(page)
 
         page.keyboard.press("Enter")
         page.wait_for_timeout(1500)
 
         assert posts == [], f"Enter marked off a hidden board: {posts}"
-        # takenStack lives in a closure; a disabled Undo is depth 0.
-        assert undo_state(page)["disabled"] is True, "something reached takenStack"
+        assert undo_state(page) == undo_before, "Enter changed the undo state"
 
         # WHY THAT ALONE PROVES LITTLE, AND WHAT ACTUALLY HOLDS IT UP.
         # Today the mark is blocked twice over, and neither block is the guard:
@@ -993,7 +1144,7 @@ def test_enter_does_not_mark_off_a_hidden_stale_board(browser, live) -> None:
         assert posts == [], (
             "Enter marked a player off a board the payload says is not usable: " + str(posts)
         )
-        assert undo_state(page)["disabled"] is True, "something reached takenStack"
+        assert undo_state(page) == undo_before, "Enter changed the undo state"
     finally:
         ctx.close()
 

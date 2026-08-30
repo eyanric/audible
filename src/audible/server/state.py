@@ -31,10 +31,16 @@ RUN_WINDOW = 10
 def _player(cand: Candidate, gaps: dict[str, int] | None = None) -> dict[str, Any]:
     e = cand.entry
     gap = (gaps or {}).get(e.player_id)
+    espn_rank = _rank_cache.get(e.player_id)
     return {
         # Part 3, additive: how far our order departs from the one the room drafts off.
         # None means "not comparable", which the page renders as blank rather than as 0.
         "vs_espn": gap,
+        # Where ESPN ranks him, so the page can tell a gap it can trust from one it cannot.
+        "espn_rank": espn_rank,
+        "vs_espn_confident": (
+            espn_rank is not None and gap is not None and espn_rank >= GAP_CONFIDENT_FROM
+        ),
         "id": e.player_id,
         "name": e.name,
         "position": e.position,
@@ -192,6 +198,12 @@ def _cliffs(view: LiveView) -> list[dict[str, Any]]:
 # receptions: pass-catching backs move DOWN because this league pays them 0.0 a catch).
 _GAP_POPULATION = 200
 _gap_cache: dict[str, int] | None = None
+_rank_cache: dict[str, int] = {}
+# Measured by scripts/gap-confidence.py: Spearman(receptions, gap) within position, banded on
+# ESPN rank. WR 61-120 = +0.50 and RB 121-200 = -0.40 both clear |0.30|; nothing in 1-60 does
+# (WR +0.24, RB -0.25). So from 61 on the gap is carrying the scoring seam, and above it the
+# two boards mostly agree anyway -- the top-of-board gaps measure 0 and +-1.
+GAP_CONFIDENT_FROM = 61
 
 
 def _espn_gaps(service: CockpitService) -> dict[str, int]:
@@ -247,10 +259,61 @@ def _espn_gaps(service: CockpitService) -> dict[str, int]:
                 sorted(group, key=lambda e: e.vorp_rank), start=1)}
             for e in group:
                 _gap_cache[e.player_id] = theirs[e.player_id] - ours[e.player_id]
+                _rank_cache[e.player_id] = int(ranks[e.player_id])
     except Exception as exc:  # noqa: BLE001 -- no column beats a wrong column
         log.warning("ESPN gap column unavailable (%s); it will not be shown", exc)
         _gap_cache = {}
     return _gap_cache
+
+
+# Anything older than this is called out. A week-old projection set is still usable -- it
+# is what the offline guarantee rests on -- but Eric should know before he trusts it.
+STALE_AFTER_DAYS = 7.0
+
+
+def _data_vintage() -> dict[str, Any]:
+    """How old the board's inputs are. Read from the cache manifest; never fetches."""
+    try:
+        from ..adapters.nflverse import cache_summary  # same source /healthz reports
+
+        summary = cache_summary()
+        oldest = summary.get("oldest_age_s")
+        days = round(oldest / 86400.0, 1) if oldest is not None else None
+        return {
+            "sources": summary.get("keys") or 0,
+            "oldest_age_s": oldest,
+            "oldest_days": days,
+            "stale": (days is not None and days > STALE_AFTER_DAYS),
+        }
+    except Exception as exc:  # noqa: BLE001 -- a readout must never take the board down
+        log.warning("data vintage unavailable (%s)", exc)
+        return {"sources": 0, "oldest_age_s": None, "oldest_days": None, "stale": False}
+
+
+def _undo(service: CockpitService) -> dict[str, Any]:
+    """Whether an undoable pick exists, from SERVER truth rather than the browser's stack.
+
+    `takenStack` lives in one page session, so a reload greyed Undo out while the manual
+    picks were still sitting on the server and `undo_taken` would still have worked. Over
+    three hours and a hundred-odd marks a reload is likely, and a mis-mark right after one
+    left no way back through the UI.
+
+    Only MANUAL picks are undoable, and that is a property of `undo_taken` rather than a
+    convention observed here: it reads `session.manual_picks`, rejects any id not in that
+    list, and the only assignment it makes is back to `session.manual_picks`. It never
+    references `session.picks`, so a synced pick cannot be removed by it.
+    """
+    manual = service.session.manual_picks
+    if not manual:
+        return {"available": False, "player_id": None, "name": None}
+    last = manual[-1]
+    board = service.board
+    entry = ({e.player_id: e for e in board.entries}.get(last.player_id)) if board else None
+    return {
+        "available": True,
+        "player_id": last.player_id,
+        "name": entry.name if entry else last.player_id,
+    }
 
 
 def _next_mark(service: CockpitService) -> dict[str, Any]:
@@ -307,6 +370,13 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         # record? Recomputed from the same inputs `_renumber_manual` uses rather than read
         # off the ESPN clock, so it is true while mirroring by hand and under live sync.
         "next_mark": _next_mark(service),
+        # Part 3, additive and DISPLAY ONLY. `cache_summary` reads the manifest off disk --
+        # file metadata, no fetch. Nothing here may trigger a refetch: a surprise network
+        # call mid-draft is the exact failure this readout exists to warn about.
+        "data": _data_vintage(),
+        # Additive: the Undo control reads its enabled state from here, not from the
+        # browser's own stack, so it survives a reload.
+        "undo": _undo(service),
         "sync": {
             "age_s": round(age, 1) if age is not None else None,
             "status": health.status(now),

@@ -161,6 +161,15 @@ button,input{font:inherit;color:inherit}
    -- returns False, stores nothing, throws nothing -- but `/api/taken` returns 200 with
    state either way, so the page flashed TAKEN and pushed an undo entry for a pick that was
    never recorded. A live-looking button that does nothing is what read as a freeze. */
+/* PART 3 -- how old the thing on screen actually is. Display only; reading it never
+   triggers a fetch, because a surprise network call mid-draft is the failure it warns about. */
+#dataAge{
+  font-family:var(--f-cond);font-size:11px;letter-spacing:.06em;color:var(--txt-3);
+  white-space:nowrap;margin-right:10px;
+}
+#dataAge.stale{color:var(--warm)}
+#dataAge[hidden]{display:none}
+
 #pickOf{
   font-family:var(--f-cond);font-size:11px;letter-spacing:.08em;color:var(--txt-3);
   margin-left:6px;white-space:nowrap;
@@ -419,6 +428,13 @@ col.w-act{width:140px}
 .c-gap.gn1,.c-vorp.gn1{background:rgba(255,106,60,.13)}
 .c-gap.gn2,.c-vorp.gn2{background:rgba(255,106,60,.24)}
 .c-gap.gn3,.c-vorp.gn3{background:rgba(255,106,60,.36)}
+/* CONFIDENCE, not a filter. Measured (scripts/gap-confidence.py): the gap tracks receptions
+   at WR 61-120 (+0.50) and RB 121-200 (-0.40); nothing in the top 60 clears |0.30|, and up
+   there the two boards mostly agree anyway -- those gaps measure 0 and +-1. Outside the band
+   the SAME NUMBER is still printed and still sortable, just quieter, so it invites less
+   weight without hiding anything. */
+.c-gap.unsure,.c-vorp.unsure{opacity:.45}
+.c-gap.unsure{color:var(--txt-2)}
 .c-surv.high{color:var(--safe)}
 /* THE ACTION, VISIBLE AT REST. This was an 18x18 glyph with a TRANSPARENT border in a
    24px column, revealed only by `.prow:hover` -- so on a mouse-driven desktop the one
@@ -701,6 +717,7 @@ col.w-act{width:140px}
   </div>
 
   <div class="t-right">
+    <span id="dataAge" hidden></span>
     <div id="syncChip" class="off" title="">
       <span id="syncDot" aria-hidden="true"></span>
       <span id="syncText">waiting for first update</span>
@@ -782,7 +799,17 @@ col.w-act{width:140px}
           <span class="eg">Mike Evans shows +20: twenty receivers the room takes ahead of him,
             this board takes behind him. <b>Green</b> is a bargain, <b>red</b> means the room
             likes him more, and anything within &plusmn;2 stays grey because that is noise.
-            The same tint is on the Value number, because that is the number it argues about.</span></dd>
+            The same tint is on the Value number, because that is the number it argues about.</span>
+          <span class="eg"><b>Where to trust it.</b> This column earns its keep from roughly
+            the eighth round onward. Near the top of the board the two orderings mostly agree
+            &mdash; those gaps come out at 0 or &plusmn;1 &mdash; so the number there is shown
+            <b>faded</b>. It is still the real number and still sorts; it just deserves less
+            weight.</span>
+          <span class="eg"><b>One caution.</b> This compares a board built from pre-season
+            projections against ESPN ranks that <b>move with the news</b>. A big red number can
+            simply mean the room has heard something the projections have not caught up with
+            yet &mdash; an injury, a depth-chart change &mdash; so check why before you fade
+            somebody on it.</span></dd>
 
         <dt>Lasts</dt>
         <dd>The chance he is <b>still unpicked when your next turn comes round</b>.
@@ -1306,8 +1333,11 @@ function updatePlayerRow(rec, p) {
   var gap = p.vs_espn;
   setText(rec.gap, gap == null ? "" : (gap > 0 ? "+" + gap : String(gap)));
   var band = gapBand(gap);
-  setClassName(rec.gap, "c-gap num" + band);
-  setClassName(rec.vorp, "c-num c-vorp num" + band);
+  // Muted outside the band where the gap was measured to carry the seam. The value is
+  // unchanged and still sorts; only its loudness moves.
+  var unsure = (gap != null && p.vs_espn_confident !== true) ? " unsure" : "";
+  setClassName(rec.gap, "c-gap num" + band + unsure);
+  setClassName(rec.vorp, "c-num c-vorp num" + band + unsure);
 
   // deliberately narrow bands: if half the column is coloured the run
   // warnings stop registering
@@ -1550,6 +1580,20 @@ function renderTop(d) {
   top.classList.toggle("onclock", started && !complete && n === 0);
   top.classList.toggle("twopicks", twoOnClock);
   top.classList.toggle("soon", started && !complete && n != null && n > 0 && n <= 2);
+
+  // Data vintage: ESPN's ranks move with the news, the board's inputs do not.
+  var dv = d.data || {};
+  var age = $("dataAge");
+  if (dv.oldest_days == null) {
+    setHidden(age, true);
+  } else {
+    setHidden(age, false);
+    setText(age, "board data: " + dv.oldest_days
+                 + (dv.oldest_days === 1 ? " day old" : " days old"));
+    age.classList.toggle("stale", dv.stale === true);
+    setAttr(age, "title", "Oldest of the " + dv.sources + " inputs this board is built from."
+      + (dv.stale ? " Older than a week." : ""));
+  }
 
   // browser tab — he is usually looking at the Sleeper window
   var t;
@@ -1992,20 +2036,29 @@ function renderAction() {
   // thumb that is already on its way down. F4: the desktop Undo now works the same way,
   // for the same reason -- it used to appear only once it was needed, which is the one
   // moment you cannot afford to go looking for where a control moved to.
+  // PART 1. SERVER TRUTH decides whether Undo is enabled, never the browser's own stack.
+  // `takenStack` lives in one page session, so a reload used to grey this out while the
+  // manual picks were still on the server and `undo_taken` would have worked fine. The
+  // stack is kept ONLY as an optimisation: it names the player instantly after a mark,
+  // before the next poll lands. It may make the label sharper; it may never disable.
   var thumb = $("thumbUndo");
-  var empty = S.takenStack.length === 0;
+  var srv = (S.data && S.data.undo) || {};
+  var local = S.takenStack.length ? S.takenStack[S.takenStack.length - 1] : null;
+  var can = (srv.available === true) || !!local;
+  var name = local ? local.name : (srv.name || null);
+
   setHidden(btn, false);
-  btn.disabled = empty;
-  if (thumb) thumb.disabled = empty;
-  if (empty) {
+  btn.disabled = !can;
+  if (thumb) thumb.disabled = !can;
+  if (!can) {
     setText(btn, "Undo");
     setAttr(btn, "title", "Nothing to undo");
     if (thumb) setAttr(thumb, "title", "Nothing to undo");
   } else {
-    var top = S.takenStack[S.takenStack.length - 1];
-    setText(btn, "Undo: " + top.name);
-    setAttr(btn, "title", "Undo: " + top.name);
-    if (thumb) setAttr(thumb, "title", "Undo: " + top.name);
+    var label = name ? ("Undo: " + name) : "Undo last pick";
+    setText(btn, label);
+    setAttr(btn, "title", label);
+    if (thumb) setAttr(thumb, "title", label);
   }
 }
 
@@ -2144,6 +2197,26 @@ function markTaken(id, name) {
 }
 
 function undoTaken() {
+  // Server truth again: after a reload the stack is empty but the pick is still undoable.
+  var srvUndo = (S.data && S.data.undo) || {};
+  if (!S.takenStack.length && srvUndo.available === true) {
+    var who = srvUndo.name || "last pick";
+    // The id explicitly, not null: `post` stringifies, so a null would arrive as "null"
+    // and match no pick. The payload already names the one that would be undone.
+    post("/api/taken/undo", srvUndo.player_id).then(function (j) {
+      S.actionMsg = "Undone: " + who;
+      S.actionErr = false;
+      S.fetchFail = 0;
+      S.lastFetchError = null;
+      applyState(j);
+    }).catch(function (err) {
+      console.error("[audible] undo failed:", err);
+      S.actionMsg = "Undo failed: " + who;
+      S.actionErr = true;
+      renderAction();
+    });
+    return;
+  }
   if (!S.takenStack.length) {
     S.actionMsg = "Nothing to undo";
     S.actionErr = false;
