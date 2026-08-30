@@ -156,6 +156,47 @@ button,input{font:inherit;color:inherit}
 @media (hover:hover){.btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}}
 .btn[aria-pressed="true"]{border-color:var(--warm);color:var(--warm);background:rgba(224,145,63,.10)}
 
+/* ── help panel (C2) ─────────────────────────────────────────
+   A FIXED OVERLAY, not an in-flow block. The requirement is that opening it must not move
+   the board; reserving space for a panel this size would cost that space permanently, and
+   an in-flow panel that pushes anything is the exact defect the Grab now fix removed. Taken
+   out of flow, the board cannot move by construction -- there is nothing to shift. */
+#helpPanel{
+  position:fixed;inset:auto 0 0 0;top:0;z-index:60;display:flex;
+  align-items:center;justify-content:center;padding:24px;
+  background:rgba(8,10,14,.72);
+}
+#helpPanel[hidden]{display:none}
+#helpCard{
+  width:min(1100px,96vw);max-height:88vh;overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:18px 20px 20px;
+  font-size:12.5px;line-height:1.5;color:var(--txt-2);
+}
+#helpCard h2{
+  font-family:var(--f-display);font-size:15px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--txt);margin:0 0 4px;
+}
+#helpCard h3{
+  font-family:var(--f-cond);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--txt-3);margin:18px 0 8px;border-bottom:1px solid var(--line-soft);padding-bottom:4px;
+}
+#helpCard dl{display:grid;grid-template-columns:132px 1fr;gap:8px 14px;margin:0}
+#helpCard dt{
+  font-family:var(--f-display);font-size:13px;font-weight:600;color:var(--txt);
+  letter-spacing:.02em;
+}
+#helpCard dd{margin:0;color:var(--txt-2)}
+#helpCard dd b{color:var(--txt);font-weight:600}
+#helpCard .eg{display:block;color:var(--txt-3);margin-top:2px}
+#helpCard code{
+  font-family:var(--f-mono);font-size:12px;color:var(--txt);
+  background:#20252e;border:1px solid var(--line);border-radius:3px;padding:0 4px;
+}
+#helpHead{display:flex;align-items:center;gap:12px}
+#helpHead .spacer{flex:1}
+#helpClose{min-height:32px;min-width:80px}
+
 /* ── alert strip ─────────────────────────────────────────── */
 #alert{
   flex:0 0 auto;display:flex;align-items:baseline;gap:10px;
@@ -638,18 +679,105 @@ col.w-act{width:140px}
           <div><kbd>&uarr;&darr;</kbd>move selection</div>
           <div><kbd>u</kbd> / <kbd>ctrl+z</kbd>Undo</div>
           <div><kbd>space</kbd>Pause updates</div>
-          <div id="legendMore" hidden>
-            <div><kbd>t</kbd>Mark taken</div>
-            <div><kbd>g</kbd> / <kbd>b</kbd>grab now / board</div>
-            <div><kbd>r</kbd> / <kbd>c</kbd>roster / runs</div>
-            <div><kbd id="legendDigits">0-6</kbd>position filter</div>
-          </div>
           <button id="legendToggle" class="legend-more" type="button" aria-expanded="false"
-                  aria-controls="legendMore">? more keys</button>
+                  aria-controls="helpPanel">? What do these numbers mean</button>
         </div>
       </div>
     </div>
   </section>
+
+  <!-- ── help (C2): every column and every signal, in plain words ── -->
+  <div id="helpPanel" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+    <div id="helpCard">
+      <div id="helpHead">
+        <h2 id="helpTitle">What the numbers mean</h2>
+        <span class="spacer"></span>
+        <button id="helpClose" class="btn" type="button">Close</button>
+      </div>
+
+      <h3>The four columns</h3>
+      <dl>
+        <dt>Rank</dt>
+        <dd>Where he sits when every player is put in order by the points we expect him to
+          score <b>under this league's own scoring</b> — which pays a receiver half a point a
+          catch and a running back nothing.
+          <span class="eg">Ja'Marr Chase shows 25: twenty-four players are expected to outscore
+            him. Start from this order, then let Value and Usage argue with it.</span></dd>
+
+        <dt>Value</dt>
+        <dd>How many more points he scores than the best player at his position you could
+          still <b>pick up for free</b>, once every team's starting slots are full. It is the
+          size of the gap he puts between you and the next man up.
+          <span class="eg">Jahmyr Gibbs shows 1 while his Rank is 18: seventeen players score
+            more, but none opens a bigger gap. When two players look close on Rank, take the
+            better Value.</span></dd>
+
+        <dt>Usage</dt>
+        <dd>A second opinion built <b>only from the work he gets</b> — carries, targets, and
+          the share of touches left behind by team-mates who have gone. It never changes the
+          order; it argues with it.
+          <span class="eg">Christian McCaffrey shows 10 against a Rank of 35: the workload says
+            top ten even though the points projection does not. A small triangle marks the
+            players where the two disagree most.</span></dd>
+
+        <dt>Lasts</dt>
+        <dd>The chance he is <b>still unpicked when your next turn comes round</b>.
+          <span class="eg">Derrick Henry shows 93% — he will very likely still be there.
+            Jahmyr Gibbs shows 9% — he will very likely be gone. Spend this pick on a low
+            number and come back for a high one.</span></dd>
+      </dl>
+
+      <h3>Signals — the short notes beside each player</h3>
+      <dl>
+        <dt><code>opp+80</code></dt>
+        <dd>The workload model puts him <b>80 points above</b> the points projection. It only
+          appears when the two disagree by more than 20 points. Treat it as a reason to buy.</dd>
+
+        <dt><code>opp-28</code></dt>
+        <dd>The workload model puts him <b>28 points below</b> the points projection — he is
+          projected on reputation more than on touches. Treat it as a reason to fade.</dd>
+
+        <dt><code>riser</code></dt>
+        <dd>His role was <b>growing</b> through last season — finishing the year with more of
+          the work than he started it with.</dd>
+
+        <dt><code>faller</code></dt>
+        <dd>His role was <b>shrinking</b> through last season.</dd>
+
+        <dt><code>vac+15%</code></dt>
+        <dd><b>15% of his team's touches are unclaimed</b> — carries or targets left behind by
+          players who have left. Somebody inherits them, and he is in line.</dd>
+
+        <dt><code>rookie:offense</code></dt>
+        <dd>His <b>first NFL season</b>, on offence. (<code>rookie:idp</code> is a defender,
+          <code>rookie:special</code> a kicker.) Rookies are projected on consensus alone.</dd>
+
+        <dt><code>R1.008</code></dt>
+        <dd>Where the <b>NFL</b> drafted him: round 1, pick 8. Earlier picks get more chances
+          to earn a role. Only shown for rookies.</dd>
+
+        <dt><code>need</code></dt>
+        <dd>He fills a <b>starting slot you have not filled yet</b>.</dd>
+
+        <dt>Triangle ▲</dt>
+        <dd>Beside a Usage number: Usage and Rank <b>disagree sharply</b> about this player.</dd>
+      </dl>
+
+      <h3>Keys</h3>
+      <dl>
+        <dt><kbd>/</kbd></dt><dd>jump to the search box</dd>
+        <dt><kbd>enter</kbd></dt><dd>mark the highlighted player as taken</dd>
+        <dt><kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd>move the highlight</dd>
+        <dt><kbd>u</kbd> / <kbd>ctrl+z</kbd></dt><dd>undo the last mark</dd>
+        <dt><kbd>space</kbd></dt><dd>pause and resume updates</dd>
+        <dt><kbd>t</kbd></dt><dd>mark the highlighted player as taken</dd>
+        <dt><kbd>g</kbd> / <kbd>b</kbd></dt><dd>jump to Grab now / Best available</dd>
+        <dt><kbd>r</kbd> / <kbd>c</kbd></dt><dd>jump to your roster / runs and cliffs</dd>
+        <dt><kbd id="legendDigits">0-6</kbd></dt><dd>filter the board by position</dd>
+        <dt><kbd>?</kbd></dt><dd>open and close this panel</dd>
+      </dl>
+    </div>
+  </div>
 
   <!-- ── centre ───────────────────────────────────────── -->
   <section class="col col-mid">
@@ -696,11 +824,11 @@ col.w-act{width:140px}
               <th scope="col" title="Player">Player</th>
               <th scope="col" title="Position">Pos</th>
               <th scope="col" class="h-team" title="NFL team">Tm</th>
-              <th scope="col" class="num" title="Consensus rank — the market's order">Rank</th>
-              <th scope="col" class="num" title="VORP rank — value over replacement in this league">Value</th>
-              <th scope="col" class="num" title="Opportunity rank — volume and role. A triangle means it disagrees with consensus.">Opp</th>
-              <th scope="col" class="num" title="Chance he survives to your next pick">Surv</th>
-              <th scope="col" class="h-flags" title="Signals">Signals</th>
+              <th scope="col" class="num" title="WHAT IT IS: where he sits when every player is put in order by the points we expect him to score under THIS league&#39;s scoring.&#10;&#10;WHAT THE NUMBER MEANS: Ja&#39;Marr Chase shows 25, so 24 players are expected to outscore him this season.&#10;&#10;WHAT TO DO: start from this order, then let VALUE and USAGE argue with it.">Rank</th>
+              <th scope="col" class="num" title="WHAT IT IS: how many more points he scores than the best player at his position you could still pick up for free, once this 8-team league&#39;s starting slots are full.&#10;&#10;WHAT THE NUMBER MEANS: Jahmyr Gibbs shows 1 while his RANK is 18 - seventeen players score more, but none of them puts a bigger gap between you and the free option.&#10;&#10;WHAT TO DO: when two players look close on RANK, take the better VALUE.">Value</th>
+              <th scope="col" class="num" title="WHAT IT IS: a second opinion built only from the work he gets - carries, targets, and the share of touches left behind by team-mates who have gone.&#10;&#10;WHAT THE NUMBER MEANS: Christian McCaffrey shows 10 against a RANK of 35: the workload says top-10 even though the points projection does not.&#10;&#10;WHAT TO DO: a much better USAGE than RANK is a buy signal. A small triangle marks the players where the two disagree most.">Usage</th>
+              <th scope="col" class="num" title="WHAT IT IS: the chance he is still unpicked when your next turn comes round.&#10;&#10;WHAT THE NUMBER MEANS: Derrick Henry shows 93% - he will very likely still be there. Jahmyr Gibbs shows 9% - he will very likely be gone.&#10;&#10;WHAT TO DO: spend this pick on a low number and come back for a high one.">Lasts</th>
+              <th scope="col" class="h-flags" title="WHAT IT IS: short notes explaining WHY a player is where he is.&#10;&#10;WHAT THE NUMBER MEANS: &#39;opp+80&#39; means the workload model puts him 80 points above the projection; &#39;vac+15%&#39; means 15% of his team&#39;s touches were left behind by players who are gone.&#10;&#10;WHAT TO DO: open the help panel (the ? button, bottom left) for the full list - every flag is spelled out there.">Signals</th>
               <th scope="col"><span class="sr">Mark taken</span></th>
             </tr>
           </thead>
@@ -1834,6 +1962,15 @@ document.addEventListener("keydown", function (e) {
   }
   if (e.ctrlKey || e.altKey || e.metaKey) return;
 
+  // `?` and Escape answer wherever focus happens to be, BEFORE the typing branch. The
+  // search box holds focus on load and after every mark, so gating these on the switch
+  // below would mean `?` typed a character into the box instead of opening anything --
+  // which is exactly how the digit shortcuts already fail in the eyes-off state. No player
+  // search needs a question mark, so intercepting it costs nothing.
+  if (e.key === "?") { toggleLegend(); e.preventDefault(); return; }
+  if (e.key === "Escape" && !$("helpPanel").hidden) {
+    toggleLegend(false); e.preventDefault(); return;
+  }
   if (isTyping(e.target)) {
     if (e.key === "Enter") {
       var target = enterTarget();
@@ -1897,11 +2034,7 @@ document.addEventListener("keydown", function (e) {
       undoTaken();
       e.preventDefault();
       break;
-    // `?` is shift+/, a distinct e.key from "/", so the search shortcut is untouched.
-    case "?":
-      toggleLegend();
-      e.preventDefault();
-      break;
+    // `?` is handled above the typing branch -- see the comment there.
     case " ":
       if (e.target && e.target.tagName === "BUTTON") return;
       setPaused(!S.paused);
@@ -1929,14 +2062,21 @@ document.addEventListener("keydown", function (e) {
 /* ───────────────────────── wiring ──────────────────────────── */
 
 $("pauseBtn").addEventListener("click", function () { setPaused(!S.paused); });
-function toggleLegend() {
-  var more = $("legendMore"), b = $("legendToggle");
-  var open = more.hidden;
-  setHidden(more, !open);
+/* C2. The help panel is a fixed overlay, so opening it cannot move the board -- there is
+   nothing in flow to shift. Reachable by BOTH a labelled button and `?`, because a keyboard
+   shortcut alone is not an affordance for someone who has never seen this page. */
+function toggleLegend(force) {
+  var panel = $("helpPanel"), b = $("legendToggle");
+  var open = (force === undefined) ? panel.hidden : !!force;
+  setHidden(panel, !open);
   setAttr(b, "aria-expanded", open ? "true" : "false");
-  setText(b, open ? "? fewer keys" : "? more keys");
+  if (open) $("helpClose").focus(); else $("q").focus();
 }
-$("legendToggle").addEventListener("click", function () { toggleLegend(); });
+$("legendToggle").addEventListener("click", function () { toggleLegend(true); });
+$("helpClose").addEventListener("click", function () { toggleLegend(false); });
+$("helpPanel").addEventListener("click", function (ev) {
+  if (ev.target === $("helpPanel")) toggleLegend(false);   // click the backdrop to dismiss
+});
 
 $("undoBtn").addEventListener("click", function () { undoTaken(); });
 $("thumbUndo").addEventListener("click", function () { undoTaken(); });
