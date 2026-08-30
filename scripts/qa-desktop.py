@@ -374,6 +374,19 @@ async def task_affordance(bus, port):
           (post.get("firstName") or "").strip() != victim,
           f"board now starts at {(post.get('firstName') or '').strip()!r}")
 
+    # PUT THE BOARD BACK. Every task after this one shares this server, and a stray
+    # extra pick shifts every downstream pick number and changes which players are on
+    # the board -- which silently rewrites what the later tasks are even testing.
+    # Undoing by mouse is also the only mouse-driven undo in this file.
+    u = await bus.box("#undoBtn")
+    if u:
+        await bus.click(u["x"], u["y"])
+        await bus.drain(1.2)
+    restored = api(port)["clock"]["current_pick"]
+    check("undo by mouse puts the board back for the rest of the suite",
+          restored == before,
+          f"current_pick {after} -> {restored}, wanted {before}")
+
 
 # --------------------------------------------------------------------------
 # b) KEYBOARD, EYES-OFF — no pointer is used anywhere in here
