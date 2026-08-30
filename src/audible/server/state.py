@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from ..draft.live import Candidate, LiveView
+from ..draft.live import Candidate, LiveView, my_slot_on_clock
 from ..draft.service import CockpitService
 
 GRAB_NOW_LIMIT = 5
@@ -173,6 +173,24 @@ def _cliffs(view: LiveView) -> list[dict[str, Any]]:
     return out
 
 
+def _next_mark(service: CockpitService) -> dict[str, Any]:
+    """The pick number and seat that the NEXT `mark_taken` would be attributed to.
+
+    Mirrors `CockpitService._renumber_manual`: manual picks are numbered contiguously from
+    the last synced pick, so the next one is `base + len(manual) + 1`. A slot of None means
+    the draft is full and there is no pick left to record -- `mark_taken` returns False.
+    """
+    session = service.session
+    base = max((p.pick_no for p in session.picks), default=0)
+    pick_no = base + len(session.manual_picks) + 1
+    slot = my_slot_on_clock(pick_no, service.config.num_teams, session.rounds)
+    return {
+        "pick_no": pick_no if slot is not None else None,
+        "slot": slot,
+        "is_mine": slot is not None and session.slot is not None and slot == session.slot,
+    }
+
+
 def build_state(service: CockpitService) -> dict[str, Any]:
     """The full `/api/state` payload."""
     now = time.time()
@@ -197,6 +215,18 @@ def build_state(service: CockpitService) -> dict[str, Any]:
             "rounds": session.rounds,
             "started": session.draft_status not in ("pre_draft", ""),
         },
+        # WHERE THE NEXT MARK WILL ACTUALLY LAND. Additive; nothing else in the payload moves.
+        #
+        # `mark_taken` appends a manual pick and `_renumber_manual` numbers it as the pick
+        # right after the last synced one, attributing it with the same snake math to
+        # whichever seat is genuinely on the clock. So a mark made on my turn ALREADY is my
+        # pick, recorded correctly -- the machinery was never wrong, the page just never said
+        # so, because it asked `draft.started` instead. League B sits in `pre_draft` for the
+        # whole of a hand-mirrored round, so that gate is false exactly when the distinction
+        # matters most. This asks the honest question instead: whose pick is the next one I
+        # record? Recomputed from the same inputs `_renumber_manual` uses rather than read
+        # off the ESPN clock, so it is true while mirroring by hand and under live sync.
+        "next_mark": _next_mark(service),
         "sync": {
             "age_s": round(age, 1) if age is not None else None,
             "status": health.status(now),

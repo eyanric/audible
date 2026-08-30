@@ -21,6 +21,7 @@ reports.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -54,14 +55,16 @@ except ImportError as exc:  # pragma: no cover - environment problem, not a code
 # ---------------------------------------------------------------------------------------
 # THE FLOORS. A desktop control below these is one a human cannot reliably acquire.
 # ---------------------------------------------------------------------------------------
-MIN_H = 30.0
-MIN_W = 64.0
+# Raised after Eric drove it at pick speed: 64x30 cleared the old floor and was still
+# hard to hit under time pressure. The floor was too low, not the button.
+MIN_H = 40.0
+MIN_W = 96.0
 
 # How far off the centre of the action cell a human may land and still hit the control.
 # This is the number that separates a real target from a pixel-hunt: the fixed button is
-# >=64px wide, so 12px of aiming error is comfortably inside it; the pre-fix button was
-# 18px wide in a 24px column, so the same 12px lands on empty table cell.
-HUMAN_AIM_SLOP = 12
+# >=96px wide, so 16px of aiming error is comfortably inside it; the pre-fix button was
+# 18px wide in a 24px column, so the same 16px lands on empty table cell.
+HUMAN_AIM_SLOP = 16
 
 DESKTOP = {"width": 1920, "height": 1080}
 
@@ -111,7 +114,7 @@ sd = Path(r"{state}"); sd.mkdir(parents=True, exist_ok=True)
 svc = CockpitService(cfg, state_dir=sd, slot_override=8)
 svc.board = DraftBoard("espn_davis_drive", [entry(i) for i in range(1, 201)])
 svc.session.draft_id = "uitest"
-svc.session.draft_status = "drafting"
+svc.session.draft_status = "{status}"
 svc.session.slot, svc.session.slot_source = 8, "override"
 svc.health.last_success = time.time()
 svc.session.picks = [
@@ -140,10 +143,12 @@ class Cockpit:
             return json.loads(r.read().decode())
 
 
-def _boot(tmp: Path, picks: int, index_html: Path | None = None) -> Iterator[Cockpit]:
+def _boot(
+    tmp: Path, picks: int, index_html: Path | None = None, status: str = "drafting"
+) -> Iterator[Cockpit]:
     port = _free_port()
     script = BOOT.format(
-        src=SRC, state=tmp, picks=picks, port=port,
+        src=SRC, state=tmp, picks=picks, port=port, status=status,
         index=str(index_html) if index_html else "",
     )
     proc = subprocess.Popen(
@@ -241,28 +246,37 @@ def on_the_clock(tmp_path_factory, browser):
             ctx.close()
 
 
-def _prefix_html_bytes() -> bytes:
-    """The page as it ships on main.
+# The pre-fix page, pinned to the IMMUTABLE git blob rather than a branch.
+# It anchored on `main` once, and the moment PR #39 merged, `main` BECAME the fixed page --
+# so the control compared the fix against itself, found 0 failures where it demands 3, and
+# turned CI red. A negative control must never anchor to a moving ref.
+PREFIX_BLOB = "579e2b526daf98baf19af879980d78b8002f6cab"
+PREFIX_SHA256 = "0e34667aba5f463e28d98ea698f144555dc218cd1644cdbd9577ec334ddd82b2"
 
-    A CI pull-request checkout has no local `main` branch -- only the remote-tracking
-    ref -- so try both. This RAISES rather than skipping on purpose: a negative control
-    that quietly does not run is worse than not having one, because the suite still
-    reports green for a claim it never checked.
+
+def _prefix_html_bytes() -> bytes:
+    """The page exactly as it shipped before the affordance fix (blob 579e2b52, at 07eeadc).
+
+    Verified by content hash, not merely referenced: if the object ever resolves to
+    something else this fails loudly rather than quietly testing the wrong page. Raising
+    rather than skipping is deliberate -- a negative control that does not run is worse
+    than not having one, because the suite still reports green for a claim it never checked.
     """
-    tried = []
-    for ref in ("main", "origin/main", "refs/remotes/origin/main"):
-        r = subprocess.run(
-            ["git", "show", f"{ref}:src/audible/server/static/index.html"],
-            cwd=REPO, capture_output=True,
+    r = subprocess.run(
+        ["git", "cat-file", "blob", PREFIX_BLOB], cwd=REPO, capture_output=True
+    )
+    if r.returncode != 0 or not r.stdout:
+        raise RuntimeError(
+            f"cannot read the pinned pre-fix blob {PREFIX_BLOB}, so the negative control "
+            f"cannot run. CI needs actions/checkout with fetch-depth: 0.\n"
+            f"{r.stderr.decode(errors='replace').strip()}"
         )
-        if r.returncode == 0 and r.stdout:
-            return r.stdout
-        tried.append(f"  {ref}: {r.stderr.decode(errors='replace').strip()}")
-    raise RuntimeError("\n".join([
-        "cannot read the pre-fix page from main, so the negative control cannot run.",
-        "CI needs actions/checkout with fetch-depth: 0.",
-        *tried,
-    ]))
+    got = hashlib.sha256(r.stdout).hexdigest()
+    if got != PREFIX_SHA256:
+        raise RuntimeError(
+            f"the pinned pre-fix blob is not the page it claims to be: {got} != {PREFIX_SHA256}"
+        )
+    return r.stdout
 
 
 @pytest.fixture(scope="module")
@@ -393,18 +407,155 @@ def test_row_action_button_is_visible_without_hover_or_focus(live) -> None:
 # ---------------------------------------------------------------------------------------
 # 3. THE LABEL FLIPS WITH THE CLOCK
 # ---------------------------------------------------------------------------------------
-def test_button_reads_taken_when_the_pick_is_not_mine(live) -> None:
+def test_button_reads_taken_when_the_next_mark_is_not_mine(live) -> None:
     page, cp = live
-    assert cp.state()["clock"]["picks_until_me"] > 0
+    nm = cp.state()["next_mark"]
+    assert nm["is_mine"] is False, nm
     assert paint_at_rest(page)["text"] == "TAKEN"
 
 
-def test_button_reads_draft_when_the_pick_is_mine(on_the_clock) -> None:
-    """Marking here records MY pick -- the server already attributes it to the seat on
-    the clock -- so the control must not keep wearing an X that means dismiss."""
+def test_button_reads_draft_him_when_the_next_mark_is_mine(on_the_clock) -> None:
+    """The label is driven by where the NEXT MARK LANDS, not by `draft.started`.
+
+    League B reports `pre_draft` through an entire hand-mirrored round, so the old gate
+    was false exactly when the distinction mattered. This fixture is still `pre_draft`.
+    """
     page, cp = on_the_clock
-    assert cp.state()["clock"]["picks_until_me"] == 0
-    assert paint_at_rest(page)["text"] == "DRAFT"
+    st = cp.state()
+    assert st["next_mark"] == {"pick_no": 8, "slot": 8, "is_mine": True}, st["next_mark"]
+
+    p = paint_at_rest(page)
+    assert p["text"] == "DRAFT HIM"
+    # a DIFFERENT control, not the same button relabelled: filled --safe, not outlined
+    assert "is-draft" in page.eval_on_selector(BTN, "e => e.className")
+    assert p["backgroundColor"] == "rgb(70, 207, 156)", p["backgroundColor"]
+    box = geometry(page)
+    assert box["width"] >= 118, box
+
+
+def test_the_label_flips_to_draft_him_on_the_next_render(browser, tmp_path_factory) -> None:
+    """Six picks in, the next mark lands on seat 7 -- not mine. Mark one player and the
+    next one lands on seat 8, so every row must flip to DRAFT HIM without a reload."""
+    tmp = tmp_path_factory.mktemp("ui-flip")
+    for cp in _boot(tmp, 6):
+        page, ctx = _page(browser, cp.url)
+        try:
+            assert cp.state()["next_mark"] == {"pick_no": 7, "slot": 7, "is_mine": False}
+            assert paint_at_rest(page)["text"] == "TAKEN"
+
+            click_like_a_human(page)
+            page.wait_for_function(
+                "() => document.querySelector('#bestBody tr.prow button.mark')"
+                "  .textContent.trim() === 'DRAFT HIM'",
+                timeout=15_000,
+            )
+            assert cp.state()["next_mark"] == {"pick_no": 8, "slot": 8, "is_mine": True}
+            labels = page.eval_on_selector_all(
+                "#bestBody tr.prow button.mark",
+                "els => [...new Set(els.map(e => e.textContent.trim()))]",
+            )
+            assert labels == ["DRAFT HIM"], labels
+        finally:
+            ctx.close()
+
+
+def test_draft_him_works_pre_draft(browser, tmp_path_factory) -> None:
+    """THE reason Fix 3 exists. League 6012 sits in `pre_draft` for the whole of a
+    hand-mirrored round, so the old `started && picks_until_me === 0` gate was false
+    exactly when the distinction mattered and every row read TAKEN permanently."""
+    tmp = tmp_path_factory.mktemp("ui-predraft")
+    for cp in _boot(tmp, 7, status="pre_draft"):
+        page, ctx = _page(browser, cp.url)
+        try:
+            st = cp.state()
+            assert st["draft"]["started"] is False, "fixture must be pre-draft"
+            assert st["clock"]["picks_until_me"] == 0
+            assert st["next_mark"]["is_mine"] is True, st["next_mark"]
+            assert paint_at_rest(page)["text"] == "DRAFT HIM"
+        finally:
+            ctx.close()
+
+
+# ---------------------------------------------------------------------------------------
+# FIX 4. THE BOARD MUST NOT MOVE WHEN THE GRAB LIST CHANGES LENGTH
+# ---------------------------------------------------------------------------------------
+def _route_grab(page, n: int) -> None:
+    """Serve /api/state with exactly n grab_now rows. The only way to drive the grab list
+    to a chosen length without reaching into the model."""
+    def handler(route):
+        body = route.fetch().json()
+        body["grab_now"] = [dict(p) for p in (body.get("best_available") or [])[:n]]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+    page.route("**/api/state*", handler)
+
+
+def test_best_available_does_not_move_when_the_grab_list_empties(browser, live) -> None:
+    """THE assertion for Fix 4. #grabPanel used to change height on every mark and
+    #bestPanel is flex:1, so the board jumped 101px under the cursor mid-aim."""
+    _, cp = live
+    ctx = browser.new_context(viewport=DESKTOP, has_touch=False)
+    page = ctx.new_page()
+    try:
+        page.goto(cp.url, wait_until="domcontentloaded")
+        page.wait_for_selector("#bestBody tr.prow button.mark", timeout=20_000)
+        top = "() => document.getElementById('bestPanel').getBoundingClientRect().top"
+
+        _route_grab(page, 5)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grabBody tr.prow').length === 5", timeout=15_000)
+        page.wait_for_timeout(250)
+        full = page.evaluate(top)
+
+        page.unroute("**/api/state*")
+        _route_grab(page, 0)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#grabBody tr.prow').length === 0", timeout=15_000)
+        page.wait_for_timeout(250)
+        empty = page.evaluate(top)
+
+        assert full == empty, (
+            f"#bestPanel moved {empty - full:+.2f}px when the grab list emptied "
+            f"(full={full}, empty={empty})"
+        )
+        # and the reservation is real, not an accident of both being collapsed
+        assert page.evaluate(
+            "() => document.getElementById('grabPanel').getBoundingClientRect().height"
+        ) > 150
+    finally:
+        ctx.close()
+
+
+def test_undo_fits_inside_its_panel_header(live) -> None:
+    """Raising Undo to the new 96x40 floor made it overhang a 29px .phead by 6px top and
+    5px bottom, sitting across the panel border. Controls live inside their container."""
+    page, _ = live
+    box = page.evaluate(
+        """() => { const h = document.querySelector('#grabPanel .phead').getBoundingClientRect();
+                   const u = document.getElementById('undoBtn').getBoundingClientRect();
+                   return {over_top: h.top - u.top, over_bottom: u.bottom - h.bottom}; }"""
+    )
+    assert box["over_top"] <= 0.5, box
+    assert box["over_bottom"] <= 0.5, box
+
+
+# ---------------------------------------------------------------------------------------
+# FIX 2. THE REASONING COLUMN HAS TO BE READABLE
+# ---------------------------------------------------------------------------------------
+def test_signals_and_numbers_are_legible(live) -> None:
+    page, _ = live
+    sig = page.evaluate(
+        """() => { const c = getComputedStyle(document.querySelector('#bestBody .c-flags'));
+                   return {fs: parseFloat(c.fontSize), ff: c.fontFamily, color: c.color}; }"""
+    )
+    assert sig["fs"] >= 12.5, sig
+    assert "Condensed" not in sig["ff"], sig["ff"]
+    # --txt-2 (#9aa2b1), one step up from the --txt-3 (#6a7280) it used to be
+    assert sig["color"] == "rgb(154, 162, 177)", sig["color"]
+
+    num = page.evaluate(
+        "() => parseFloat(getComputedStyle(document.querySelector('#bestBody .c-vorp')).fontSize)"
+    )
+    assert num >= 14, num
 
 
 # ---------------------------------------------------------------------------------------
@@ -658,7 +809,7 @@ def test_negative_control_the_prefix_page_fails_1_2_and_4(prefix_page) -> None:
     click_like_a_human(page)
     page.wait_for_timeout(1500)
     if victim in board_names(page):
-        failures.append("4-mouse: a 12px-off click did not mark anybody")
+        failures.append(f"4-mouse: a {HUMAN_AIM_SLOP}px-off click did not mark anybody")
 
     assert len(failures) == 3, (
         "the pre-fix page should fail all three checks; it failed "

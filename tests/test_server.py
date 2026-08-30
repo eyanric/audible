@@ -305,11 +305,22 @@ def test_the_page_is_drivable_with_a_thumb(client: TestClient) -> None:
     # Touch sizing is keyed on hover:none, not on width -- the question is whether a
     # finger is driving, not how wide the glass is.
     assert "@media (hover:none)" in page
-    # The label is a word now ("TAKEN"/"DRAFT"), not a glyph, so the target grew WIDER
-    # while keeping its full height. Assert the property -- a real 44px-tall target that
-    # is at least as wide -- rather than one literal declaration order.
-    assert "height:44px" in page, "the mark button must keep a real 44px touch target"
-    assert "min-width:64px" in page, "the labelled mark button must be at least 64px wide"
+    # The label is a word now ("TAKEN"/"DRAFT HIM"), not a glyph, so the target grew WIDER
+    # while keeping its full height. Assert the NUMBERS, parsed out of the touch block --
+    # the two previous versions of this pinned literal substrings and broke on every size
+    # change without the property ever being at risk.
+    # Anchor on the multi-line touch BLOCK (`{` then a newline). Matching the first
+    # "@media (hover:none)" instead picks up the one-line rules that also use the gate
+    # and then finds the DESKTOP .mark rule after them.
+    flat = page.replace(chr(13), "")
+    touch_mark = re.search(r"\.mark\{(.*?)\}", flat[flat.index("@media (hover:none){\n"):], re.S)
+    assert touch_mark, "the touch branch must still size the mark button"
+    decls = touch_mark.group(1)
+    # (?<!-) or this matches `line-height:42px` and reads the wrong number
+    height = re.search(r"(?<!-)height:(\d+(?:\.\d+)?)px", decls)
+    min_w = re.search(r"min-width:(\d+(?:\.\d+)?)px", decls)
+    assert height and float(height.group(1)) >= 44, f"touch mark height: {decls!r}"
+    assert min_w and float(min_w.group(1)) >= 64, f"touch mark min-width: {decls!r}"
 
     # The bar's own display:none MUST be declared before the media query that turns it on.
     # It was not, and an unlayered rule later in the file won on source order -- the bar

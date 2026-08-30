@@ -48,6 +48,11 @@
   --f-cond:"Bahnschrift Light Condensed","Bahnschrift Condensed","Bahnschrift",
            "Avenir Next Condensed",-apple-system,"Segoe UI",sans-serif;
   --f-mono:"Cascadia Mono","Consolas",ui-monospace,"Menlo",monospace;
+
+  /* Fix 4: GRAB_CAP in the script, and the row height the reservation is built from.
+     Overridden in the touch branch, where the button -- and so the row -- is taller. */
+  --grab-cap:5;
+  --grab-row-h:46px;
 }
 
 *{box-sizing:border-box}
@@ -266,8 +271,8 @@ col.w-pos{width:44px}
 col.w-team{width:40px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
-col.w-flags{width:146px}
-col.w-act{width:84px}
+col.w-flags{width:200px}
+col.w-act{width:140px}
 /* WIDE DESKTOP. `table-layout:fixed` with every column but the name at a fixed px width
    makes the NAME column the only elastic one, so on a wide monitor every spare pixel is
    inserted between a player and his numbers: ~670px of empty row at 1920 and ~1100px at
@@ -291,7 +296,7 @@ col.w-act{width:84px}
 @media (hover:hover){.ptable thead th{cursor:help}}
 .ptable th.num,.ptable td.num{text-align:right}
 .ptable td{
-  padding:0 6px;height:31px;border-bottom:1px solid var(--line-soft);
+  padding:0 6px;height:44px;border-bottom:1px solid var(--line-soft);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .prow{cursor:pointer;user-select:none;-webkit-user-select:none}
@@ -300,10 +305,14 @@ col.w-act{width:84px}
 .prow:focus-visible{outline:none;box-shadow:inset 2px 0 0 0 var(--focus),inset 0 0 0 1px var(--focus)}
 .c-name{font-size:13.5px;color:var(--txt)}
 .c-team{font-family:var(--f-mono);font-size:11px;color:var(--txt-3)}
-.c-num{font-family:var(--f-mono);font-size:12px;color:var(--txt-2);font-variant-numeric:tabular-nums}
+.c-num{font-family:var(--f-mono);font-size:14px;color:var(--txt-2);font-variant-numeric:tabular-nums}
 .c-cons{color:var(--txt-2)}
 .c-vorp{color:var(--txt)}
-.c-flags{font-family:var(--f-cond);font-size:10.5px;color:var(--txt-3);letter-spacing:.02em}
+/* FIX 2. This column carries the REASONING and was the least legible thing on screen:
+   10.5px, condensed, in --txt-3, the dimmest grey on the palette. Not condensed, a
+   third larger, and one step up the text ramp. Presentation only -- nothing about what
+   a flag means or how it is computed changes. */
+.c-flags{font-family:var(--f-data);font-size:12.5px;color:var(--txt-2);letter-spacing:.01em}
 /* most of the board fills a need once the roster opens up, so this stays
    quiet on purpose — its absence is the signal, not its presence */
 .need-tag{
@@ -321,22 +330,28 @@ col.w-act{width:84px}
    said only "X". Every enlargement shipped for `hover:none` and desktop matched none of
    it. The button is now always painted, always labeled, and sized to be aimed at. */
 .mark{
-  min-width:64px;height:30px;line-height:28px;padding:0 8px;border-radius:3px;cursor:pointer;
+  min-width:96px;height:40px;line-height:38px;padding:0 12px;border-radius:4px;cursor:pointer;
   background:#20252e;border:1px solid var(--line);color:var(--txt-2);
-  font-family:var(--f-cond);font-size:11px;font-weight:600;
-  letter-spacing:.09em;text-transform:uppercase;white-space:nowrap;
+  font-family:var(--f-data);font-size:14px;font-weight:600;
+  letter-spacing:.01em;text-transform:none;white-space:nowrap;
 }
+/* The action cell keeps real space around the control instead of letting the row's
+   6px cell padding put a 96px button flush against the signals text beside it. */
+.ptable td.c-act{padding:0 14px}
 /* MY pick, not someone else's. `picks_until_me === 0` means pressing this records MY
    selection -- the server already attributes the synthetic pick to the seat on the
    clock -- so it must not keep wearing an X, which everywhere else means dismiss. */
-.mark.is-draft{border-color:var(--safe);color:var(--safe);background:var(--safe-bg)}
+.mark.is-draft{
+  min-width:118px;border-color:var(--safe);background:var(--safe);color:#08150f;
+  font-weight:700;font-size:15px;letter-spacing:.02em;
+}
 /* F3: the confirmation lands in the cell that was clicked, not only in a grey string
    in a panel header 900px away. Held for ~1.2s, then the row leaves on the next poll. */
 .mark.is-done{border-color:var(--txt-2);background:#2f3742;color:var(--txt)}
-.mark.is-done.is-draft{border-color:var(--safe);background:var(--safe-bg);color:var(--safe)}
+.mark.is-done.is-draft{border-color:var(--safe);background:var(--safe);color:#08150f}
 @media (hover:hover){
   .mark:hover{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
-  .mark.is-draft:hover{border-color:var(--safe);color:var(--safe);background:rgba(70,207,156,.18)}
+  .mark.is-draft:hover{border-color:#6fe3b6;background:#6fe3b6;color:#08150f}
 }
 
 /* grab now */
@@ -347,7 +362,22 @@ col.w-act{width:84px}
 @media (hover:hover){#grabBody .prow:hover{background:var(--urgent-bg-2)}}
 #grabBody .prow.sel{background:#262a33;box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px #454c5b}
 #grabBody .prow:focus-visible{box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px var(--focus)}
-#grabBody td{height:26px;border-bottom-color:rgba(255,106,60,.12)}
+/* FIX 4. THE BOARD MUST NOT MOVE UNDER THE CURSOR.
+   #grabBody holds 0..GRAB_CAP rows and the panel also swaps #grabScroll for #grabEmpty,
+   so its height changed on EVERY mark -- and because #bestPanel is `.grow` with flex:1,
+   the difference was handed straight to the board you are aiming at. Measured before
+   this: #bestPanel's top moved 101px between a full grab list and an empty one.
+   Both children now reserve the SAME height, so the panel is a fixed box whatever it
+   holds and the empty message renders inside the reservation rather than replacing it.
+   Sized per branch: the row height is driven by the action button (40px desktop,
+   44px touch), NOT by this `height`, which is only a floor. */
+#grabBody td{height:var(--grab-row-h);border-bottom-color:rgba(255,106,60,.12)}
+#grabPanel{flex:0 0 auto}
+#grabScroll,#grabEmpty{
+  height:calc(var(--grab-cap) * var(--grab-row-h));
+  flex:0 0 auto;box-sizing:border-box;
+}
+#grabScroll{overflow-y:auto}
 #grabBody .c-name{font-size:14.5px;color:#fff}
 #grabEmpty{padding:11px 11px 12px;color:var(--txt-2);font-size:12.5px}
 #grabEmpty b{color:var(--txt);font-weight:600}
@@ -363,7 +393,16 @@ col.w-act{width:84px}
 /* Desktop-only floor. An unscoped `#undoBtn{min-height:30px}` is (1,0,0) and would beat
    the touch block's `.btn{min-height:44px}` (0,1,0) -- measured: it shrank the phone's
    Undo from 44px to 30px. Gate it so the phone keeps the taller target. */
-@media (hover:hover){#undoBtn{min-height:30px;min-width:64px}}
+/* Undo is hit under the same time pressure as the row action, so it gets the same floor
+   -- and mixed case at 13px rather than 11.5px condensed caps, so the NAME on it is
+   readable at a glance ("Undo: Bijan Robinson", not "UNDO: BIJAN ROBINSON"). */
+#undoBtn{font-family:var(--f-data);font-size:13px;text-transform:none;letter-spacing:.01em}
+/* A 40px control does not fit a 29px header -- measured, it overhung by 6px top and 5px
+   bottom and sat across the panel border. Only the header that actually carries Undo
+   grows; the others keep their 29px. The grab panel's height stays CONSTANT either way,
+   so Fix 4's no-shift guarantee is unaffected. */
+#grabPanel .phead{height:48px}
+@media (hover:hover){#undoBtn{min-height:40px;min-width:96px}}
 #undoBtn[hidden]{display:none}
 
 /* tabs + search */
@@ -484,7 +523,7 @@ col.w-act{width:84px}
      keeps its full 44px height. `min-width` is restated because the desktop base rule
      sets it and `width` alone cannot shrink past it. */
   .mark{
-    min-width:64px;width:64px;height:44px;font-size:12px;line-height:42px;padding:0 6px;
+    min-width:92px;width:auto;height:44px;font-size:13px;line-height:42px;padding:0 8px;
     border-color:var(--line);background:#20252e;color:var(--txt-2);
   }
   /* The reveal-on-hover and reveal-on-select rules are gone -- the button is painted at
@@ -493,9 +532,10 @@ col.w-act{width:84px}
      `click` listener, so `pointerdown` has already bubbled to the row while the finger is
      still down. */
   .mark:active,.prow.sel .mark:active{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
-  col.w-act{width:72px}
+  col.w-act{width:112px}
   .ptable td{height:44px;padding:0 8px}
-  #grabBody td{height:48px}
+  :root{--grab-row-h:52px}
+
   .c-name{font-size:15px}
   .prow.sel{box-shadow:inset 3px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
   /* Everything else that has to be hit with a thumb. */
@@ -971,8 +1011,10 @@ function setMarkLabel(rec) {
     b.classList.remove("is-done");
   }
   var mine = !!S.myPick;
-  setText(b, mine ? "DRAFT" : "TAKEN");
-  setAttr(b, "title", mine ? "Draft him — this is your pick" : "Mark taken by someone else");
+  setText(b, mine ? "DRAFT HIM" : "TAKEN");
+  setAttr(b, "title", mine
+    ? "Draft him — the next pick recorded is yours"
+    : "Mark taken by someone else");
   b.classList.toggle("is-draft", mine);
 }
 
@@ -1153,10 +1195,13 @@ function renderTop(d) {
   // the clock and the next pick I control, so zero means both are mine right now. Showing a
   // single pick number here reads as one pick, and the second one gets made in a hurry
   // against a board that never said it was coming.
-  // The row action reads DRAFT instead of TAKEN whenever the pick on the clock is mine.
-  // `mark_taken` already attributes the synthetic pick to the seat on the clock, so this
-  // is a LABEL change only -- same endpoint, same payload, correctly recorded either way.
-  S.myPick = started && !complete && clock.picks_until_me === 0;
+  // Driven by where the NEXT MARK LANDS, not by the ESPN clock. The old gate was
+  // `started && picks_until_me === 0`, and League B reports `pre_draft` for the whole of a
+  // hand-mirrored round -- so `started` was false exactly when the distinction mattered and
+  // every row read TAKEN forever. `next_mark.is_mine` is the server telling us which seat
+  // `_renumber_manual` would attribute the next manual pick to, which is the thing that is
+  // actually about to happen. Same endpoint, same payload; only the label changes.
+  S.myPick = !!(d.next_mark && d.next_mark.is_mine);
 
   var twoOnClock = started && !complete
     && clock.picks_until_me === 0
