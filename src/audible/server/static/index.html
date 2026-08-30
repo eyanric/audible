@@ -1491,7 +1491,13 @@ function renderTop(d) {
     && clock.survival_horizon != null;
 
   // left
-  if (started && clock.current_pick != null) {
+  if (S.complete) {
+    // `current_pick` runs one PAST the last real pick at the wall, so the raw counter reads
+    // "PICK 129 of 128", which is nonsense on the one screen that has to be unambiguous.
+    setText($("pickNo"), "DRAFT COMPLETE");
+    setText($("pickOf"), capacity ? " " + capacity + " of " + capacity : "");
+    setText($("pickRound"), "");
+  } else if (started && clock.current_pick != null) {
     setText($("pickNo"), twoOnClock
       ? "PICK " + clock.current_pick + "+" + clock.survival_horizon
       : "PICK " + clock.current_pick);
@@ -1517,7 +1523,9 @@ function renderTop(d) {
     subText = [draft.type, draft.rounds ? draft.rounds + " rounds" : null].filter(Boolean).join("  ·  ");
   } else if (complete) {
     wordMode = "Draft complete";
-    subText = clock.current_pick ? clock.current_pick + " picks made" : "";
+    // current_pick runs one PAST the last real pick once the draft is over.
+    subText = capacity ? capacity + " picks made"
+            : (clock.current_pick ? (clock.current_pick - 1) + " picks made" : "");
   } else if (clock.my_slot == null) {
     wordMode = "Slot unresolved";
     subText = "board is still usable · no countdown until your slot is known";
