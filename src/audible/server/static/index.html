@@ -2279,6 +2279,18 @@ document.addEventListener("keydown", function (e) {
     toggleLegend(false); e.preventDefault(); return;
   }
   if (isTyping(e.target)) {
+    // The legend advertises 0-6, but the search box holds focus on load and after every
+    // Enter, so in the eyes-off state a digit FILTERED the board instead of switching
+    // sections -- the shortcut we advertise was unreachable in the only state Eric is
+    // actually in. An EMPTY box disambiguates it: no name on either board contains a digit
+    // anywhere (audited 2026-08-31 across 10,928 entries and the 12,225-player catalog;
+    // team defences are abbreviations like SF, not "San Francisco 49ers"), so a digit into
+    // an empty box can only be the shortcut. The moment a query exists, digits are text
+    // again, so nothing that could ever match a player is intercepted.
+    if (e.key >= "0" && e.key <= "9" && $("q").value === "") {
+      var tabIdx = parseInt(e.key, 10);
+      if (tabIdx < S.tabKeys.length) { setFilter(S.tabKeys[tabIdx]); e.preventDefault(); return; }
+    }
     if (e.key === "Enter") {
       var target = enterTarget();
       if (target) {
