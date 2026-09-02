@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .config import LeagueConfig, load_all_leagues
@@ -987,7 +988,176 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--min-snaps", type=float, default=200.0, help="min defensive snaps both years")
     st.set_defaults(func=cmd_idp_stickiness)
 
+    news = sub.add_parser("news", help="NFL news ingestion (display only; never ranks)")
+    news_sub = news.add_subparsers(dest="news_command", required=True)
+
+    np_ = news_sub.add_parser("probe", help="feed health; writes docs/feed-probe-<date>.md")
+    np_.add_argument("--write", action="store_true", help="write the dated report to docs/")
+    np_.set_defaults(func=cmd_news_probe)
+
+    npo = news_sub.add_parser("poll", help="fetch, match, classify, store")
+    npo.add_argument("--once", action="store_true",
+                     help="accepted for symmetry; the CLI always polls once")
+    npo.add_argument("--league", default="espn_davis_drive",
+                     help="narrow ambiguous names to this league's board")
+    npo.set_defaults(func=cmd_news_poll)
+
+    nsh = news_sub.add_parser("show", help="recent items")
+    nsh.add_argument("--player", default=None, help="full name to filter on")
+    nsh.add_argument("--hours", type=float, default=48.0)
+    nsh.add_argument("--min-severity", type=int, default=None, dest="min_severity")
+    nsh.add_argument("--league", default="espn_davis_drive")
+    nsh.set_defaults(func=cmd_news_show)
+
+    nst = news_sub.add_parser("stats", help="counts by feed, match rate, event histogram")
+    nst.set_defaults(func=cmd_news_stats)
+
     return parser
+
+
+# --- news (additive; nothing here reads or writes a projection) -----------------------
+
+
+def _news_index(args: argparse.Namespace):
+    """Player index from the cached catalog, narrowed to a league roster when given."""
+    from .news.entities import load_index
+
+    roster = None
+    if getattr(args, "league", None):
+        from .draft.board import build_board
+
+        cfg = load_all_leagues()[args.league]
+        roster = {e.player_id for e in build_board(cfg).entries}
+    return load_index(roster)
+
+
+def cmd_news_probe(args: argparse.Namespace) -> int:
+    """Fetch every registered feed and report what it actually serves."""
+    import datetime
+
+    from .adapters.feeds import load_feeds, probe_all
+
+    report = probe_all(load_feeds(include_disabled=True))
+    print("")
+    print("Feed probe")
+    print(f"  {'id':<19}{'HTTP':<6}{'parse':<13}{'items':<7}"
+          f"{'newest_h':<10}{'etag':<6}{'lastmod':<8}content-type")
+    for r in sorted(report.results, key=lambda r: r.feed_id):
+        newest = f"{r.newest_age_h:.1f}" if r.newest_age_h is not None else "-"
+        print(f"  {r.feed_id:<19}{str(r.status or r.error or '-')[:5]:<6}{r.parses:<13}"
+              f"{r.items:<7}{newest:<10}{'yes' if r.etag else 'no':<6}"
+              f"{'yes' if r.last_modified else 'no':<8}{r.content_type[:34]}")
+    healthy = report.healthy
+    print("")
+    print(f"  healthy (parses, has items, newest < 24h): {len(healthy)}/{len(report.results)}")
+    print(f"  G3 (>= 2 healthy feeds): {'PASS' if report.gate_g3() else 'FAIL'}")
+
+    if args.write:
+        out = Path("docs") / f"feed-probe-{datetime.date.today().isoformat()}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            f"# Feed probe - {datetime.date.today().isoformat()}",
+            "",
+            "Unconditional GET of every registered feed, including disabled ones.",
+            "`enabled` in `config/feeds.toml` is set from this, never by hand.",
+            "",
+            "| feed | HTTP | parses | items | newest (h) | ETag | Last-Modified |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for r in sorted(report.results, key=lambda r: r.feed_id):
+            newest = f"{r.newest_age_h:.1f}" if r.newest_age_h is not None else "-"
+            lines.append(
+                f"| `{r.feed_id}` | {r.status or r.error or '-'} | {r.parses} | "
+                f"{r.items} | {newest} | {'yes' if r.etag else 'no'} | "
+                f"{'yes' if r.last_modified else 'no'} |"
+            )
+        lines.append("")
+        lines.append(f"**Healthy: {len(healthy)}/{len(report.results)}**. "
+                     f"G3 (>= 2 healthy) {'PASS' if report.gate_g3() else 'FAIL'}.")
+        lines.append("")
+        out.write_text("\n".join(lines), encoding="utf-8")
+        print(f"  wrote {out}")
+    return 0 if report.gate_g3() else 1
+
+
+def cmd_news_poll(args: argparse.Namespace) -> int:
+    from .news.poll import poll_once
+    from .news.store import NewsStore
+
+    store = NewsStore()
+    try:
+        index = _news_index(args)
+    except RuntimeError as exc:
+        print(f"  [!] {exc}")
+        index = None
+    results = poll_once(store=store, index=index)
+    total_new = sum(r.inserted for r in results)
+    print("")
+    print(f"  {'feed':<19}{'fetched':<9}{'new':<6}{'dupe':<6}{'matched':<9}error")
+    for r in results:
+        print(f"  {r.feed_id:<19}{r.fetched:<9}{r.inserted:<6}{r.skipped:<6}"
+              f"{r.matched:<9}{r.error or ''}")
+    print("")
+    print(f"  {total_new} new item(s) stored at {store.path}")
+    return 0
+
+
+def cmd_news_show(args: argparse.Namespace) -> int:
+    import time as _time
+
+    from .news.store import NewsStore
+
+    store = NewsStore()
+    index = None
+    player_id = None
+    try:
+        index = _news_index(args)
+    except RuntimeError:
+        index = None
+    if args.player:
+        if index is None:
+            print("  no cached catalog; cannot resolve a name")
+            return 1
+        player_id = index.lookup_full(args.player)
+        if player_id is None:
+            print(f"  no unique player matched {args.player!r}")
+            return 1
+    items = store.recent(hours=args.hours, player_id=player_id,
+                         min_severity=args.min_severity)
+    if not items:
+        print("  nothing in that window")
+        return 0
+    now = _time.time()
+    for it in items:
+        when = it.published_at or it.fetched_at
+        age = (now - when) / 3600.0
+        who = ""
+        if it.player_id:
+            who = f"  [{index.display_name(it.player_id) if index else it.player_id}]"
+        print(f"  {age:>5.1f}h  {(it.event_type or '-'):<20}s{it.severity or 0}  "
+              f"{it.title[:88]}{who}")
+    print("")
+    print(f"  {len(items)} item(s)")
+    return 0
+
+
+def cmd_news_stats(_args: argparse.Namespace) -> int:
+    from .news.store import NewsStore
+
+    s = NewsStore().stats()
+    print("")
+    print(f"  items {s['total']}  matched {s['matched']} "
+          f"({100 * s['match_rate']:.1f}%)  db {s['db_bytes'] / 1e6:.2f} MB")
+    if s["oldest"] and s["newest"]:
+        span = (s["newest"] - s["oldest"]) / 3600.0
+        print(f"  span {span:.1f}h of publication time")
+    for label, counts in (("by feed", s["by_feed"]), ("by event", s["by_event"]),
+                          ("by confidence", s["by_confidence"])):
+        print("")
+        print(f"  {label}:")
+        for k, v in counts.items():
+            print(f"     {k:<22}{v}")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

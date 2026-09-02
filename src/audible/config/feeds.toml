@@ -1,0 +1,75 @@
+# NFL news feeds.
+#
+# `enabled` is set by `audible news probe`, never by hand-optimism. Several commonly
+# cited fantasy feeds are dead; the probe on 2026-08-31 found FantasyPros returning 404
+# while the other six served parseable XML with fresh items. See docs/feed-probe-*.md.
+#
+# kind:
+#   player_news -- short factual reports about one player; the useful shape for matching
+#   articles    -- longer pieces, usually about several players or none
+#
+# NOTE ON CONDITIONAL GET: measured at probe time, only CBS serves an ETag and NONE serve
+# Last-Modified. The fetcher still sends conditional headers because they cost nothing and
+# a feed can start honouring them at any time, but do not expect 304s from most of these.
+
+[[feed]]
+id = "rotowire_news"
+url = "https://www.rotowire.com/rss/news.php?sport=NFL"
+name = "Rotowire NFL player news"
+enabled = true
+poll_interval_s = 900
+kind = "player_news"
+# Free feed carries the factual report; the analysis blurb is paywalled. The report is
+# the part worth having. Serves only ~5 items, so history is lost fast if we stop polling.
+
+[[feed]]
+id = "rotowire_articles"
+url = "https://www.rotowire.com/rss/articles.php?sport=NFL"
+name = "Rotowire NFL articles"
+enabled = true
+poll_interval_s = 1800
+kind = "articles"
+
+[[feed]]
+id = "espn_nfl"
+url = "https://www.espn.com/espn/rss/nfl/news"
+name = "ESPN NFL news"
+enabled = true
+poll_interval_s = 900
+kind = "articles"
+
+[[feed]]
+id = "yahoo_nfl"
+url = "https://sports.yahoo.com/nfl/rss.xml"
+name = "Yahoo Sports NFL"
+enabled = true
+poll_interval_s = 900
+kind = "articles"
+
+[[feed]]
+id = "cbs_nfl"
+url = "https://www.cbssports.com/rss/headlines/nfl/"
+name = "CBS Sports NFL headlines"
+enabled = true
+poll_interval_s = 900
+kind = "articles"
+
+[[feed]]
+id = "reddit_ff"
+url = "https://www.reddit.com/r/fantasyfootball/new/.rss"
+name = "r/fantasyfootball new"
+enabled = true
+poll_interval_s = 1800
+kind = "articles"
+# Atom, not RSS. Community posts -- high volume, low signal; the classifier sends most of
+# it to `noise`, which is the correct outcome rather than a failure.
+
+[[feed]]
+id = "fantasypros"
+url = "https://www.fantasypros.com/nfl/rss/news.php"
+name = "FantasyPros NFL news"
+enabled = false
+poll_interval_s = 900
+kind = "player_news"
+# DEAD: HTTP 404 at probe on 2026-08-31. Kept disabled rather than deleted so the next
+# probe re-checks it and nobody re-adds it from a stale blog post.
