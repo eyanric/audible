@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Iterable
-from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -50,38 +48,6 @@ PLAYERS_TTL_S = 24 * 3600  # pull the ~15 MB catalog at most once a day
 
 # Cross-source ids carried from the catalog for the nflverse opportunity join.
 _ID_FIELDS = ("gsis_id", "espn_id", "yahoo_id", "sportradar_id", "rotowire_id")
-
-# Roster/injury fields, read straight off the catalog entry and never interpreted here.
-STATUS_FIELDS = (
-    "status", "injury_status", "injury_body_part", "injury_notes", "injury_start_date",
-)
-
-
-@dataclass(frozen=True, slots=True)
-class PlayerStatus:
-    """Roster and injury state exactly as the PLATFORM reports it. Display only.
-
-    DELIBERATELY NOT A FIELD ON ``RawPlayerLine`` OR ``PlayerProjection``. Those two are
-    what the value engine consumes, and a status field on them would make "display only" a
-    rule a human has to keep remembering -- one join, one `if`, and an injury flag is
-    silently moving a projection. As a sidecar keyed by player_id it is something the
-    engine cannot see even by accident, which is a structural guarantee rather than a
-    convention. (Both models are also ``frozen=True, slots=True``, so adding a field risks
-    any positional construction downstream -- a second, smaller reason.)
-
-    Nothing here is derived. `status` is Sleeper's string, `injury_status` is Sleeper's
-    string, and if Sleeper says ``Questionable`` then the only honest thing to render is
-    ``Questionable``. Severity ranking, precedence between the two fields, and date
-    arithmetic are all absent on purpose: they would be judgments this data does not
-    contain, invented at the point of display.
-    """
-
-    player_id: str
-    status: str | None = None
-    injury_status: str | None = None
-    injury_body_part: str | None = None
-    injury_notes: str | None = None
-    injury_start_date: str | None = None
 
 
 class SleeperAdapter:
@@ -292,37 +258,6 @@ class SleeperAdapter:
                 )
             )
         return lines
-
-    def player_status(self, player_ids: Iterable[str] | None = None) -> dict[str, PlayerStatus]:
-        """``player_id -> PlayerStatus`` from the cached catalog. Display only.
-
-        A SIDECAR, not a column. The value path must never import this -- there is a test
-        asserting exactly that, because the guarantee is only worth as much as its guard.
-
-        Reads the same catalog the board is already built from, so it costs no extra fetch.
-        Players absent from the catalog are absent from the mapping rather than present with
-        nulls: "we have no record of him" and "he is Active" must not collapse into one
-        value, or the chip would report health it never observed.
-        """
-        catalog = self.get_players_catalog()
-        wanted = set(player_ids) if player_ids is not None else None
-        out: dict[str, PlayerStatus] = {}
-        for pid, entry in catalog.items():
-            if not isinstance(entry, dict):
-                continue
-            key = str(pid)
-            if wanted is not None and key not in wanted:
-                continue
-            values = {f: entry.get(f) for f in STATUS_FIELDS}
-            # An entry that carries nothing at all is not evidence of anything; leaving it
-            # out keeps the coverage measurement honest about what the wire actually served.
-            if all(v is None or v == "" for v in values.values()):
-                continue
-            out[key] = PlayerStatus(
-                player_id=key,
-                **{f: (str(v) if v not in (None, "") else None) for f, v in values.items()},
-            )
-        return out
 
     def player_projections(self, config: LeagueConfig) -> list[PlayerProjection]:
         """Sleeper *consensus* projections: raw lines scored by the league's rules."""

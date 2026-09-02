@@ -882,6 +882,14 @@ def build_parser() -> argparse.ArgumentParser:
     vp.add_argument("--per-pos", type=int, default=5, help="top-N per position (default 5)")
     vp.set_defaults(func=cmd_vorp)
 
+    ic = sub.add_parser(
+        "injury-coverage",
+        help="roster/injury field coverage over the top N by value (reports, never ranks)",
+    )
+    ic.add_argument("league")
+    ic.add_argument("--top", type=int, default=200, help="how many by value (default 200)")
+    ic.set_defaults(func=cmd_injury_coverage)
+
     xw = sub.add_parser(
         "crosswalk", help="resolve players to nflverse gsis_id (needs nflverse extra)"
     )
@@ -1158,6 +1166,98 @@ def cmd_news_stats(_args: argparse.Namespace) -> int:
         for k, v in counts.items():
             print(f"     {k:<22}{v}")
     return 0
+
+
+def cmd_injury_coverage(args: argparse.Namespace) -> int:
+    """Measure roster/injury coverage over the top N by value. See docs/injury-coverage-gate.md.
+
+    Reports, never ranks. The thresholds this is measured against were pre-registered in
+    their own commit before the extraction existed.
+    """
+    from collections import Counter
+
+    from .adapters.sleeper import SleeperAdapter
+    from .draft import build_board
+
+    cfg = _load(args.league)
+    board = build_board(cfg)
+    top = [e for e in board.entries][: args.top]
+    ids = [e.player_id for e in top]
+    by_id = {e.player_id: e for e in top}
+
+    # Read straight off the cached catalog. There is deliberately NO adapter accessor for
+    # these fields: this is a measurement tool, and an accessor would be a display-only API
+    # for a field the measurement below says is not worth displaying. Phase 2 repoints this
+    # at nflverse weekly injuries and ESPN's own injuryStatus, which is where signal lives.
+    with SleeperAdapter() as sleeper:
+        catalog = sleeper.get_players_catalog()
+    fields = ("status", "injury_status", "injury_body_part", "injury_start_date")
+    statuses: dict[str, dict[str, str | None]] = {}
+    for pid in ids:
+        entry = catalog.get(pid)
+        if not isinstance(entry, dict):
+            continue
+        values = {f: (str(entry[f]) if entry.get(f) not in (None, "") else None)
+                  for f in fields}
+        # All-null is "no record", which is not the same as "Active". Team defences are the
+        # real case -- Sleeper keys them by abbreviation and a defence cannot be on IR --
+        # and collapsing the two would report health that was never observed.
+        if any(v is not None for v in values.values()):
+            statuses[pid] = values
+
+    print("")
+    print(f"Injury / roster coverage -- [{cfg.key}] {cfg.name}")
+    print(f"  top {len(top)} by value; measured {_today()}")
+
+    # G1: roster `status`, the field the chip is built on.
+    with_status = [pid for pid in ids if statuses.get(pid, {}).get("status")]
+    pct = 100.0 * len(with_status) / len(ids) if ids else 0.0
+    print("")
+    print(f"  G1  roster `status` non-null : {len(with_status)}/{len(ids)} = {pct:.1f}%"
+          f"   (>= 95% required)  {'PASS' if pct >= 95.0 else 'FAIL'}")
+
+    dist = Counter(statuses.get(pid, {}).get("status") or "(missing)" for pid in ids)
+    print("")
+    print("  status distribution:")
+    for value, n in dist.most_common():
+        print(f"     {value:<24}{n}")
+
+    # G2: the negative control -- can this field ever disagree with itself?
+    non_active = [pid for pid in ids
+                  if statuses.get(pid, {}).get("status")
+                  and statuses[pid]["status"] != "Active"]
+    print("")
+    print(f"  G2  non-Active players found : {len(non_active)}   (>= 3 across both leagues,"
+          f" each hand-verified)")
+    for pid in non_active:
+        st, e = statuses[pid], by_id[pid]
+        bits = [f"status={st['status']!r}"]
+        for label, key in (("injury_status", "injury_status"),
+                           ("body_part", "injury_body_part"),
+                           ("since", "injury_start_date")):
+            if st.get(key):
+                bits.append(f"{label}={st[key]!r}")
+        print(f"     {e.name:<26}{e.position:<5}{e.team or '--':<4}  " + "  ".join(bits))
+
+    # G3: RECORDED, not gated. Preseason nulls are correct data -- see the gate doc.
+    with_inj = [pid for pid in ids if statuses.get(pid, {}).get("injury_status")]
+    null_rate = 100.0 * (len(ids) - len(with_inj)) / len(ids) if ids else 0.0
+    print("")
+    print(f"  G3  `injury_status` null-rate: {len(ids) - len(with_inj)}/{len(ids)} = "
+          f"{null_rate:.1f}%   (RECORDED, not gated)")
+    inj_dist = Counter(statuses[pid]["injury_status"] for pid in with_inj)
+    for value, n in inj_dist.most_common():
+        print(f"     {str(value):<24}{n}")
+    if not with_inj:
+        print("     (none -- expected before Week 1; official game-status designations")
+        print("      come out of the weekly practice-report cycle. Re-measure from 2026-09-09.)")
+    return 0 if pct >= 95.0 else 1
+
+
+def _today() -> str:
+    import datetime
+
+    return datetime.date.today().isoformat()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
