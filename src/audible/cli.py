@@ -889,6 +889,13 @@ def build_parser() -> argparse.ArgumentParser:
     ic.add_argument("league")
     ic.add_argument("--top", type=int, default=200, help="how many by value (default 200)")
     ic.set_defaults(func=cmd_injury_coverage)
+    by = sub.add_parser(
+        "byes", help="bye weeks for my roster, with same-position collisions (display only)"
+    )
+    by.add_argument("league")
+    by.add_argument("--player", default=None,
+                    help="comma-separated names to look up, e.g. 'Derrick Henry,James Cook'")
+    by.set_defaults(func=cmd_byes)
 
     xw = sub.add_parser(
         "crosswalk", help="resolve players to nflverse gsis_id (needs nflverse extra)"
@@ -1258,6 +1265,92 @@ def _today() -> str:
     import datetime
 
     return datetime.date.today().isoformat()
+
+def cmd_byes(args: argparse.Namespace) -> int:
+    """Bye weeks for my roster, grouped, with same-position collisions flagged.
+
+    Display only. Nothing here reads or writes a projection, and the derivation refuses to
+    answer at all unless it passes its own consistency check -- a wrong bye is the kind of
+    error someone plans a month of lineups around.
+    """
+    from .draft import build_board
+    from .draft.board import DraftEntry
+    from .draft.service import CockpitService
+    from .server.state import bye_consistency
+
+    cfg = _load(args.league)
+    report = bye_consistency(cfg.season)
+
+    print("")
+    print(f"Bye weeks {cfg.season} -- derived from schedule absence")
+    print(f"  B1 exactly 32 teams          : {report['teams']}  "
+          f"{'PASS' if report['b1'] else 'FAIL'}")
+    print(f"  B2 one bye per team          : "
+          f"{'PASS' if report['b2'] else 'FAIL ' + str(report['multi_bye'])}")
+    print(f"  B3 inside the plausible window: "
+          f"{'PASS' if report['b3'] else 'FAIL ' + str(report['outside_window'])}")
+    print(f"  B4 games == playing/2 each wk : "
+          f"{'PASS' if report['b4'] else 'FAIL ' + str(report['week_mismatch'])}")
+    on_bye = {w: n for w, n in report["per_week"].items() if n}
+    print(f"  teams on bye by week          : {on_bye}")
+    if not report["ok"]:
+        print("")
+        print("  Derivation failed its own check. Refusing to report byes.")
+        return 1
+
+    byes = report["byes"]
+    board = build_board(cfg)
+    by_id = {e.player_id: e for e in board.entries}
+    service = CockpitService(cfg)
+    service.board = board
+    service.restore()
+    mine = service.session.slot
+
+    rostered = []
+    for pick in service.session.effective_picks():
+        if mine is not None and pick.draft_slot != mine:
+            continue
+        entry = by_id.get(pick.player_id)
+        if entry is None:
+            continue
+        rostered.append(entry)
+
+    print("")
+    print(f"[{cfg.key}] {cfg.name} -- slot {mine}, {len(rostered)} rostered")
+    if not rostered:
+        print("  no saved roster for this league; nothing to group")
+        return 0
+
+    grouped: dict[int | None, list[DraftEntry]] = {}
+    for entry in rostered:
+        grouped.setdefault(byes.get(entry.team or ""), []).append(entry)
+
+    for week in sorted(grouped, key=lambda w: (w is None, w or 0)):
+        label = f"week {week}" if week is not None else "no bye derived"
+        players = sorted(grouped[week], key=lambda e: (e.position, e.name))
+        print("")
+        print(f"  {label}  ({len(players)})")
+        for e in players:
+            print(f"     {e.name:<26}{e.position:<5}{e.team or '--'}")
+        by_pos: dict[str, list[str]] = {}
+        for e in players:
+            by_pos.setdefault(e.position, []).append(e.name)
+        for position, names in sorted(by_pos.items()):
+            if len(names) > 1 and week is not None:
+                print(f"     ** COLLISION: {len(names)} x {position} share week {week} -- "
+                      + ", ".join(sorted(names)))
+
+    if args.player:
+        print("")
+        wanted = [w.strip().lower() for w in args.player.split(",")]
+        for name in wanted:
+            hit = next((e for e in board.entries if e.name.lower() == name), None)
+            if hit is None:
+                print(f"  {name!r}: not on the board")
+                continue
+            print(f"  {hit.name:<26}{hit.position:<5}{hit.team or '--':<5}"
+                  f"bye week {byes.get(hit.team or '', '?')}")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

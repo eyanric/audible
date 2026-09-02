@@ -335,6 +335,7 @@ button,input{font:inherit;color:inherit}
 col.w-name{width:auto}
 col.w-pos{width:44px}
 col.w-team{width:40px}
+col.w-bye{width:38px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
 col.w-gap{width:62px}
@@ -608,6 +609,7 @@ col.w-act{width:140px}
 }
 @media (max-width:520px){
   col.w-team,.c-team,th.h-team{display:none}
+  col.w-bye,.c-bye,th.h-bye{display:none}
   col.w-pos{width:38px}
   col.w-r{width:38px}
   col.w-surv{width:44px}
@@ -894,7 +896,7 @@ col.w-act{width:140px}
       <div class="pbody" id="grabScroll">
         <table class="ptable" aria-label="Grab now">
           <colgroup>
-            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
+            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-bye"><col class="w-r"><col class="w-r">
             <col class="w-r"><col class="w-surv"><col class="w-gap"><col class="w-flags"><col class="w-act">
           </colgroup>
           <tbody id="grabBody"></tbody>
@@ -914,7 +916,7 @@ col.w-act{width:140px}
       <div class="pbody grow" id="bestScroll">
         <table class="ptable" aria-label="Best available">
           <colgroup>
-            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
+            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-bye"><col class="w-r"><col class="w-r">
             <col class="w-r"><col class="w-surv"><col class="w-gap"><col class="w-flags"><col class="w-act">
           </colgroup>
           <thead>
@@ -922,6 +924,7 @@ col.w-act{width:140px}
               <th scope="col" title="Player">Player</th>
               <th scope="col" title="Position">Pos</th>
               <th scope="col" class="h-team" title="NFL team">Tm</th>
+              <th scope="col" class="h-bye" title="WHAT IT IS: the week this player&#39;s NFL team does not play.&#10;&#10;WHAT THE NUMBER MEANS: W7 means he scores nothing in week 7, whoever you start.&#10;&#10;WHAT TO DO: nothing on its own - one bye is normal and every player has exactly one. It matters when several of your starters share the same week; the Runs panel says so when that happens.">Bye</th>
               <th scope="col" class="num sortable" data-sort="cons" title="WHAT IT IS: where he sits when every player is put in order by the points we expect him to score under THIS league&#39;s scoring.&#10;&#10;WHAT THE NUMBER MEANS: Ja&#39;Marr Chase shows 25, so 24 players are expected to outscore him this season.&#10;&#10;WHAT TO DO: start from this order, then let VALUE and USAGE argue with it.">Rank<span class="sarrow"></span></th>
               <th scope="col" class="num sortable" data-sort="vorp" title="WHAT IT IS: how many more points he scores than the best player at his position you could still pick up for free, once this 8-team league&#39;s starting slots are full.&#10;&#10;WHAT THE NUMBER MEANS: Jahmyr Gibbs shows 1 while his RANK is 18 - seventeen players score more, but none of them puts a bigger gap between you and the free option.&#10;&#10;WHAT TO DO: when two players look close on RANK, take the better VALUE.">Value<span class="sarrow"></span></th>
               <th scope="col" class="num sortable" data-sort="opp" title="WHAT IT IS: a second opinion built only from the work he gets - carries, targets, and the share of touches left behind by team-mates who have gone.&#10;&#10;WHAT THE NUMBER MEANS: Christian McCaffrey shows 10 against a RANK of 35: the workload says top-10 even though the points projection does not.&#10;&#10;WHAT TO DO: a much better USAGE than RANK is a buy signal. A small triangle marks the players where the two disagree most.">Usage<span class="sarrow"></span></th>
@@ -961,6 +964,8 @@ col.w-act{width:140px}
         <div class="subhead">Tier cliffs</div>
         <div id="cliffsList"></div>
         <div id="cliffsCalm" class="calm" hidden>No cliff within reach.</div>
+        <div class="subhead" id="byeHead" hidden>Shared bye weeks</div>
+        <div id="byeList"></div>
       </div>
     </div>
 
@@ -1161,6 +1166,7 @@ function createPlayerRow(scope) {
   tdPos.appendChild(chip);
 
   var tdTeam = mk("td", "c-team");
+  var tdBye = mk("td", "c-bye");
   var tdCons = mk("td", "c-num c-cons num");
   var tdVorp = mk("td", "c-num c-vorp num");
   var tdOpp = mk("td", "c-num c-opp num");
@@ -1175,12 +1181,12 @@ function createPlayerRow(scope) {
   tdAct.appendChild(btn);
 
   tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
-  tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
+  tr.appendChild(tdBye); tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
   tr.appendChild(tdSurv); tr.appendChild(tdGap); tr.appendChild(tdFlags); tr.appendChild(tdAct);
 
   var rec = {
     el: tr, scope: scope, id: null,
-    name: nameSpan, need: needTag, chip: chip, team: tdTeam,
+    name: nameSpan, need: needTag, chip: chip, team: tdTeam, bye: tdBye,
     cons: tdCons, vorp: tdVorp, opp: tdOpp, surv: tdSurv,
     flags: tdFlags, gap: tdGap, btn: btn
   };
@@ -1318,6 +1324,7 @@ function updatePlayerRow(rec, p) {
   setHidden(rec.need, !p.fills_need);
   setPos(rec.chip, p.position);
   setText(rec.team, p.team || "—");
+  setText(rec.bye, p.bye == null ? "" : "W" + p.bye);
   setText(rec.cons, rank(p.consensus_rank));
   setText(rec.vorp, rank(p.vorp_rank));
   setText(rec.opp, rank(p.opp_rank));
@@ -1971,6 +1978,25 @@ function renderRight(d) {
       setText(rec.t, txt);
       var loud = (r.position === "QB" && superflex && r.severity !== "low");
       setClassName(rec.el, "warnbox sev-" + (r.severity || "low") + (loud ? " loud" : ""));
+    });
+
+  var byes = d.bye_collisions || [];
+  setHidden($("byeHead"), byes.length === 0);
+  reconcile($("byeList"), byes,
+    function (b) { return b.week + ":" + b.position; },
+    function () {
+      var el = mk("div", "warnbox");
+      var chip = mk("span", "chip");
+      var t = mk("span", "wtext");
+      el.appendChild(chip); el.appendChild(t);
+      return { el: el, chip: chip, t: t };
+    },
+    function (rec, b) {
+      setPos(rec.chip, b.position);
+      var names = b.players || [];
+      setText(rec.t, "week " + b.week + " — " + names.join(", "));
+      setAttr(rec.el, "title", names.length + " " + b.position
+              + " on your roster share the week " + b.week + " bye");
     });
 
   var cliffs = d.cliffs || [];

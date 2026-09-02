@@ -237,3 +237,19 @@ def player_stats_frame(seasons: list[int]) -> Any:
         lambda: nfl.load_player_stats(seasons, summary_level="week"),
         source="nflverse/player_stats",
     )
+
+
+def schedules_frame(seasons: list[int]) -> Any:
+    """Game schedule: one row per game, with season / week / game_type / home / away.
+
+    Byes are derived from ABSENCE -- a team's bye is the regular-season week in which it
+    appears as neither home_team nor away_team -- so this loader is the whole data source
+    for that. Same disk-first contract as every other frame here: the network is an update
+    mechanism, not a dependency.
+    """
+    nfl = _require_nflreadpy()
+    return _cached(
+        _key("schedules", *seasons),
+        lambda: nfl.load_schedules(seasons),
+        source="nflverse/schedules",
+    )
