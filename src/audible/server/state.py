@@ -28,7 +28,8 @@ RECENT_PICKS_LIMIT = 12
 RUN_WINDOW = 10
 
 
-def _player(cand: Candidate, gaps: dict[str, int] | None = None) -> dict[str, Any]:
+def _player(cand: Candidate, gaps: dict[str, int] | None = None,
+            byes: dict[str, int] | None = None) -> dict[str, Any]:
     e = cand.entry
     gap = (gaps or {}).get(e.player_id)
     espn_rank = _rank_cache.get(e.player_id)
@@ -58,6 +59,10 @@ def _player(cand: Candidate, gaps: dict[str, int] | None = None) -> dict[str, An
         "grab_now": cand.grab_now,
         "fills_need": cand.fills_need,
         "deviation": e.deviation,
+        # Display only, joined by TEAM at assembly time -- never carried on the player model,
+        # so no value-engine input can reach it. None means "we could not derive one",
+        # which the page renders blank rather than as a week.
+        "bye": (byes or {}).get(e.team or ""),
         "flags": list(e.flags),
     }
 
@@ -199,6 +204,99 @@ def _cliffs(view: LiveView) -> list[dict[str, Any]]:
 _GAP_POPULATION = 200
 _gap_cache: dict[str, int] | None = None
 _rank_cache: dict[str, int] = {}
+
+# nflverse spells the Rams `LA`; Sleeper and the board spell them `LAR`. Measured across all
+# 32 teams on 2026-09-01, that is the ONLY disagreement between the two vocabularies.
+_SCHEDULE_TEAM_ALIASES = {"LA": "LAR"}
+
+# Byes have not fallen outside weeks 4-14 in the modern schedule. This is a plausibility
+# bound for the self-check, not a claim about any particular season: its job is to catch a
+# derivation that has gone wrong, not to encode the league's calendar.
+BYE_WINDOW = range(4, 15)
+
+_bye_cache: dict[str, int] | None = None
+
+
+def bye_consistency(season: int) -> dict[str, Any]:
+    """Derive byes and check the derivation against what must be true of any NFL season.
+
+    A CONSISTENCY check, not a coverage one -- and the difference is the whole reason to
+    trust it. Coverage asks "how full is this field", which a uniformly meaningless field
+    passes. These four have a known-correct answer that the data cannot fake:
+
+      B1  exactly 32 teams appear
+      B2  each team has exactly one bye
+      B3  every bye falls inside the plausible window
+      B4  games in a week == (32 - teams on bye that week) / 2
+
+    B4 is the load-bearing one. It ties the derivation back to the row count it came from,
+    so a team silently missing from a week fails it arithmetically rather than plausibly.
+    """
+    from ..adapters.nflverse import schedules_frame
+
+    frame = schedules_frame([season])
+    rows = [r for r in frame.iter_rows(named=True) if r.get("game_type") == "REG"]
+    weeks = sorted({r["week"] for r in rows})
+    playing: dict[int, set[str]] = {w: set() for w in weeks}
+    games: dict[int, int] = dict.fromkeys(weeks, 0)
+    for r in rows:
+        playing[r["week"]].update((r["home_team"], r["away_team"]))
+        games[r["week"]] += 1
+
+    teams = sorted({t for wk in playing.values() for t in wk})
+    byes = {t: [w for w in weeks if t not in playing[w]] for t in teams}
+
+    b1 = len(teams) == 32
+    multi = {t: v for t, v in byes.items() if len(v) != 1}
+    b2 = not multi
+    settled = {t: v[0] for t, v in byes.items() if len(v) == 1}
+    outside = {t: w for t, w in settled.items() if w not in BYE_WINDOW}
+    b3 = not outside
+    # Every team that plays in a week is in exactly one game, so games == playing / 2.
+    mismatched = {
+        w: {"games": games[w], "expected": len(playing[w]) // 2}
+        for w in weeks if games[w] != len(playing[w]) // 2
+    }
+    b4 = not mismatched
+
+    return {
+        "season": season, "teams": len(teams), "weeks": weeks,
+        "byes": {_SCHEDULE_TEAM_ALIASES.get(t, t): w for t, w in settled.items()},
+        "per_week": {w: len(teams) - len(playing[w]) for w in weeks},
+        "games_per_week": games,
+        "b1": b1, "b2": b2, "b3": b3, "b4": b4,
+        "ok": b1 and b2 and b3 and b4,
+        "multi_bye": multi, "outside_window": outside, "week_mismatch": mismatched,
+    }
+
+
+def bye_weeks(season: int) -> dict[str, int]:
+    """``board team code -> bye week``, or {} if the derivation cannot be trusted.
+
+    Computed once per process and cached. On ANY failure -- import error, network, or a
+    failed consistency check -- this returns {} and the column simply does not appear.
+    A wrong bye is worse than no bye: it is the kind of error someone plans a whole roster
+    around. Same contract as `_espn_gaps` directly above.
+    """
+    global _bye_cache
+    if _bye_cache is not None:
+        return _bye_cache
+    resolved: dict[str, int] = {}
+    try:
+        report = bye_consistency(season)
+    except Exception as exc:  # noqa: BLE001 -- the board must build without a schedule
+        log.warning("bye weeks unavailable (%s); the column will not appear", exc)
+    else:
+        if report["ok"]:
+            resolved = dict(report["byes"])
+        else:
+            log.warning(
+                "bye derivation failed its own consistency check "
+                "(B1=%s B2=%s B3=%s B4=%s); refusing to serve byes",
+                report["b1"], report["b2"], report["b3"], report["b4"],
+            )
+    _bye_cache = resolved
+    return resolved
 # Measured by scripts/gap-confidence.py: Spearman(receptions, gap) within position, banded on
 # ESPN rank. WR 61-120 = +0.50 and RB 121-200 = -0.40 both clear |0.30|; nothing in 1-60 does
 # (WR +0.24, RB -0.25). So from 61 on the gap is carrying the scoring seam, and above it the
@@ -288,6 +386,40 @@ def _data_vintage() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 -- a readout must never take the board down
         log.warning("data vintage unavailable (%s)", exc)
         return {"sources": 0, "oldest_age_s": None, "oldest_days": None, "stale": False}
+
+
+def _bye_collisions(service: CockpitService, byes: dict[str, int]) -> list[dict[str, Any]]:
+    """Rostered players at the SAME primary position sharing a bye week.
+
+    States the fact and stops. No severity, no ranking, no recommendation -- whether two
+    RBs on the same bye is a problem depends on the rest of the roster, the waiver wire and
+    how the season has gone, none of which this knows. Deliberately blind to lineup slots
+    and starter counts: that is weekly-mode scope, and reaching for it here would be
+    inventing a judgment out of a coincidence of dates.
+    """
+    board = service.board
+    if not byes or board is None:
+        return []
+    by_id = {e.player_id: e for e in board.entries}
+    mine = service.session.slot
+    if mine is None:
+        return []
+    grouped: dict[tuple[int, str], list[str]] = {}
+    for pick in service.session.effective_picks():
+        if pick.draft_slot != mine:
+            continue
+        entry = by_id.get(pick.player_id)
+        if entry is None or not entry.team:
+            continue
+        week = byes.get(entry.team)
+        if week is None:
+            continue
+        grouped.setdefault((week, entry.position), []).append(entry.name)
+    return [
+        {"week": week, "position": position, "players": sorted(names)}
+        for (week, position), names in sorted(grouped.items())
+        if len(names) > 1
+    ]
 
 
 def _undo(service: CockpitService) -> dict[str, Any]:
@@ -441,8 +573,10 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "starters_complete": view.starters_complete,
     }
     gaps = _espn_gaps(service)
-    base["grab_now"] = [_player(c, gaps) for c in grab]
-    base["best_available"] = [_player(c, gaps) for c in _served_pool(service, view)]
+    byes = bye_weeks(service.config.season)
+    base["grab_now"] = [_player(c, gaps, byes) for c in grab]
+    base["best_available"] = [_player(c, gaps, byes) for c in _served_pool(service, view)]
+    base["bye_collisions"] = _bye_collisions(service, byes)
     base["teams"] = _teams(service)
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)
