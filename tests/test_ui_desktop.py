@@ -698,7 +698,8 @@ def _col(page, key: str):
     """The values currently rendered, read from the payload the rows were built from."""
     return page.evaluate(
         """(k) => [...document.querySelectorAll('#bestBody tr.prow')].map(r => {
-             const cells = {cons: 3, vorp: 4, opp: 5, surv: 6};
+             // 0 name, 1 pos, 2 team, 3 bye, 4 cons, 5 vorp, 6 opp, 7 surv, 8 gap
+             const cells = {cons: 4, vorp: 5, opp: 6, surv: 7};
              return r.children[cells[k]].textContent.trim();
            })""", key)
 
@@ -1181,3 +1182,64 @@ def test_negative_control_the_prefix_page_fails_1_2_and_4(prefix_page) -> None:
         "the pre-fix page should fail all three checks; it failed "
         f"{len(failures)}: {failures}"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# C1. THE BYE COLUMN
+#
+# It is one narrow column and one text warning, so what is worth asserting is not that it
+# looks right but that it did not disturb anything: same header count, same row height, and
+# the numeric columns still mean what `th.num` says they mean.
+# ---------------------------------------------------------------------------------------
+def test_bye_column_is_present_and_labelled(live) -> None:
+    page, _ = live
+    heads = page.eval_on_selector_all(
+        "#bestPanel thead th", "els => els.map(e => e.textContent.trim())"
+    )
+    assert "Bye" in heads, heads
+    assert heads.index("Bye") == heads.index("Tm") + 1, "Bye sits next to Tm"
+
+    title = page.eval_on_selector("#bestPanel thead th.h-bye", "e => e.getAttribute('title')")
+    for part in ("WHAT IT IS:", "WHAT THE NUMBER MEANS:", "WHAT TO DO:"):
+        assert part in title, f"bye tooltip missing {part}"
+
+
+def test_bye_is_not_claimed_to_be_a_sortable_number(live) -> None:
+    """`W7` is a label like `BUF`, not a magnitude. It must not join the numeric columns."""
+    page, _ = live
+    nums = page.eval_on_selector_all(
+        "#bestPanel thead th.num", "els => els.map(e => e.textContent.trim())"
+    )
+    assert "Bye" not in nums, nums
+    assert page.locator("#bestPanel thead th.h-bye.sortable").count() == 0
+
+
+def test_every_row_has_a_bye_cell_in_the_same_place(live) -> None:
+    page, _ = live
+    widths = page.eval_on_selector_all(
+        "#bestBody tr.prow", "rows => rows.map(r => r.children.length)"
+    )
+    assert widths, "no rows rendered"
+    assert len(set(widths)) == 1, f"ragged rows: {sorted(set(widths))}"
+    classes = page.eval_on_selector_all(
+        "#bestBody tr.prow", "rows => rows.map(r => r.children[3].className)"
+    )
+    assert set(classes) == {"c-bye"}, set(classes)
+
+
+def test_the_bye_column_did_not_change_row_height(live) -> None:
+    """The one constraint that would actually cost rows on screen."""
+    page, _ = live
+    heights = page.eval_on_selector_all(
+        "#bestBody tr.prow",
+        "rows => rows.slice(0, 20).map(r => Math.round(r.getBoundingClientRect().height))",
+    )
+    assert heights, "no rows rendered"
+    assert len(set(heights)) == 1, f"rows are no longer uniform: {sorted(set(heights))}"
+
+
+def test_the_shared_bye_warning_is_absent_when_there_is_nothing_to_say(live) -> None:
+    """No collisions must render nothing at all -- not a reassuring line to learn to skip."""
+    page, _ = live
+    if page.locator("#byeList .warnbox").count() == 0:
+        assert page.locator("#byeHead").is_hidden()
