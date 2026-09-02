@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -683,7 +684,13 @@ def test_data_vintage_is_on_screen(live) -> None:
     else:
         assert el["hidden"] is False
         assert "board data:" in el["text"]
-        assert str(dv["oldest_days"]) in el["text"]
+        # Compare NUMERICALLY, not by substring. JS renders 0.0 as "0" and 7.0 as "7",
+        # while Python's str() keeps the ".0" -- so a substring check silently depended on
+        # the cache happening to be a fractional number of days old. It passed for months on
+        # a 7.4-day local cache and failed the first time CI built a board from scratch.
+        shown = re.search(r"board data:\s*([0-9.]+)\s*days?\s*old", el["text"])
+        assert shown, el["text"]
+        assert float(shown.group(1)) == pytest.approx(dv["oldest_days"])
         assert el["stale"] == (dv["stale"] is True)
 
 
