@@ -90,4 +90,10 @@ def test_board_numbers_are_identical_with_news_on_and_off(monkeypatch, service):
     with TestClient(create_app(service, warm=False)) as client:
         on = client.get("/api/state").json()
 
-    assert off == on
+    # `sync` and `data` carry wall-clock ages that tick between the two requests, so they
+    # would make this flaky by a tenth of a second while saying nothing about news. Every
+    # other key -- and every board number -- must be identical.
+    volatile = {"sync", "data"}
+    assert set(off) == set(on)
+    for key in set(off) - volatile:
+        assert off[key] == on[key], f"{key} moved when news was enabled"
