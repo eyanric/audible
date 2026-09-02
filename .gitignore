@@ -17,6 +17,9 @@ data/cache/
 snapshots/
 *.local
 
+# Personal draft exports (reconstructible from ESPN + the synced state file)
+draft-*-results.md
+
 # OS / editor
 .DS_Store
 .vscode/
