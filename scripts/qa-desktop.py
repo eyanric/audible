@@ -908,10 +908,14 @@ async def main_async(keep: bool) -> int:
     for ok, name, _detail, _reason, since in KNOWN:
         if not ok:
             print(f"  known  {name}  (accepted {since})")
-    print(f"{len(RESULTS) - len(failed)} passed, {len(KNOWN)} known, {len(failed)} failed")
-    if promoted:
-        print(f"RED: {len(promoted)} known failure(s) now pass and must be promoted.")
-    return 1 if (failed or promoted) else 0
+    # A promoted entry counts as FAILED, not as known. The summary line is the thing people
+    # read at a glance, and a red run that prints "0 failed" is a green-shaped count -- which
+    # is the same class of mistake as a guard that can only ever be satisfied.
+    still_known = len(KNOWN) - len(promoted)
+    red = len(failed) + len(promoted)
+    print(f"{len(RESULTS) - len(failed)} passed, {still_known} known, {red} failed"
+          + (" (promotion required)" if promoted else ""))
+    return 1 if red else 0
 
 
 def main() -> int:
