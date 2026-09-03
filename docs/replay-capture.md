@@ -71,3 +71,42 @@ replay that depends on eligibility should say so.
 
 Capturing the pod's directory Saturday night avoids this for Saturday's draft: nothing will
 have refreshed it in between.
+
+## Captures taken
+
+Paths only. **The archives are not in git** — they hold a 16 MB player catalog and are
+reconstructible for nothing except the pick history, which is the part that is not.
+
+| when | league | path | entries | bytes | picks |
+|---|---|---|---|---|---|
+| 2026-09-02 | `espn_davis_drive` (DDAFFL, 6012) | `C:/dev/backups/audible/draft-ddaffl-2026-09-02.tar` | 17 | 22,353,920 | 128 |
+
+Verified at capture time with the Python snippet above: the archive holds
+`data/cache/draft-state-espn_davis_drive.json` (11,213 bytes,
+sha256 `f411f26169e49dff720f976f7f36c20a8c136ca3d2f5357fae4503260463795a`), which parses to
+`draft_status: complete`, `rounds: 16`, and **128 picks numbered contiguously 1..128** with no
+manual entries. Pick 57 is player_id `6770` — Joe Burrow, matching the replay figure recorded
+above.
+
+**Why this one was urgent rather than routine.** haven#349 repoints the single `audible`
+Deployment from `espn_davis_drive` to Danger Zone. That Deployment's `/app/data` is the
+`emptyDir` this draft lived in and nowhere else, so merging #349 — or any digest bump, or a
+node reboot — would have destroyed it silently. The capture was taken while the pod still had
+18 hours of uptime and zero restarts. haven#351 supersedes the repoint with a per-league split,
+and retiring the old Deployment is only safe because of this file.
+
+Saturday's two drafts need the same treatment, and the split means **two captures, one per
+pod**, not one:
+
+```bash
+for L in boyfun danger-zone; do
+  POD=$(kubectl -n audible get pod -l app=audible-$L -o jsonpath='{.items[0].metadata.name}')
+  MSYS_NO_PATHCONV=1 kubectl -n audible exec "$POD" -- tar cf - -C /app data \
+    > draft-$L-2026-09-05.tar
+done
+```
+
+Note the `-l app=audible-<league>` selector. The old `{.items[0]}` form at the top of this file
+picked the only pod in the namespace; with two pods it picks an arbitrary one, and the two
+archives would then be the same league twice with different names — a failure that looks
+exactly like success.
