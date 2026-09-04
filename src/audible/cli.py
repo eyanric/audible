@@ -882,6 +882,15 @@ def build_parser() -> argparse.ArgumentParser:
     vp.add_argument("--per-pos", type=int, default=5, help="top-N per position (default 5)")
     vp.set_defaults(func=cmd_vorp)
 
+    va = sub.add_parser(
+        "verify-actuals",
+        help="recompute a completed season and diff ESPN's own totals (ESPN leagues only)",
+    )
+    va.add_argument("league")
+    va.add_argument("--season", type=int, default=2025, help="completed season (default 2025)")
+    va.add_argument("--per-pos", type=int, default=3, help="players per position (default 3)")
+    va.set_defaults(func=cmd_verify_actuals)
+
     ic = sub.add_parser(
         "injury-coverage",
         help="roster/injury field coverage over the top N by value (reports, never ranks)",
@@ -1351,6 +1360,167 @@ def cmd_byes(args: argparse.Namespace) -> int:
             print(f"  {hit.name:<26}{hit.position:<5}{hit.team or '--':<5}"
                   f"bye week {byes.get(hit.team or '', '?')}")
     return 0
+
+
+def cmd_verify_actuals(args: argparse.Namespace) -> int:
+    """Recompute a completed season under our derived scoring and diff ESPN's own totals.
+
+    THE QUESTION THIS ANSWERS. `verify-scoring` compares two scoring TABLES and reports where
+    they disagree. That catches a wrong weight but not a wrong *application* of a right one:
+    a per-position override read at the league level, a stat id mapped to the wrong key, a
+    unit conversion. This applies the derived table to the league's own realized stat lines
+    and asks whether the arithmetic lands on the league's own number.
+
+    K and D/ST are reported but cannot be recomputed -- see `SPECIALIST_GAP`. Our vocabulary
+    models neither yards-allowed nor miss distance, so those rows fall back to ESPN's total
+    by design and a zero diff there would prove nothing. They are listed as SKIP rather than
+    quietly dropped, because a validation that silently covers four of six positions while
+    claiming to span all of them is the failure this command exists to prevent.
+    """
+    from .adapters.espn import (
+        STAT_ID_TO_KEY,
+        TRANSLATED_POSITIONS,
+        EspnAdapter,
+        translate_stat_line,
+    )
+    from .scoring.engine import score_stat_line
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "espn":
+        raise SystemExit("verify-actuals reads ESPN's own season totals; ESPN leagues only")
+
+    with EspnAdapter() as espn:
+        # A league with no completed season -- 485267278 did not exist in 2025 -- still has
+        # ESPN's own projected totals under its own scoring, which validates the same
+        # arithmetic. Fall back rather than refuse: "no actuals" is a fact about the
+        # league's age, not about whether our scoring can be checked.
+        basis = "actuals"
+        try:
+            lines = espn.get_season_stat_lines(cfg, args.season)
+        except Exception as exc:  # noqa: BLE001 -- a 404 here means "league did not exist"
+            print(f"\n  no {args.season} actuals for {cfg.league_id} "
+                  f"({exc.__class__.__name__}); using {cfg.season} projections")
+            lines = espn.projected_stat_lines(cfg)
+            basis = "projections"
+        if not lines:
+            lines = espn.projected_stat_lines(cfg)
+            basis = "projections"
+        if basis == "projections":
+            args.season = cfg.season
+        # Score under the table ESPN USED THAT SEASON, not the one in the config.
+        #
+        # This is not a detail. DDAFFL paid zero for receptions in 2025 and pays 0.5 to
+        # QB/WR/TE in 2026, so scoring 2025 actuals with the 2026 config produces a residual
+        # of exactly 0.5 x receptions on every pass-catcher -- a real difference between two
+        # rulesets, reported as if it were an error. What this command validates is the
+        # MACHINERY: the stat-id translation, the override reading, and the scoring engine.
+        # Whether the committed config matches the LIVE table is `verify-scoring`'s job, and
+        # the two questions need separate answers.
+        season_cfg = espn._season_config(cfg, args.season)
+        scored_ids = espn.scored_stat_ids(season_cfg)
+        season_scoring = {
+            position: espn.derived_scoring(season_cfg, position)
+            for position in sorted(cfg.positions & TRANSLATED_POSITIONS)
+        }
+        config_scoring = {
+            position: cfg.scoring_for(position)
+            for position in sorted(cfg.positions & TRANSLATED_POSITIONS)
+        }
+
+    scored = [
+        (pid, row) for pid, row in lines.items()
+        if row.get("position") and row["position"] in cfg.positions
+        and abs(float(row["applied"])) > 0.0
+    ]
+    scored.sort(key=lambda kv: -float(kv[1]["applied"]))
+
+    # Span every position rather than taking the global top-N, which would be all QB/RB/WR.
+    chosen: list[tuple[str, dict]] = []
+    per_pos = max(2, args.per_pos)
+    for position in _order_positions(cfg.positions):
+        at_pos = [kv for kv in scored if kv[1]["position"] == position]
+        chosen.extend(at_pos[:per_pos])
+
+    # Two pass-catching backs, explicitly. A reception-weight error is visible on them and
+    # nowhere else -- a between-the-tackles back scores the same at 0.0 and 0.5 per catch.
+    receiving_backs = [
+        kv for kv in scored
+        if kv[1]["position"] == "RB" and float(kv[1]["raw"].get("53", 0) or 0) >= 50
+    ][:2]
+    for kv in receiving_backs:
+        if kv not in chosen:
+            chosen.append(kv)
+
+    print("")
+    print(f"Recompute vs ESPN's own totals -- [{cfg.key}] {cfg.name}, season {args.season}")
+    print(f"  basis: {basis} ("
+          + ("ESPN's realized totals under that season's rules"
+             if basis == "actuals" else
+             "ESPN's projected totals under this league's live rules")
+          + ")")
+    print(f"  {len(lines)} players with a {args.season} line; "
+          f"checking {len(chosen)} across {len(cfg.positions)} positions")
+    print("")
+    print(f"  {'player':<26}{'pos':<5}{'rec':>5}{'ours':>10}{'espn':>10}{'diff':>9}")
+
+    exact = 0
+    checked = 0
+    skipped: list[str] = []
+    worst: tuple[float, str] | None = None
+    for _pid, row in chosen:
+        position = str(row["position"])
+        name = str(row["name"])[:25]
+        applied = float(row["applied"])
+        receptions = float(row["raw"].get("53", 0) or 0)
+        if position not in TRANSLATED_POSITIONS:
+            skipped.append(f"{name} ({position})")
+            print(f"  {name:<26}{position:<5}{receptions:>5.0f}{'--':>10}{applied:>10.2f}"
+                  f"{'SKIP':>9}")
+            continue
+        stats = translate_stat_line(row["raw"], position, scored_ids)
+        ours = score_stat_line(stats, season_scoring[position])
+        diff = ours - applied
+        checked += 1
+        if abs(diff) < 0.005:
+            exact += 1
+        if worst is None or abs(diff) > abs(worst[0]):
+            worst = (diff, name)
+        print(f"  {name:<26}{position:<5}{receptions:>5.0f}{ours:>10.2f}{applied:>10.2f}"
+              f"{diff:>+9.2f}")
+
+    print("")
+    print(f"  exact to the cent : {exact}/{checked}")
+
+    # Where the season's rules differ from the committed config, say so here rather than
+    # letting it surface as an unexplained residual in some later season's numbers.
+    # Scoped to the stats ESPN actually maps into our vocabulary, the same scope
+    # `verify_scoring` uses. Comparing the whole config table would report every K and D/ST
+    # key as drift on a WR, which is noise, not signal.
+    mapped_keys = {key for key, _factor in STAT_ID_TO_KEY.values()}
+    drifted: list[str] = []
+    for position, table in season_scoring.items():
+        for key in sorted(mapped_keys):
+            was, now = table.get(key), config_scoring[position].get(key)
+            if was is None and now is None:
+                continue
+            if was is None or now is None or abs(float(was) - float(now)) > 1e-9:
+                drifted.append(f"{key}[{position}]  {args.season}={was}  config={now}")
+    if drifted:
+        print(f"  RULES CHANGED since {args.season} ({len(drifted)}):")
+        for line in drifted:
+            print(f"     {line}")
+        print(f"     -> the {args.season} column above is ESPN's arithmetic under "
+              f"{args.season} rules,")
+        print("        which is what validates the machinery. `verify-scoring` is what")
+        print("        checks the committed config against the LIVE table.")
+    if skipped:
+        print(f"  not recomputable  : {len(skipped)} -- {', '.join(skipped)}")
+        print("                      K and D/ST are scored from ESPN's own total by design;")
+        print("                      our vocabulary models neither yards-allowed nor miss")
+        print("                      distance. See SPECIALIST_GAP.")
+    if worst and abs(worst[0]) >= 0.005:
+        print(f"  largest residual  : {worst[0]:+.2f} on {worst[1]}")
+    return 0 if checked and exact == checked else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:
