@@ -7,9 +7,26 @@ from audible.config import LeagueConfig, load_all_leagues
 from audible.config.schema import Platform
 
 
-def test_both_leagues_load_and_validate() -> None:
+def test_every_league_loads_and_validates() -> None:
     leagues = load_all_leagues()
-    assert set(leagues) == {"sleeper_boyfun", "espn_davis_drive"}
+    assert set(leagues) == {"sleeper_boyfun", "espn_davis_drive", "espn_danger_zone"}
+
+
+def test_the_two_espn_leagues_do_not_share_scoring() -> None:
+    """They differ in ways nothing signals, which is why neither is derived from the other.
+
+    DDAFFL pays receptions only to QB/WR/TE via per-position overrides and pays passing yards
+    through the 25-yard bucket. Danger Zone pays full PPR to every position and pays raw
+    passing yards. A config copied from one to the other would be a confident wrong board.
+    """
+    leagues = load_all_leagues()
+    ddaffl, danger = leagues["espn_davis_drive"], leagues["espn_danger_zone"]
+    assert ddaffl.scoring_for("RB")["rec"] == 0.0
+    assert ddaffl.scoring_for("WR")["rec"] == 0.5
+    assert danger.scoring_for("RB")["rec"] == 1.0
+    assert danger.scoring_for("WR")["rec"] == 1.0
+    assert danger.num_teams == 10 and ddaffl.num_teams == 8
+    assert danger.draft_slot == 5
 
 
 def test_sleeper_config_matches_hand_won_spec(sleeper_config: LeagueConfig) -> None:

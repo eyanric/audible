@@ -44,10 +44,18 @@ def _sync(state: dict[str, Any]) -> dict[str, Any]:
         "age_seconds": age,
         "status": sync.get("status"),
         "last_success": sync.get("last_success"),
+        # A null age is NOT "0s old" and must not render as "Data is Nones old": null means
+        # the sync has never succeeded since this process started, which is a strictly worse
+        # state than stale data and has to read that way. A malformed alarm is a broken alarm.
         "warning": (
             None if sync.get("status") == "live"
-            else f"Data is {age}s old ({sync.get('status')}). "
-                 "Treat availability as unconfirmed and check the draft room before acting."
+            else (
+                f"Data is {age:.0f}s old ({sync.get('status')}). "
+                "Treat availability as unconfirmed and check the draft room before acting."
+                if isinstance(age, int | float)
+                else f"NEVER SYNCED ({sync.get('status')}) -- no successful update since "
+                     "start. Nothing here reflects the live draft room; enter picks by hand."
+            )
         ),
     }
 
@@ -147,7 +155,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         # is "how many LBs are available" (1,136).
         view = service.view()
         rows = s["best_available"] if view is None else [
-            _state_player(c, getattr(service, "usage", None)) for c in view.ranked
+            _state_player(c, usage=getattr(service, "usage", None)) for c in view.ranked
         ]
         if position:
             want = position.strip().upper()
@@ -253,7 +261,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         q = name.strip().lower()
         view = service.view()  # search the full pool, not the served slice
         pool = s["best_available"] if view is None else [
-            _state_player(c, getattr(service, "usage", None)) for c in view.ranked
+            _state_player(c, usage=getattr(service, "usage", None)) for c in view.ranked
         ]
         hits = [p for p in pool if q in p["name"].lower()]
         if not hits:
@@ -280,7 +288,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             return _not_ready(s)
         view = service.view()  # full pool, so a deep player is comparable
         pool = s["best_available"] if view is None else [
-            _state_player(c, getattr(service, "usage", None)) for c in view.ranked
+            _state_player(c, usage=getattr(service, "usage", None)) for c in view.ranked
         ]
         found, missing = [], []
         for n in names:

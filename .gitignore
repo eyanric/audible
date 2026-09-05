@@ -14,8 +14,14 @@ build/
 # Secrets & runtime data
 .env
 data/cache/
+# News store. Collected, not re-fetchable (Rotowire serves five items), and it is
+# per-machine history rather than anything the repo should carry.
+data/news/
 snapshots/
 *.local
+
+# Personal draft exports (reconstructible from ESPN + the synced state file)
+draft-*-results.md
 
 # OS / editor
 .DS_Store

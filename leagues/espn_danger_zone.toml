@@ -1,0 +1,138 @@
+# audible league config -- "2026 Danger Zone" (ESPN)
+# league_id 485267278, private. Onboarded 2026-09-02.
+#
+# Every value below was read from the live API and the source is named. Nothing is carried
+# over from espn_davis_drive: these two leagues differ in ways nothing signals -- DDAFFL pays
+# passing yards through the BUCKETED stat and pays receptions only to QB/WR/TE through
+# per-position overrides; this league pays raw passing yards and full PPR to everyone.
+#
+# Scoring keys use the Sleeper stat vocabulary, so one scoring engine serves both platforms.
+
+key = "espn_danger_zone"
+name = "2026 Danger Zone"
+platform = "espn"
+league_id = "485267278"
+season = 2026
+
+# source: mSettings.size, cross-checked against len(mTeam.teams) = 10.
+num_teams = 10
+
+# Starting lineup (9). source: mSettings.rosterSettings.lineupSlotCounts --
+#   slot 0 x1 QB, slot 2 x2 RB, slot 4 x2 WR, slot 6 x1 TE,
+#   slot 16 x1 DEF, slot 17 x1 K, slot 23 x1 FLEX.
+# Every non-zero slot id in the response is mapped; there were no unknown ids.
+starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
+
+# 16 rounds, agreeing two ways against the live league: max(roundId) over the draft slate
+# is 16, and the slate holds 160 rows against 10 teams = exactly 16.00 rows per team.
+# Sync overrides this; it is what the clock uses before the first successful poll.
+draft_rounds = 16
+
+# Seat 5 of 10. Supplied and confirmed, NOT derived -- ESPN sync is the only other source of
+# it, and when sync is down `my_slot` reads null and every timing term in `recommend` goes
+# null with it while the tool keeps answering as though nothing were missing.
+draft_slot = 5
+
+# 16 rounds - 9 starting slots = 7 bench picks per team, and the bench is where replacement
+# level actually sits: 70 of the 160 players drafted here never start.
+#
+# Cross-checked against ADP, the only ground truth for how many of each position get drafted.
+# The market's first 160 picks (adp_ppr) are 45 RB / 58 WR / 19 QB / 19 TE / 10 DEF / 9 K.
+# Starter demand is 20 RB / 20 WR / 10 QB / 10 TE / 10 DEF / 10 K plus 10 FLEX, so the market
+# drafts ~25 RB and ~38 WR beyond the starting requirement. That is the bench, and it is the
+# shape this number encodes.
+#
+# NOTE the difference from DDAFFL, and do not carry that comment over: in an 8-team league
+# ZERO kickers and defences go in the first 128 picks. Here the first DEF goes at 88 and the
+# first K at 93, and 10 DEF / 9 K are gone by pick 160 -- roughly one per team, no backups.
+# So K and DEF replacement sits at about one per team rather than off the board entirely.
+replacement_bench_slots = 7
+
+# Drift guard: the reception value this config expects to see live. This league pays 1.0 to
+# EVERY position -- statId 53 has base points 1.0 and carries no pointsOverrides at all.
+expected_reception_points = 1.0
+
+notes = "10-team, 16-round, 1-QB, FULL PPR for every position including RB. No IDP, team D/ST only."
+
+# Backtest picked scarcity/VONA over VORP on DDAFFL, but the current VONA implementation has
+# a documented junk-tail pathology on flat positions -- it inflates mid-QB value and produces
+# a QB-dominated board. Unfixed, so a new league does not opt into it.
+value_metric = "vorp"
+
+# 1-QB, no IDP, and FULL PPR at every position, so the market matches the scoring exactly --
+# which is unusual. DDAFFL's hybrid 0.5-for-WR/TE / 0.0-for-RB matches no published market at
+# all and settles for the nearest one; here `adp_ppr` is not an approximation.
+# The selection rule is lineup shape and QB count, not scoring precision: 1 QB rules out
+# adp_2qb, no IDP rules out adp_idp.
+adp_market = "adp_ppr"
+
+[slot_eligibility]
+QB = ["QB"]
+RB = ["RB"]
+WR = ["WR"]
+TE = ["TE"]
+FLEX = ["RB", "WR", "TE"]
+DEF = ["DEF"]
+K = ["K"]
+
+# --- offense: derived from the live API and VERIFIED ARITHMETICALLY -------------------
+#
+# Every weight here was read from mSettings scoring items, converted into our units, and
+# then proved by `audible verify-actuals espn_danger_zone`, which recomputes ESPN's own
+# projected totals from the raw stat lines and diffs them. See the PR body for the output.
+#
+# pass_yd is the one that would have been silently wrong. This league scores statId 3 (RAW
+# passing yards, 0.04/yd); DDAFFL scores statId 8 (25-yard buckets, 1.0 each). ESPN ships
+# BOTH stats on every line regardless of which one is paid, so the adapter now filters
+# translation by the stat ids the league actually scores. Without that filter this league's
+# quarterbacks would have been scored with zero passing yards -- about 160 points each.
+[scoring]
+pass_yd = 0.04     # statId 3, base 0.04, no overrides
+pass_td = 4        # statId 4
+pass_int = -2      # statId 20
+pass_2pt = 2       # statId 19
+rush_yd = 0.1      # statId 24
+rush_td = 6        # statId 25
+rush_2pt = 2       # statId 26
+rec = 1.0          # statId 53, base 1.0, NO pointsOverrides -- full PPR for every position
+rec_yd = 0.1       # statId 42
+rec_td = 6         # statId 43
+rec_2pt = 2        # statId 44
+fum_lost = -2      # statId 72
+
+# --- kicker: derived, but NOT verifiable by the harness -------------------------------
+# K is scored from ESPN's own total rather than from a translated line (see SPECIALIST_GAP),
+# so these weights document the league; they do not drive the board.
+#   statId 80 = 3.0 (FG 0-39), 77 = 4.0 (FG 40-49), 198 = 5.0 (FG 50-59),
+#   statId 201 = 6.0 (FG 60+), 85 = -1.0 (FG missed), 86 = 1.0 (PAT made).
+# Our vocabulary tops out at `fgm_50p`, so the 60+ tier is under-modelled by 1 point per
+# such kick. There is no PAT-miss penalty in this league (statId 88 is absent).
+fgm_0_19 = 3
+fgm_20_29 = 3
+fgm_30_39 = 3
+fgm_40_49 = 4
+fgm_50p = 5
+fgmiss = -1
+xpm = 1
+
+# --- team defence: derived, INCOMPLETE, and flagged -----------------------------------
+# Also scored from ESPN's own total, so this does not drive the board either.
+#   points allowed: statId 89 = 5.0 (0), 90 = 4.0 (1-6), 91 = 3.0 (7-13), 92 = 1.0 (14-17)
+#   takeaways/scores: 95-98 = 2.0 each, 93/103/104 = 6.0
+#
+# WHAT IS NOT MODELLED: this league also scores YARDS allowed (statIds 128-136, from +5.0
+# down to -7.0), and our vocabulary has no yards-allowed keys at all. DDAFFL carries those
+# same stat ids at 0.0, so the gap never mattered before. It is recorded here rather than
+# silently dropped -- see the PR body.
+pts_allow_0 = 5
+pts_allow_1_6 = 4
+pts_allow_7_13 = 3
+pts_allow_14_20 = 1
+pts_allow_28_34 = -1
+pts_allow_35p = -4
+sack = 1
+int = 2
+fum_rec = 2
+safe = 2
+def_td = 6
+blk_kick = 2

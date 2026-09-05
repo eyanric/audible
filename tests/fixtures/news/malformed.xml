@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Broken & Co</title>
+<item><title>Player A ruled out & questionable</title>
+<link>http://example.test/a</link><pubDate>not a date at all</pubDate>
+<description>No guid on this item at all.</description></item>
+<item><title>Second item, still no guid</title><link>http://example.test/b</link>
+<description>Body two</description></item>
+</channel></rss>

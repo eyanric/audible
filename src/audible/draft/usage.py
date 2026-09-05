@@ -59,40 +59,21 @@ def _safe(name: str, fn, missing: list[str]):
         return None
 
 
-# nflverse schedules and Sleeper do not spell every franchise the same way. MEASURED against
-# the 2026 schedule, exactly one differs: the Rams are "LA" upstream and "LAR" on the board,
-# and the cost of missing it is a silently blank bye on a team whose WR1 goes in round one.
-#
-# Only measured differences belong here. A first pass at this mapped the plausible-looking
-# historical aliases too and mapped WAS -> WSH, which broke Washington -- both sides already
-# said "WAS". `qa_board_invariants` now asserts every board team resolves to a bye, so a
-# wrong entry here fails a check rather than blanking a column on a Sunday.
-_TEAM_ALIASES = {"LA": "LAR"}
+def load_usage(
+    prior_season: int = 2025,
+    cur_season: int = 2026,
+    byes: dict[str, int] | None = None,
+) -> UsageTable:
+    """Assemble every displayed usage field, keyed by SLEEPER player id (the board's key).
 
-
-def _bye_weeks(sch, pl) -> dict[str, int]:
-    """Team -> its single regular-season bye: the REG week the team does not appear in."""
-    reg = sch.filter(pl.col("game_type") == "REG") if "game_type" in sch.columns else sch
-    weeks = sorted({int(w) for w in reg["week"].to_list() if w is not None})
-    playing = {
-        w: set(reg.filter(pl.col("week") == w)["home_team"].to_list())
-        | set(reg.filter(pl.col("week") == w)["away_team"].to_list())
-        for w in weeks
-    }
-    teams = set(reg["home_team"].to_list()) | set(reg["away_team"].to_list())
-    out: dict[str, int] = {}
-    for t in teams:
-        off = [w for w in weeks if t not in playing[w]]
-        # Exactly one, or none reported. Two would mean the schedule is not what we think it
-        # is, and guessing which one to show is worse than showing nothing.
-        if len(off) == 1:
-            code = str(t)
-            out[_TEAM_ALIASES.get(code, code)] = off[0]
-    return out
-
-
-def load_usage(prior_season: int = 2025, cur_season: int = 2026) -> UsageTable:
-    """Assemble every displayed usage field, keyed by SLEEPER player id (the board's key)."""
+    BYES ARE INJECTED, NOT DERIVED HERE. This module used to compute them from the schedule
+    itself, which was a second independent derivation of a fact `server.state.bye_consistency`
+    already owns -- and that one is the stricter of the two: it self-checks (B1-B4) and
+    refuses to serve anything when the check fails, on the principle that a wrong bye is
+    worse than no bye. Two derivations of one fact is two sets of numbers waiting to
+    disagree, so this one takes the answer rather than recomputing it. Its team-alias
+    handling (`LA` upstream vs `LAR` on the board) lives there too.
+    """
     import polars as pl
 
     from ..adapters.nflverse import (
@@ -100,15 +81,14 @@ def load_usage(prior_season: int = 2025, cur_season: int = 2026) -> UsageTable:
         id_map_frame,
         player_stats_frame,
         route_participation_frame,
-        schedules_frame,
         snap_counts_frame,
     )
 
     missing: list[str] = []
 
-    # Bye first: it joins on team, so it survives a crosswalk failure that kills everything else.
-    sch = _safe("schedules", lambda: schedules_frame([cur_season]), missing)
-    byes = _bye_weeks(sch, pl) if sch is not None else {}
+    # Bye joins on team, so it survives a crosswalk failure that kills everything else. An
+    # empty dict is the caller saying the derivation failed its own consistency check.
+    byes = dict(byes or {})
 
     # The board keys on Sleeper ids while every nflverse table keys on gsis or pfr, so the
     # crosswalk is the spine -- and the one source with no fallback.

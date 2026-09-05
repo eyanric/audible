@@ -71,12 +71,21 @@ UNTRANSLATED_GAP = (
     "level of 182, so none can reach a starting lineup or move a baseline."
 )
 
-# League 6012 pays passing yards through ESPN's BUCKETED stat -- statId 8, one point per
-# completed 25 yards. Raw passing yards (statId 3) is not a scoring item in this league at
-# all, for any position, so it is not in this map: reading it would score yards ESPN does
-# not pay for. Converting the bucket count back to yards reproduces ESPN's number exactly
-# through our own `pass_yd` weight (25 x 0.04 = 1.0), so the league stays data and the
-# scoring engine keeps one weights table with no ESPN branch in it.
+# BOTH passing-yard stats live in this map, and translation is filtered by what the league
+# actually SCORES -- see `scored_stat_ids` and `translate_stat_line`.
+#
+# ESPN ships both on every line regardless of scoring. Measured 2026-09-02 on Josh Allen:
+# the 2025 actual line carries statId 3 = 3668 AND statId 8 = 139; the 2026 projection
+# carries 3949.1 and 157. They are the same yards counted two ways.
+#
+# League 6012 pays the BUCKET (statId 8, one point per completed 25 yards). League 485267278
+# pays the RAW stat (statId 3, 0.04/yd) and carries no bucket scoring item at all. A static
+# map holding both would double-count every quarterback; a static map holding one would score
+# zero passing yards for whichever league uses the other. Hence the filter.
+#
+# Converting the bucket back to yards reproduces ESPN's number exactly through our own
+# `pass_yd` weight (25 x 0.04 = 1.0), so the league stays data and the scoring engine keeps
+# one weights table with no ESPN branch in it.
 #
 # The same bucketing is why a Sleeper-sourced board reads QBs ~2% high: 0.04/yd is
 # continuous, ESPN's bucket floors every partial 25 yards away. Measured on Josh Allen's
@@ -93,6 +102,7 @@ RAW_PASS_YARDS_STAT_ID = 3
 # 0.06% of a QB season, it is monotone in fumbles (already penalised via `fum_lost`), and
 # it cannot reorder the board.
 STAT_ID_TO_KEY: dict[int, tuple[str, float]] = {
+    3: ("pass_yd", 1.0),
     4: ("pass_td", 1.0),
     8: ("pass_yd", PASS_YARD_BUCKET),
     19: ("pass_2pt", 1.0),
@@ -132,6 +142,27 @@ IR_LINEUP_SLOT = 21
 # 16-round draft -- every one with playerId -1. Counting rows instead of real picks reports a
 # finished draft before the first selection is made.
 UNDRAFTED_PLAYER_ID = -1
+
+# Stat ids that mean the SAME quantity counted differently, most-preferred first. ESPN ships
+# every member of a group on every line regardless of which one the league pays, so without a
+# league's scored set exactly one member may be read or the quantity is counted twice.
+#
+# The bucket leads because it is what league 6012 pays and what this adapter has always read;
+# an unfiltered caller therefore keeps the behaviour it had before the raw stat was mapped.
+_EQUIVALENT_STAT_IDS: tuple[tuple[int, ...], ...] = (
+    (8, 3),  # passing yards: 25-yard buckets, then raw yards
+)
+
+
+def _resolve_equivalents(present: set[int]) -> set[int]:
+    """Drop all but the most-preferred member of each equivalence group."""
+    out = set(present)
+    for group in _EQUIVALENT_STAT_IDS:
+        seen = [stat_id for stat_id in group if stat_id in out]
+        for redundant in seen[1:]:
+            out.discard(redundant)
+    return out
+
 
 _AUTH_EXPIRED = (
     "ESPN credentials expired, re-pull cookies. fantasy.espn.com -> DevTools -> "
@@ -193,30 +224,52 @@ def _int(value: object) -> int:
     return int(number) if number is not None else -1
 
 
-def translate_stat_line(raw: Mapping[str, Any], position: str) -> dict[str, float]:
+def translate_stat_line(
+    raw: Mapping[str, Any], position: str, scored_ids: frozenset[int] | None = None
+) -> dict[str, float]:
     """ESPN's ``{statId: value}`` line -> our stat vocabulary, for *position*.
 
     Unmapped statIds are dropped rather than guessed at; a position we cannot translate
     (K, D/ST) yields ``{}``, which is the caller's signal to fall back to ESPN's own total.
+
+    ``scored_ids`` is the set of stat ids the league actually pays for, from
+    :meth:`EspnAdapter.scored_stat_ids`. It matters because ESPN ships both passing-yard
+    stats on every line: without the filter, a map holding both double-counts every
+    quarterback. Omitted, every mapped id is translated -- correct only for a league that
+    scores at most one of an equivalent pair.
     """
-    out: dict[str, float] = {}
+    numeric: dict[int, float] = {}
     for stat_id, value in raw.items():
         number = _number(value)
         if number is None:
             continue
         try:
-            mapped = STAT_ID_TO_KEY.get(int(stat_id))
+            numeric_id = int(stat_id)
         except (TypeError, ValueError):
             continue
-        if mapped is None:
+        if numeric_id in STAT_ID_TO_KEY:
+            numeric[numeric_id] = number
+
+    if scored_ids is None:
+        allowed = _resolve_equivalents(set(numeric))
+    else:
+        # The league's own answer, but still resolved: a league that somehow pays both
+        # members would otherwise double-count, and that is not a failure worth allowing.
+        allowed = _resolve_equivalents({i for i in numeric if i in scored_ids})
+
+    out: dict[str, float] = {}
+    for numeric_id, number in numeric.items():
+        if numeric_id not in allowed:
             continue
-        key, factor = mapped
+        key, factor = STAT_ID_TO_KEY[numeric_id]
         out[key] = out.get(key, 0.0) + number * factor
 
     # If ESPN ever stops shipping the bucketed stat, fall back to raw passing yards rather
     # than serving a QB projected to throw for nothing -- which would look like data, not
     # like a break. Scoped to QB because only there is a missing passing line implausible.
-    if position == "QB" and "pass_yd" not in out:
+    if position == "QB" and "pass_yd" not in out and (
+        scored_ids is None or RAW_PASS_YARDS_STAT_ID in scored_ids
+    ):
         raw_yards = _number(raw.get(str(RAW_PASS_YARDS_STAT_ID)))
         if raw_yards is not None:
             out["pass_yd"] = raw_yards
@@ -515,6 +568,75 @@ class EspnAdapter:
         self._cache.set(key, actuals)
         return actuals
 
+    def get_season_stat_lines(
+        self, config: LeagueConfig, season: int
+    ) -> dict[str, dict[str, Any]]:
+        """``playerId -> {name, position, raw, applied}`` for one completed season.
+
+        The twin of :meth:`get_season_actuals`, which keeps only ESPN's total. This keeps the
+        RAW stat line beside it, which is the only way to ask the question that matters when
+        onboarding a league: does our derived scoring, applied to the league's own stat line,
+        reproduce the league's own arithmetic?
+
+        Same stat set as `get_season_actuals` -- ``statSourceId 0``, ``statSplitTypeId 0``,
+        ESPN's realized actuals under that season's league rules.
+        """
+        key = f"espn_stat_lines_{config.league_id}_{season}"
+        cached = self._cache.get_stale(key)
+        if cached is not None:
+            return cached
+
+        payload = self._get(
+            self._season_config(config, season),
+            ["kona_player_info"],
+            fantasy_filter=pool_filter(),
+        )
+        out: dict[str, dict[str, Any]] = {}
+        for row in payload.get("players") or []:
+            player = row.get("player") or {}
+            for stat_set in player.get("stats") or []:
+                if (
+                    stat_set.get("seasonId") == season
+                    and stat_set.get("statSourceId") == 0
+                    and stat_set.get("statSplitTypeId") == 0
+                ):
+                    applied = _number(stat_set.get("appliedTotal"))
+                    if applied is None:
+                        break
+                    out[str(player.get("id"))] = {
+                        "name": player.get("fullName") or str(player.get("id")),
+                        "position": POSITION_ID_TO_BUCKET.get(
+                            _int(player.get("defaultPositionId"))
+                        ),
+                        "raw": dict(stat_set.get("stats") or {}),
+                        "applied": applied,
+                    }
+                    break
+        self._cache.set(key, out)
+        return out
+
+    def projected_stat_lines(self, config: LeagueConfig) -> dict[str, dict[str, Any]]:
+        """``playerId -> {name, position, raw, applied}`` for the CURRENT season's projections.
+
+        The stand-in for :meth:`get_season_stat_lines` when a league has no completed season.
+        Same shape, so the caller does not branch; `applied` is ESPN's own projected total
+        under this league's own scoring, which is the number the recompute has to land on.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for row in self.get_player_pool(config):
+            player = row.get("player") or row
+            stat_set = _projected_stat_set(player, config.season) or {}
+            applied = _number(stat_set.get("appliedTotal"))
+            if applied is None:
+                continue
+            out[str(player.get("id"))] = {
+                "name": player.get("fullName") or str(player.get("id")),
+                "position": POSITION_ID_TO_BUCKET.get(_int(player.get("defaultPositionId"))),
+                "raw": dict(stat_set.get("stats") or {}),
+                "applied": applied,
+            }
+        return out
+
     def get_season_standings(self, config: LeagueConfig, season: int) -> list[dict[str, Any]]:
         """Final outcomes per team: standing, record, points for.
 
@@ -566,6 +688,8 @@ class EspnAdapter:
     def _pool_entries(self, config: LeagueConfig) -> list[_PoolEntry]:
         entries: list[_PoolEntry] = []
         counts: dict[str, int] = {}
+        # Which passing-yard stat (and which of any other equivalent pair) this league pays.
+        scored = self.scored_stat_ids(config)
         for row in self.get_player_pool(config):
             player = row.get("player") or row
             bucket = POSITION_ID_TO_BUCKET.get(_int(player.get("defaultPositionId")))
@@ -578,7 +702,7 @@ class EspnAdapter:
             if bucket not in TRANSLATED_POSITIONS:
                 stats, source = {}, SOURCE_SPECIALIST
             else:
-                stats = translate_stat_line(raw, bucket)
+                stats = translate_stat_line(raw, bucket, scored)
                 source = SOURCE_STAT_LINE if stats else SOURCE_UNTRANSLATED
             counts[source] = counts.get(source, 0) + 1
 
@@ -654,6 +778,53 @@ class EspnAdapter:
         value = overrides.get(str(position_id), overrides.get(position_id, item.get("points")))
         return _number(value)
 
+    def scored_stat_ids(self, config: LeagueConfig) -> frozenset[int]:
+        """Stat ids this league actually pays for, in any position.
+
+        A stat can appear in a line without being a scoring item -- ESPN ships both
+        passing-yard stats on every player regardless. This is what tells translation which
+        of an equivalent pair to read. A base weight of 0.0 still counts as scored when a
+        `pointsOverrides` entry pays some position: that is exactly DDAFFL's receptions.
+        """
+        ids: set[int] = set()
+        for item in self.get_scoring_items(config):
+            stat_id = _number(item.get("statId"))
+            if stat_id is None:
+                continue
+            points = _number(item.get("points")) or 0.0
+            overrides = (item.get("pointsOverrides") or {}).values()
+            if points != 0.0 or any((_number(v) or 0.0) != 0.0 for v in overrides):
+                ids.add(int(stat_id))
+        return frozenset(ids)
+
+    def derived_scoring(self, config: LeagueConfig, position: str) -> dict[str, float]:
+        """ESPN's scoring for one position, converted into our stat vocabulary.
+
+        `pointsOverrides` is read before `points`, which is the whole point: a league can
+        carry a base weight of 0.0 and pay a position 0.5 through an override, and reading
+        only the base would report the opposite of the truth. DDAFFL is exactly that shape.
+
+        Units are converted the same way `verify_scoring` converts them, so the bucketed
+        passing stat (1.0 per 25 yards) comes back as our 0.04 per yard rather than as 1.0.
+        """
+        items: dict[int, dict[str, Any]] = {}
+        for item in self.get_scoring_items(config):
+            stat_id = _number(item.get("statId"))
+            if stat_id is not None:
+                items[int(stat_id)] = dict(item)
+
+        position_id = BUCKET_TO_POSITION_ID[position]
+        out: dict[str, float] = {}
+        for stat_id, (key, factor) in STAT_ID_TO_KEY.items():
+            item = items.get(stat_id)
+            if item is None:
+                continue
+            points = self._live_points(item, position_id)
+            if points is None:
+                continue
+            out[key] = points / factor
+        return out
+
     def verify_scoring(self, config: LeagueConfig) -> list[tuple[str, float | None, float | None]]:
         """Compare committed weights against the live league, per position.
 
@@ -674,7 +845,16 @@ class EspnAdapter:
         for position in sorted(config.positions & TRANSLATED_POSITIONS):
             position_id = BUCKET_TO_POSITION_ID[position]
             cfg_scoring = config.scoring_for(position)
+            scored = self.scored_stat_ids(config)
             for stat_id, (key, factor) in sorted(STAT_ID_TO_KEY.items()):
+                # The equivalent-pair twin this league does not pay is not drift; it is the
+                # other way of expressing the same yards. Reporting it would put a permanent
+                # false entry in a check whose whole value is being empty.
+                if stat_id not in scored and any(
+                    other != stat_id and other in scored and STAT_ID_TO_KEY[other][0] == key
+                    for other in STAT_ID_TO_KEY
+                ):
+                    continue
                 cfg_value = cfg_scoring.get(key)
                 item = items.get(stat_id)
                 live_value = None if item is None else self._live_points(item, position_id)

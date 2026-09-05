@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .config import LeagueConfig, load_all_leagues
@@ -881,6 +882,30 @@ def build_parser() -> argparse.ArgumentParser:
     vp.add_argument("--per-pos", type=int, default=5, help="top-N per position (default 5)")
     vp.set_defaults(func=cmd_vorp)
 
+    va = sub.add_parser(
+        "verify-actuals",
+        help="recompute a completed season and diff ESPN's own totals (ESPN leagues only)",
+    )
+    va.add_argument("league")
+    va.add_argument("--season", type=int, default=2025, help="completed season (default 2025)")
+    va.add_argument("--per-pos", type=int, default=3, help="players per position (default 3)")
+    va.set_defaults(func=cmd_verify_actuals)
+
+    ic = sub.add_parser(
+        "injury-coverage",
+        help="roster/injury field coverage over the top N by value (reports, never ranks)",
+    )
+    ic.add_argument("league")
+    ic.add_argument("--top", type=int, default=200, help="how many by value (default 200)")
+    ic.set_defaults(func=cmd_injury_coverage)
+    by = sub.add_parser(
+        "byes", help="bye weeks for my roster, with same-position collisions (display only)"
+    )
+    by.add_argument("league")
+    by.add_argument("--player", default=None,
+                    help="comma-separated names to look up, e.g. 'Derrick Henry,James Cook'")
+    by.set_defaults(func=cmd_byes)
+
     xw = sub.add_parser(
         "crosswalk", help="resolve players to nflverse gsis_id (needs nflverse extra)"
     )
@@ -987,7 +1012,515 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--min-snaps", type=float, default=200.0, help="min defensive snaps both years")
     st.set_defaults(func=cmd_idp_stickiness)
 
+    news = sub.add_parser("news", help="NFL news ingestion (display only; never ranks)")
+    news_sub = news.add_subparsers(dest="news_command", required=True)
+
+    np_ = news_sub.add_parser("probe", help="feed health; writes docs/feed-probe-<date>.md")
+    np_.add_argument("--write", action="store_true", help="write the dated report to docs/")
+    np_.set_defaults(func=cmd_news_probe)
+
+    npo = news_sub.add_parser("poll", help="fetch, match, classify, store")
+    npo.add_argument("--once", action="store_true",
+                     help="accepted for symmetry; the CLI always polls once")
+    npo.add_argument("--league", default="espn_davis_drive",
+                     help="narrow ambiguous names to this league's board")
+    npo.set_defaults(func=cmd_news_poll)
+
+    nsh = news_sub.add_parser("show", help="recent items")
+    nsh.add_argument("--player", default=None, help="full name to filter on")
+    nsh.add_argument("--hours", type=float, default=48.0)
+    nsh.add_argument("--min-severity", type=int, default=None, dest="min_severity")
+    nsh.add_argument("--league", default="espn_davis_drive")
+    nsh.set_defaults(func=cmd_news_show)
+
+    nst = news_sub.add_parser("stats", help="counts by feed, match rate, event histogram")
+    nst.set_defaults(func=cmd_news_stats)
+
     return parser
+
+
+# --- news (additive; nothing here reads or writes a projection) -----------------------
+
+
+def _news_index(args: argparse.Namespace):
+    """Player index from the cached catalog, narrowed to a league roster when given."""
+    from .news.entities import load_index
+
+    roster = None
+    if getattr(args, "league", None):
+        from .draft.board import build_board
+
+        cfg = load_all_leagues()[args.league]
+        roster = {e.player_id for e in build_board(cfg).entries}
+    return load_index(roster)
+
+
+def cmd_news_probe(args: argparse.Namespace) -> int:
+    """Fetch every registered feed and report what it actually serves."""
+    import datetime
+
+    from .adapters.feeds import load_feeds, probe_all
+
+    report = probe_all(load_feeds(include_disabled=True))
+    print("")
+    print("Feed probe")
+    print(f"  {'id':<19}{'HTTP':<6}{'parse':<13}{'items':<7}"
+          f"{'newest_h':<10}{'etag':<6}{'lastmod':<8}content-type")
+    for r in sorted(report.results, key=lambda r: r.feed_id):
+        newest = f"{r.newest_age_h:.1f}" if r.newest_age_h is not None else "-"
+        print(f"  {r.feed_id:<19}{str(r.status or r.error or '-')[:5]:<6}{r.parses:<13}"
+              f"{r.items:<7}{newest:<10}{'yes' if r.etag else 'no':<6}"
+              f"{'yes' if r.last_modified else 'no':<8}{r.content_type[:34]}")
+    healthy = report.healthy
+    print("")
+    print(f"  healthy (parses, has items, newest < 24h): {len(healthy)}/{len(report.results)}")
+    print(f"  G3 (>= 2 healthy feeds): {'PASS' if report.gate_g3() else 'FAIL'}")
+
+    if args.write:
+        out = Path("docs") / f"feed-probe-{datetime.date.today().isoformat()}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            f"# Feed probe - {datetime.date.today().isoformat()}",
+            "",
+            "Unconditional GET of every registered feed, including disabled ones.",
+            "`enabled` in `config/feeds.toml` is set from this, never by hand.",
+            "",
+            "| feed | HTTP | parses | items | newest (h) | ETag | Last-Modified |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for r in sorted(report.results, key=lambda r: r.feed_id):
+            newest = f"{r.newest_age_h:.1f}" if r.newest_age_h is not None else "-"
+            lines.append(
+                f"| `{r.feed_id}` | {r.status or r.error or '-'} | {r.parses} | "
+                f"{r.items} | {newest} | {'yes' if r.etag else 'no'} | "
+                f"{'yes' if r.last_modified else 'no'} |"
+            )
+        lines.append("")
+        lines.append(f"**Healthy: {len(healthy)}/{len(report.results)}**. "
+                     f"G3 (>= 2 healthy) {'PASS' if report.gate_g3() else 'FAIL'}.")
+        lines.append("")
+        out.write_text("\n".join(lines), encoding="utf-8")
+        print(f"  wrote {out}")
+    return 0 if report.gate_g3() else 1
+
+
+def cmd_news_poll(args: argparse.Namespace) -> int:
+    from .news.poll import poll_once
+    from .news.store import NewsStore
+
+    store = NewsStore()
+    try:
+        index = _news_index(args)
+    except RuntimeError as exc:
+        print(f"  [!] {exc}")
+        index = None
+    results = poll_once(store=store, index=index)
+    total_new = sum(r.inserted for r in results)
+    print("")
+    print(f"  {'feed':<19}{'fetched':<9}{'new':<6}{'dupe':<6}{'matched':<9}error")
+    for r in results:
+        print(f"  {r.feed_id:<19}{r.fetched:<9}{r.inserted:<6}{r.skipped:<6}"
+              f"{r.matched:<9}{r.error or ''}")
+    print("")
+    print(f"  {total_new} new item(s) stored at {store.path}")
+    return 0
+
+
+def cmd_news_show(args: argparse.Namespace) -> int:
+    import time as _time
+
+    from .news.store import NewsStore
+
+    store = NewsStore()
+    index = None
+    player_id = None
+    try:
+        index = _news_index(args)
+    except RuntimeError:
+        index = None
+    if args.player:
+        if index is None:
+            print("  no cached catalog; cannot resolve a name")
+            return 1
+        player_id = index.lookup_full(args.player)
+        if player_id is None:
+            print(f"  no unique player matched {args.player!r}")
+            return 1
+    items = store.recent(hours=args.hours, player_id=player_id,
+                         min_severity=args.min_severity)
+    if not items:
+        print("  nothing in that window")
+        return 0
+    now = _time.time()
+    for it in items:
+        when = it.published_at or it.fetched_at
+        age = (now - when) / 3600.0
+        who = ""
+        if it.player_id:
+            who = f"  [{index.display_name(it.player_id) if index else it.player_id}]"
+        print(f"  {age:>5.1f}h  {(it.event_type or '-'):<20}s{it.severity or 0}  "
+              f"{it.title[:88]}{who}")
+    print("")
+    print(f"  {len(items)} item(s)")
+    return 0
+
+
+def cmd_news_stats(_args: argparse.Namespace) -> int:
+    from .news.store import NewsStore
+
+    s = NewsStore().stats()
+    print("")
+    print(f"  items {s['total']}  matched {s['matched']} "
+          f"({100 * s['match_rate']:.1f}%)  db {s['db_bytes'] / 1e6:.2f} MB")
+    if s["oldest"] and s["newest"]:
+        span = (s["newest"] - s["oldest"]) / 3600.0
+        print(f"  span {span:.1f}h of publication time")
+    for label, counts in (("by feed", s["by_feed"]), ("by event", s["by_event"]),
+                          ("by confidence", s["by_confidence"])):
+        print("")
+        print(f"  {label}:")
+        for k, v in counts.items():
+            print(f"     {k:<22}{v}")
+    return 0
+
+
+def cmd_injury_coverage(args: argparse.Namespace) -> int:
+    """Measure roster/injury coverage over the top N by value. See docs/injury-coverage-gate.md.
+
+    Reports, never ranks. The thresholds this is measured against were pre-registered in
+    their own commit before the extraction existed.
+    """
+    from collections import Counter
+
+    from .adapters.sleeper import SleeperAdapter
+    from .draft import build_board
+
+    cfg = _load(args.league)
+    board = build_board(cfg)
+    top = [e for e in board.entries][: args.top]
+    ids = [e.player_id for e in top]
+    by_id = {e.player_id: e for e in top}
+
+    # Read straight off the cached catalog. There is deliberately NO adapter accessor for
+    # these fields: this is a measurement tool, and an accessor would be a display-only API
+    # for a field the measurement below says is not worth displaying. Phase 2 repoints this
+    # at nflverse weekly injuries and ESPN's own injuryStatus, which is where signal lives.
+    with SleeperAdapter() as sleeper:
+        catalog = sleeper.get_players_catalog()
+    fields = ("status", "injury_status", "injury_body_part", "injury_start_date")
+    statuses: dict[str, dict[str, str | None]] = {}
+    for pid in ids:
+        entry = catalog.get(pid)
+        if not isinstance(entry, dict):
+            continue
+        values = {f: (str(entry[f]) if entry.get(f) not in (None, "") else None)
+                  for f in fields}
+        # All-null is "no record", which is not the same as "Active". Team defences are the
+        # real case -- Sleeper keys them by abbreviation and a defence cannot be on IR --
+        # and collapsing the two would report health that was never observed.
+        if any(v is not None for v in values.values()):
+            statuses[pid] = values
+
+    print("")
+    print(f"Injury / roster coverage -- [{cfg.key}] {cfg.name}")
+    print(f"  top {len(top)} by value; measured {_today()}")
+
+    # G1: roster `status`, the field the chip is built on.
+    with_status = [pid for pid in ids if statuses.get(pid, {}).get("status")]
+    pct = 100.0 * len(with_status) / len(ids) if ids else 0.0
+    print("")
+    print(f"  G1  roster `status` non-null : {len(with_status)}/{len(ids)} = {pct:.1f}%"
+          f"   (>= 95% required)  {'PASS' if pct >= 95.0 else 'FAIL'}")
+
+    dist = Counter(statuses.get(pid, {}).get("status") or "(missing)" for pid in ids)
+    print("")
+    print("  status distribution:")
+    for value, n in dist.most_common():
+        print(f"     {value:<24}{n}")
+
+    # G2: the negative control -- can this field ever disagree with itself?
+    non_active = [pid for pid in ids
+                  if statuses.get(pid, {}).get("status")
+                  and statuses[pid]["status"] != "Active"]
+    print("")
+    print(f"  G2  non-Active players found : {len(non_active)}   (>= 3 across both leagues,"
+          f" each hand-verified)")
+    for pid in non_active:
+        st, e = statuses[pid], by_id[pid]
+        bits = [f"status={st['status']!r}"]
+        for label, key in (("injury_status", "injury_status"),
+                           ("body_part", "injury_body_part"),
+                           ("since", "injury_start_date")):
+            if st.get(key):
+                bits.append(f"{label}={st[key]!r}")
+        print(f"     {e.name:<26}{e.position:<5}{e.team or '--':<4}  " + "  ".join(bits))
+
+    # G3: RECORDED, not gated. Preseason nulls are correct data -- see the gate doc.
+    with_inj = [pid for pid in ids if statuses.get(pid, {}).get("injury_status")]
+    null_rate = 100.0 * (len(ids) - len(with_inj)) / len(ids) if ids else 0.0
+    print("")
+    print(f"  G3  `injury_status` null-rate: {len(ids) - len(with_inj)}/{len(ids)} = "
+          f"{null_rate:.1f}%   (RECORDED, not gated)")
+    inj_dist = Counter(statuses[pid]["injury_status"] for pid in with_inj)
+    for value, n in inj_dist.most_common():
+        print(f"     {str(value):<24}{n}")
+    if not with_inj:
+        print("     (none -- expected before Week 1; official game-status designations")
+        print("      come out of the weekly practice-report cycle. Re-measure from 2026-09-09.)")
+    return 0 if pct >= 95.0 else 1
+
+
+def _today() -> str:
+    import datetime
+
+    return datetime.date.today().isoformat()
+
+def cmd_byes(args: argparse.Namespace) -> int:
+    """Bye weeks for my roster, grouped, with same-position collisions flagged.
+
+    Display only. Nothing here reads or writes a projection, and the derivation refuses to
+    answer at all unless it passes its own consistency check -- a wrong bye is the kind of
+    error someone plans a month of lineups around.
+    """
+    from .draft import build_board
+    from .draft.board import DraftEntry
+    from .draft.service import CockpitService
+    from .server.state import bye_consistency
+
+    cfg = _load(args.league)
+    report = bye_consistency(cfg.season)
+
+    print("")
+    print(f"Bye weeks {cfg.season} -- derived from schedule absence")
+    print(f"  B1 exactly 32 teams          : {report['teams']}  "
+          f"{'PASS' if report['b1'] else 'FAIL'}")
+    print(f"  B2 one bye per team          : "
+          f"{'PASS' if report['b2'] else 'FAIL ' + str(report['multi_bye'])}")
+    print(f"  B3 inside the plausible window: "
+          f"{'PASS' if report['b3'] else 'FAIL ' + str(report['outside_window'])}")
+    print(f"  B4 games == playing/2 each wk : "
+          f"{'PASS' if report['b4'] else 'FAIL ' + str(report['week_mismatch'])}")
+    on_bye = {w: n for w, n in report["per_week"].items() if n}
+    print(f"  teams on bye by week          : {on_bye}")
+    if not report["ok"]:
+        print("")
+        print("  Derivation failed its own check. Refusing to report byes.")
+        return 1
+
+    byes = report["byes"]
+    board = build_board(cfg)
+    by_id = {e.player_id: e for e in board.entries}
+    service = CockpitService(cfg)
+    service.board = board
+    service.restore()
+    mine = service.session.slot
+
+    rostered = []
+    for pick in service.session.effective_picks():
+        if mine is not None and pick.draft_slot != mine:
+            continue
+        entry = by_id.get(pick.player_id)
+        if entry is None:
+            continue
+        rostered.append(entry)
+
+    print("")
+    print(f"[{cfg.key}] {cfg.name} -- slot {mine}, {len(rostered)} rostered")
+    if not rostered:
+        print("  no saved roster for this league; nothing to group")
+        return 0
+
+    grouped: dict[int | None, list[DraftEntry]] = {}
+    for entry in rostered:
+        grouped.setdefault(byes.get(entry.team or ""), []).append(entry)
+
+    for week in sorted(grouped, key=lambda w: (w is None, w or 0)):
+        label = f"week {week}" if week is not None else "no bye derived"
+        players = sorted(grouped[week], key=lambda e: (e.position, e.name))
+        print("")
+        print(f"  {label}  ({len(players)})")
+        for e in players:
+            print(f"     {e.name:<26}{e.position:<5}{e.team or '--'}")
+        by_pos: dict[str, list[str]] = {}
+        for e in players:
+            by_pos.setdefault(e.position, []).append(e.name)
+        for position, names in sorted(by_pos.items()):
+            if len(names) > 1 and week is not None:
+                print(f"     ** COLLISION: {len(names)} x {position} share week {week} -- "
+                      + ", ".join(sorted(names)))
+
+    if args.player:
+        print("")
+        wanted = [w.strip().lower() for w in args.player.split(",")]
+        for name in wanted:
+            hit = next((e for e in board.entries if e.name.lower() == name), None)
+            if hit is None:
+                print(f"  {name!r}: not on the board")
+                continue
+            print(f"  {hit.name:<26}{hit.position:<5}{hit.team or '--':<5}"
+                  f"bye week {byes.get(hit.team or '', '?')}")
+    return 0
+
+
+def cmd_verify_actuals(args: argparse.Namespace) -> int:
+    """Recompute a completed season under our derived scoring and diff ESPN's own totals.
+
+    THE QUESTION THIS ANSWERS. `verify-scoring` compares two scoring TABLES and reports where
+    they disagree. That catches a wrong weight but not a wrong *application* of a right one:
+    a per-position override read at the league level, a stat id mapped to the wrong key, a
+    unit conversion. This applies the derived table to the league's own realized stat lines
+    and asks whether the arithmetic lands on the league's own number.
+
+    K and D/ST are reported but cannot be recomputed -- see `SPECIALIST_GAP`. Our vocabulary
+    models neither yards-allowed nor miss distance, so those rows fall back to ESPN's total
+    by design and a zero diff there would prove nothing. They are listed as SKIP rather than
+    quietly dropped, because a validation that silently covers four of six positions while
+    claiming to span all of them is the failure this command exists to prevent.
+    """
+    from .adapters.espn import (
+        STAT_ID_TO_KEY,
+        TRANSLATED_POSITIONS,
+        EspnAdapter,
+        translate_stat_line,
+    )
+    from .scoring.engine import score_stat_line
+
+    cfg = _load(args.league)
+    if cfg.platform.value != "espn":
+        raise SystemExit("verify-actuals reads ESPN's own season totals; ESPN leagues only")
+
+    with EspnAdapter() as espn:
+        # A league with no completed season -- 485267278 did not exist in 2025 -- still has
+        # ESPN's own projected totals under its own scoring, which validates the same
+        # arithmetic. Fall back rather than refuse: "no actuals" is a fact about the
+        # league's age, not about whether our scoring can be checked.
+        basis = "actuals"
+        try:
+            lines = espn.get_season_stat_lines(cfg, args.season)
+        except Exception as exc:  # noqa: BLE001 -- a 404 here means "league did not exist"
+            print(f"\n  no {args.season} actuals for {cfg.league_id} "
+                  f"({exc.__class__.__name__}); using {cfg.season} projections")
+            lines = espn.projected_stat_lines(cfg)
+            basis = "projections"
+        if not lines:
+            lines = espn.projected_stat_lines(cfg)
+            basis = "projections"
+        if basis == "projections":
+            args.season = cfg.season
+        # Score under the table ESPN USED THAT SEASON, not the one in the config.
+        #
+        # This is not a detail. DDAFFL paid zero for receptions in 2025 and pays 0.5 to
+        # QB/WR/TE in 2026, so scoring 2025 actuals with the 2026 config produces a residual
+        # of exactly 0.5 x receptions on every pass-catcher -- a real difference between two
+        # rulesets, reported as if it were an error. What this command validates is the
+        # MACHINERY: the stat-id translation, the override reading, and the scoring engine.
+        # Whether the committed config matches the LIVE table is `verify-scoring`'s job, and
+        # the two questions need separate answers.
+        season_cfg = espn._season_config(cfg, args.season)
+        scored_ids = espn.scored_stat_ids(season_cfg)
+        season_scoring = {
+            position: espn.derived_scoring(season_cfg, position)
+            for position in sorted(cfg.positions & TRANSLATED_POSITIONS)
+        }
+        config_scoring = {
+            position: cfg.scoring_for(position)
+            for position in sorted(cfg.positions & TRANSLATED_POSITIONS)
+        }
+
+    scored = [
+        (pid, row) for pid, row in lines.items()
+        if row.get("position") and row["position"] in cfg.positions
+        and abs(float(row["applied"])) > 0.0
+    ]
+    scored.sort(key=lambda kv: -float(kv[1]["applied"]))
+
+    # Span every position rather than taking the global top-N, which would be all QB/RB/WR.
+    chosen: list[tuple[str, dict]] = []
+    per_pos = max(2, args.per_pos)
+    for position in _order_positions(cfg.positions):
+        at_pos = [kv for kv in scored if kv[1]["position"] == position]
+        chosen.extend(at_pos[:per_pos])
+
+    # Two pass-catching backs, explicitly. A reception-weight error is visible on them and
+    # nowhere else -- a between-the-tackles back scores the same at 0.0 and 0.5 per catch.
+    receiving_backs = [
+        kv for kv in scored
+        if kv[1]["position"] == "RB" and float(kv[1]["raw"].get("53", 0) or 0) >= 50
+    ][:2]
+    for kv in receiving_backs:
+        if kv not in chosen:
+            chosen.append(kv)
+
+    print("")
+    print(f"Recompute vs ESPN's own totals -- [{cfg.key}] {cfg.name}, season {args.season}")
+    print(f"  basis: {basis} ("
+          + ("ESPN's realized totals under that season's rules"
+             if basis == "actuals" else
+             "ESPN's projected totals under this league's live rules")
+          + ")")
+    print(f"  {len(lines)} players with a {args.season} line; "
+          f"checking {len(chosen)} across {len(cfg.positions)} positions")
+    print("")
+    print(f"  {'player':<26}{'pos':<5}{'rec':>5}{'ours':>10}{'espn':>10}{'diff':>9}")
+
+    exact = 0
+    checked = 0
+    skipped: list[str] = []
+    worst: tuple[float, str] | None = None
+    for _pid, row in chosen:
+        position = str(row["position"])
+        name = str(row["name"])[:25]
+        applied = float(row["applied"])
+        receptions = float(row["raw"].get("53", 0) or 0)
+        if position not in TRANSLATED_POSITIONS:
+            skipped.append(f"{name} ({position})")
+            print(f"  {name:<26}{position:<5}{receptions:>5.0f}{'--':>10}{applied:>10.2f}"
+                  f"{'SKIP':>9}")
+            continue
+        stats = translate_stat_line(row["raw"], position, scored_ids)
+        ours = score_stat_line(stats, season_scoring[position])
+        diff = ours - applied
+        checked += 1
+        if abs(diff) < 0.005:
+            exact += 1
+        if worst is None or abs(diff) > abs(worst[0]):
+            worst = (diff, name)
+        print(f"  {name:<26}{position:<5}{receptions:>5.0f}{ours:>10.2f}{applied:>10.2f}"
+              f"{diff:>+9.2f}")
+
+    print("")
+    print(f"  exact to the cent : {exact}/{checked}")
+
+    # Where the season's rules differ from the committed config, say so here rather than
+    # letting it surface as an unexplained residual in some later season's numbers.
+    # Scoped to the stats ESPN actually maps into our vocabulary, the same scope
+    # `verify_scoring` uses. Comparing the whole config table would report every K and D/ST
+    # key as drift on a WR, which is noise, not signal.
+    mapped_keys = {key for key, _factor in STAT_ID_TO_KEY.values()}
+    drifted: list[str] = []
+    for position, table in season_scoring.items():
+        for key in sorted(mapped_keys):
+            was, now = table.get(key), config_scoring[position].get(key)
+            if was is None and now is None:
+                continue
+            if was is None or now is None or abs(float(was) - float(now)) > 1e-9:
+                drifted.append(f"{key}[{position}]  {args.season}={was}  config={now}")
+    if drifted:
+        print(f"  RULES CHANGED since {args.season} ({len(drifted)}):")
+        for line in drifted:
+            print(f"     {line}")
+        print(f"     -> the {args.season} column above is ESPN's arithmetic under "
+              f"{args.season} rules,")
+        print("        which is what validates the machinery. `verify-scoring` is what")
+        print("        checks the committed config against the LIVE table.")
+    if skipped:
+        print(f"  not recomputable  : {len(skipped)} -- {', '.join(skipped)}")
+        print("                      K and D/ST are scored from ESPN's own total by design;")
+        print("                      our vocabulary models neither yards-allowed nor miss")
+        print("                      distance. See SPECIALIST_GAP.")
+    if worst and abs(worst[0]) >= 0.005:
+        print(f"  largest residual  : {worst[0]:+.2f} on {worst[1]}")
+    return 0 if checked and exact == checked else 1
 
 
 def main(argv: Sequence[str] | None = None) -> int:

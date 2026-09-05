@@ -220,7 +220,12 @@ class CockpitService:
             log.info("board ready: %d players", len(self.board.entries))
             # After the board, and never blocking it: usage is display context, so a source
             # that will not load costs a column rather than the draft.
-            self.usage = load_usage()
+            # The canonical bye derivation lives on the serving side and self-checks;
+            # usage takes its answer rather than deriving a second one. Imported here
+            # rather than at module scope so `draft` keeps no import-time edge to `server`.
+            from ..server.state import bye_weeks
+
+            self.usage = load_usage(byes=bye_weeks(self.config.season))
             if self.usage.missing_sources:
                 log.warning("usage context degraded, missing: %s",
                             ", ".join(self.usage.missing_sources))
@@ -247,6 +252,16 @@ class CockpitService:
         if update.draft_type is not None:
             session.draft_type = update.draft_type
         if update.identity is not None:
+            # A pinned seat overrides the platform, so a disagreement would otherwise be
+            # invisible -- exactly the failure the pin exists to prevent, inverted.
+            live = update.identity.slot
+            if (self._slot_override is not None and live is not None
+                    and live != self._slot_override):
+                log.error(
+                    "SEAT DRIFT: pinned slot %s but the platform says %s. The pin is winning; "
+                    "verify the draft room before trusting any timing number.",
+                    self._slot_override, live,
+                )
             session.user_id = update.identity.user_id
             session.roster_id = update.identity.roster_id
             session.slot = update.identity.slot

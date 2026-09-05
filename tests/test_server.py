@@ -305,7 +305,22 @@ def test_the_page_is_drivable_with_a_thumb(client: TestClient) -> None:
     # Touch sizing is keyed on hover:none, not on width -- the question is whether a
     # finger is driving, not how wide the glass is.
     assert "@media (hover:none)" in page
-    assert "width:44px;height:44px" in page, "the mark button must be a real touch target"
+    # The label is a word now ("TAKEN"/"DRAFT HIM"), not a glyph, so the target grew WIDER
+    # while keeping its full height. Assert the NUMBERS, parsed out of the touch block --
+    # the two previous versions of this pinned literal substrings and broke on every size
+    # change without the property ever being at risk.
+    # Anchor on the multi-line touch BLOCK (`{` then a newline). Matching the first
+    # "@media (hover:none)" instead picks up the one-line rules that also use the gate
+    # and then finds the DESKTOP .mark rule after them.
+    flat = page.replace(chr(13), "")
+    touch_mark = re.search(r"\.mark\{(.*?)\}", flat[flat.index("@media (hover:none){\n"):], re.S)
+    assert touch_mark, "the touch branch must still size the mark button"
+    decls = touch_mark.group(1)
+    # (?<!-) or this matches `line-height:42px` and reads the wrong number
+    height = re.search(r"(?<!-)height:(\d+(?:\.\d+)?)px", decls)
+    min_w = re.search(r"min-width:(\d+(?:\.\d+)?)px", decls)
+    assert height and float(height.group(1)) >= 44, f"touch mark height: {decls!r}"
+    assert min_w and float(min_w.group(1)) >= 64, f"touch mark min-width: {decls!r}"
 
     # The bar's own display:none MUST be declared before the media query that turns it on.
     # It was not, and an unlayered rule later in the file won on source order -- the bar
@@ -377,7 +392,13 @@ def test_the_mark_button_is_styled_without_hover(client: TestClient) -> None:
     ungated on purpose: it is a real state a finger can reach.
     """
     page = client.get("/").text
-    assert ".prow.sel .mark{" in page, "selection must style the mark button on any device"
+    # Stronger than the old `.prow.sel .mark{` check, which only proved the button was
+    # revealed once a row was SELECTED. The button is now painted at rest on every
+    # device, so the transparent-at-rest base rule that started all of this must be gone.
+    mark_rule = page[page.index(".mark{"):page.index("}", page.index(".mark{"))]
+    assert "transparent" not in mark_rule, (
+        f"the mark button must not be transparent at rest on any device: {mark_rule!r}"
+    )
     assert ".prow:hover .mark" not in _hover_rules_outside_a_hover_gate(page), (
         "the hover rule outweighs the touch rule on specificity; it must not be live on touch"
     )

@@ -16,7 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Full history: tests/test_ui_desktop.py's negative control serves the PRE-FIX
+      # page from `git show main:...` and asserts the new checks REJECT it. The default
+      # depth-1 checkout has no main to read, and a negative control that cannot run is
+      # worse than none -- it raises rather than skips, so this is load-bearing.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -29,11 +35,25 @@ jobs:
       # reports green for a smaller claim than the one you think you're making.
       - run: uv sync --extra nflverse
 
+      # `uv sync` installs the playwright PACKAGE but not the browser it drives, so the
+      # first push of the desktop suite failed here with
+      #   BrowserType.launch: Executable doesn't exist at .../chrome-headless-shell
+      # on all ten tests -- 265 passed, 10 errors. --with-deps also pulls the system
+      # libraries the headless shell needs on ubuntu-latest.
+      - name: playwright browser
+        run: uv run playwright install --with-deps chromium
+
       - name: ruff
         run: uv run ruff check .
 
       - name: pyright
         run: uv run pyright
 
+      # AUDIBLE_UI_REQUIRED=1 is the whole point: with it, a missing browser is a hard
+      # FAILURE, never a skip. A UI suite that passes by running nothing is the exact
+      # failure mode that let an unclickable button ship green three times. `-rs` prints
+      # the reason for any skip that does occur, so "green" is always auditable.
       - name: pytest
-        run: uv run pytest
+        env:
+          AUDIBLE_UI_REQUIRED: "1"
+        run: uv run pytest -rs

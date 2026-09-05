@@ -48,6 +48,14 @@ for _stream in (sys.stdout, sys.stderr):
     with contextlib.suppress(Exception):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
+# The cockpit's Enter hint is "↵ marks <player>" (U+21B5). Printing that through
+# a Windows console defaulting to cp1252 raises UnicodeEncodeError *inside
+# check()*, which killed the whole run at check 11 of ~82 -- on the machine the
+# draft is actually run from. The suite reported a traceback instead of a
+# verdict, so a green claim was never reachable here.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 EDGE_CANDIDATES = [
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -83,29 +91,6 @@ SNAP = """
 """
 
 
-USAGE_PROBE = """
-(function(){
-  var rows=[].slice.call(document.querySelectorAll("#bestBody tr")).slice(0,40);
-  function nums(sel){
-    return rows.filter(function(r){
-      var c=r.querySelectorAll(sel);
-      return c.length && /^[0-9]+$/.test((c[0].textContent||"").trim());
-    }).length;
-  }
-  return JSON.stringify({
-    rows:rows.length,
-    tgtNums:nums(".c-use"),
-    rteNums:rows.filter(function(r){
-      var c=r.querySelectorAll(".c-use");
-      return c.length>1 && /^[0-9]+$/.test((c[1].textContent||"").trim());
-    }).length,
-    byes:rows.filter(function(r){
-      var b=r.querySelector(".c-team .bye");
-      return !!b && /^[0-9]+$/.test((b.textContent||"").trim());
-    }).length
-  });
-})()
-"""
 
 VIEWPORT_SIZES = [(1920, 1080), (2560, 1440)]
 
@@ -261,8 +246,6 @@ READONLY_CHECKS: tuple[str, ...] = (
     "search box focused on load",
     "no horizontal overflow at 1920",
     "digit legend matches visible tabs",
-    "usage columns render real numbers",
-    "bye weeks render on the team cell",
     "clicking a row selects exactly one",
     "arrow moves the highlight",
     "caret stays in the search box",
@@ -439,19 +422,17 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
           "{!r} -> {!r}".format(b1["selName"], b2["selName"]))
     check("caret stays in the search box", b2["focus"] == "q", "focus={}".format(b2["focus"]))
 
-    print()
-    print("=" * 74)
-    print("3a. USAGE CONTEXT IS ON THE BOARD")
-    print("=" * 74)
-    use = json.loads(await bus.ev(USAGE_PROBE))
-    # A column of dots is what a broken join looks like from the outside: the markup is
-    # perfect and every number is missing. So this counts REAL values, not cells.
-    check("usage columns render real numbers",
-          use["tgtNums"] >= 20 and use["rteNums"] >= 20,
-          "of {} rows: {} target-share, {} route-% ".format(
-              use["rows"], use["tgtNums"], use["rteNums"]))
-    check("bye weeks render on the team cell", use["byes"] >= 20,
-          "{} of {} rows carry a bye".format(use["byes"], use["rows"]))
+    # 3a. USAGE CONTEXT ON THE BOARD -- two checks deliberately NOT carried across the
+    # merge to main. They asserted a Tgt%/Rte% column pair and a bye chip inside the team
+    # cell, and neither shipped: main had already spent that column budget on `Bye` and
+    # `vs ESPN`, and re-laying out a thumb-drivable table on the morning of a live draft is
+    # not a trade worth making. Nothing they guarded is now ungated --
+    #   * byes on the UI: main's own `heads.index("Bye") == heads.index("Tm") + 1`
+    #   * the usage numbers themselves: `_slim carries every usage field` and `_slim usage
+    #     fields are populated, not just present` in qa_board_invariants, which cover the
+    #     surface Eric actually queries from his phone rather than a table he is not looking
+    #     at while the clock runs.
+    # Restore both if the columns ever land.
 
     print()
     print("=" * 74)
