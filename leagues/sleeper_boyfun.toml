@@ -11,11 +11,14 @@ league_id = "1361543954771738624"
 season = 2026
 num_teams = 10
 
-# Starting lineup (BN/IR excluded). 11 starters incl. SUPER_FLEX + ONE IDP_FLEX.
-# Re-verified against live roster_positions 2026-08-15: the league carries no DEF slot and
-# a single IDP_FLEX -- NOT the DL/LB/DB/IDP_FLEX stack captured on 2026-06-26. Corroborated
-# by draft settings (slots_idp_flex=1, no slots_def, slots_bn=7, rounds=18 = 11 + 7).
-starting_slots = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX", "K", "IDP_FLEX"]
+# Starting lineup (BN/IR excluded). 12 starters incl. SUPER_FLEX + DEF + ONE IDP_FLEX.
+# Re-verified against the live league 2026-09-05, the morning of the draft: a DEF slot has
+# APPEARED since the 2026-08-15 capture. Both live sources agree -- `roster_positions` now
+# reads [... K, DEF, IDP_FLEX, BN x7] and draft settings read slots_def=1, slots_bn=7,
+# rounds=19 = 12 + 7. The 2026-08-15 note said "the league carries no DEF slot"; that was
+# true when written and is not true now. This is the SECOND time this league's roster has
+# moved under the config, which is why `verify-scoring` runs before every draft.
+starting_slots = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX", "K", "DEF", "IDP_FLEX"]
 
 median_match = true  # play H2H opponent AND league median
 playoff_teams = 6
@@ -33,8 +36,8 @@ notes = "Full redraft (max_keepers/draft_rounds treated as vestigial copy artifa
 # if the roster changes again.
 value_metric = "vorp"
 
-# 18 rounds = 11 starters + slots_bn=7, from the live draft settings (2026-08-15).
-draft_rounds = 18
+# 19 rounds = 12 starters + slots_bn=7, from the live draft settings (2026-09-05).
+draft_rounds = 19
 
 # DELIBERATELY 0, and this is the one place the two leagues' value engines differ.
 #
@@ -67,9 +70,13 @@ TE = ["TE"]
 FLEX = ["RB", "WR", "TE"]
 SUPER_FLEX = ["QB", "RB", "WR", "TE"]
 K = ["K"]
+DEF = ["DEF"]
 IDP_FLEX = ["DL", "LB", "DB"]
 
-# Full scoring_settings (72 keys) -- captured verbatim from the live league.
+# Full scoring_settings -- captured verbatim from the live league.
+# Re-verified 2026-09-05: idp_sack and idp_int were both HALVED live, 6.0 -> 3.0, since the
+# 2026-08-15 capture. Every other weight still matches. The league is materially less
+# tackle-and-splash-play heavy than the config said, which moves the whole IDP board.
 [scoring]
 blk_kick = 3
 bonus_fd_qb = 0
@@ -102,11 +109,11 @@ idp_def_td = 6
 idp_ff = 3
 idp_fum_rec = 3
 idp_fum_ret_yd = 0.1
-idp_int = 6
+idp_int = 3
 idp_int_ret_yd = 0.1
 idp_pass_def = 3
 idp_qb_hit = 1
-idp_sack = 6
+idp_sack = 3
 idp_sack_yd = 0.1
 idp_safe = 3
 idp_tkl_ast = 1

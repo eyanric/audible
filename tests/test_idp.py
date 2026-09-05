@@ -15,7 +15,9 @@ def test_lone_player_projects_to_prior(sleeper_config: LeagueConfig) -> None:
     # A lone player IS the positional mean -> no shrinkage; projects to prior-season points.
     p = _lb("x", idp_tkl_solo=100.0, idp_sack=5.0, idp_int=2.0)
     out = idp_projection({"x": p}, sleeper_config)
-    assert out["x"] == pytest.approx(100 * 2 + 5 * 6 + 2 * 6)  # solo 2.0, sack 6.0, int 6.0
+    # solo 2.0; sack and int are 3.0 each -- both HALVED live between 2026-08-15 and
+    # 2026-09-05, which is why this number moved from 242 to 221.
+    assert out["x"] == pytest.approx(100 * 2 + 5 * 3 + 2 * 3)
 
 
 def test_regresses_noise_keeps_tackles(sleeper_config: LeagueConfig) -> None:

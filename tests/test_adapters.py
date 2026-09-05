@@ -20,9 +20,13 @@ def test_verify_structure_catches_roster_drift(
     monkeypatch: pytest.MonkeyPatch, sleeper_config: LeagueConfig
 ) -> None:
     """The Phase-0 capture carried 15 starters (DEF plus a full DL/LB/DB/IDP_FLEX stack); the
-    live league has since moved to 11 with a single IDP_FLEX and no DEF. Nothing compared the
-    two, so the stale structure silently corrupted every replacement baseline the value engine
-    derives -- this guard is what makes that failure loud.
+    live league is now 12 -- a single IDP_FLEX, and DEF back after a spell without it.
+    Nothing compared the two, so the stale structure silently corrupted every replacement
+    baseline the value engine derives -- this guard is what makes that failure loud.
+
+    The league has moved twice now (DEF dropped by 2026-08-15, restored by 2026-09-05), so
+    what this pins is the MECHANISM, not any one shape: a slot the capture has and the
+    config does not must surface as drift.
     """
     captured = json.loads((FIXTURES / "sleeper_league.json").read_text(encoding="utf-8"))
     monkeypatch.setattr(SleeperAdapter, "get_league", lambda self, league_id: captured)
@@ -32,11 +36,11 @@ def test_verify_structure_catches_roster_drift(
             sleeper_config
         )}
 
-    # config no longer has these slots; the June capture had one of each.
-    assert drift["DEF"] == (0, 1)
+    # config no longer has the granular IDP stack; the June capture had one of each.
     assert drift["DL"] == (0, 1)
     assert drift["LB"] == (0, 1)
     assert drift["DB"] == (0, 1)
+    assert "DEF" not in drift  # one in both again as of 2026-09-05
     assert "IDP_FLEX" not in drift  # one in both -- unchanged
     assert "BN" not in drift  # bench never demands a starter
 

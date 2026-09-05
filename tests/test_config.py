@@ -34,13 +34,18 @@ def test_sleeper_config_matches_hand_won_spec(sleeper_config: LeagueConfig) -> N
     assert cfg.platform is Platform.SLEEPER
     assert cfg.num_teams == 10
     assert cfg.median_match is True
-    # 11 starters, re-verified against live roster_positions 2026-08-15: one IDP_FLEX and no
-    # DEF slot (the committed 15-slot DL/LB/DB/IDP_FLEX/DEF version was never this league).
-    assert len(cfg.starting_slots) == 11
+    # 12 starters, re-verified against the live league 2026-09-05, the morning of the draft.
+    # A DEF slot APPEARED between the 2026-08-15 capture (11 starters, no DEF) and this one;
+    # `roster_positions` and draft settings (slots_def=1, rounds=19) agree. This assertion has
+    # now moved twice, which is the point of running `verify-scoring` before every draft
+    # rather than trusting a capture.
+    assert len(cfg.starting_slots) == 12
     assert cfg.slot_counts() == {
-        "QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "SUPER_FLEX": 1, "K": 1, "IDP_FLEX": 1,
+        "QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "SUPER_FLEX": 1,
+        "K": 1, "DEF": 1, "IDP_FLEX": 1,
     }
-    assert "DEF" not in cfg.slot_eligibility
+    assert cfg.slot_eligibility["DEF"] == ("DEF",)
+    assert cfg.draft_rounds == 19  # 12 starters + slots_bn=7
     assert len(cfg.scoring) == 72
     # the scoring quirks that matter
     assert cfg.scoring["rec"] == 0.5
@@ -48,12 +53,16 @@ def test_sleeper_config_matches_hand_won_spec(sleeper_config: LeagueConfig) -> N
     assert cfg.scoring["rec_40p"] == 1 and cfg.scoring["rush_40p"] == 2  # big-play ON
     assert cfg.scoring["bonus_fd_wr"] == 0  # first-down bonuses OFF
     assert cfg.scoring["fgm_yds"] == 0.1  # distance kicker
-    assert cfg.scoring["idp_tkl_solo"] == 2 and cfg.scoring["idp_sack"] == 6  # tackle-heavy IDP
+    # Tackle-heavy IDP, but the splash plays are worth HALF what they were: the live league
+    # dropped idp_sack and idp_int from 6.0 to 3.0 between 2026-08-15 and 2026-09-05.
+    assert cfg.scoring["idp_tkl_solo"] == 2
+    assert cfg.scoring["idp_sack"] == 3 and cfg.scoring["idp_int"] == 3
 
 
 def test_positions_are_derived_from_eligibility(sleeper_config: LeagueConfig) -> None:
-    # IDP stays rosterable through IDP_FLEX; DEF drops out entirely with its slot.
-    assert sleeper_config.positions == {"QB", "RB", "WR", "TE", "K", "DL", "LB", "DB"}
+    # IDP is rosterable through IDP_FLEX, and DEF is back: the live league carries a DEF slot
+    # again as of 2026-09-05, so team defences are on League A's board and in its baselines.
+    assert sleeper_config.positions == {"QB", "RB", "WR", "TE", "K", "DEF", "DL", "LB", "DB"}
 
 
 def test_espn_is_shallow_no_idp(espn_config: LeagueConfig) -> None:
