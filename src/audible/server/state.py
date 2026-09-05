@@ -622,4 +622,51 @@ def build_state(service: CockpitService) -> dict[str, Any]:
     base["runs"] = _runs(service, view)
     base["cliffs"] = _cliffs(view)
     base["counts_last10"] = _counts_last10(service)
+    base["the_call"] = _the_call(service, view, base)
+    base["run"] = _run_block(base)
     return base
+
+
+def _the_call(service: CockpitService, view: LiveView, base: dict[str, Any]) -> dict[str, Any]:
+    """The opportunity-cost pick, for the PAGE.
+
+    It has to be here and not only on the MCP surface. The cockpit is what is open on the
+    desktop while the clock runs; asking a model over MCP is not something anyone does
+    inside ninety seconds. A recommendation that only exists in a channel nobody reads at
+    the moment of the decision is not a recommendation.
+
+    Computed from `base` -- the rows already built, ranked and frozen above -- so this is
+    the same lookup-at-the-serving-boundary contract as usage and byes, and the
+    `urgency_in_sort` mutation still guards it.
+    """
+    from ..draft.urgency import roster_needs, the_call
+
+    try:
+        entries = service.board.entries if service.board else []
+        available = [e for e in entries if e.player_id not in service.session.taken_ids()]
+        rows = [
+            {"id": p["id"], "name": p["name"], "position": p["position"],
+             "vorp_rank": p["vorp_rank"], "adp": p.get("adp"),
+             "platform_rank": p.get("espn_rank")}
+            for p in base["best_available"]
+        ]
+        return the_call(
+            rows,
+            next_pick=base["clock"]["my_next_pick"],
+            needs=roster_needs(base["roster"]["slots"], service.config.slot_eligibility),
+            available_entries=available,
+        )
+    except Exception as exc:  # noqa: BLE001 -- a missing opinion must never blank the board
+        log.warning("the call unavailable (%s); the panel will not appear", exc)
+        return {"pick": None, "runner_up": None, "why_none": "unavailable"}
+
+
+def _run_block(base: dict[str, Any]) -> dict[str, Any]:
+    from ..draft.urgency import detect_run
+
+    try:
+        return detect_run(base["recent_picks"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("run detection unavailable (%s)", exc)
+        return {"window": 0, "counts": {}, "run_position": None, "run_count": 0,
+                "advice": None}

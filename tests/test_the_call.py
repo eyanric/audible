@@ -165,6 +165,9 @@ def test_roster_need_is_visible_and_changes_the_call() -> None:
     assert a["pick"]["name"] == "Good RB"
     assert b["pick"]["name"] == "Best WR"
     assert {r["slot"] for r in a["roster_need"]} == {"WR", "RB"}
+    # The reason must NOT open with the runner-up's name: the page composes the sentence
+    # around it, and returning the name here printed it twice.
+    assert not (a["why_not_the_runner_up"] or "").startswith(a["runner_up"]["name"])
 
 
 def test_the_horizon_changes_the_answer() -> None:
@@ -301,3 +304,15 @@ def test_a_resolved_seat_shows_the_subtraction() -> None:
                    available_entries=[])
     assert out["seat_resolved"] is True
     assert out["pick"]["survival_arithmetic"] == "ADP 2.0 - next pick 20 = -18.0"
+
+
+def test_unresolved_picks_are_counted_but_never_called_a_run() -> None:
+    """`_recent_picks` writes "?" when a pick's player is not on the board. That is an
+    absence of information, not a position -- calling it a run printed reach advice about
+    a question mark."""
+    run = detect_run([{"position": "?"}] * 7)
+    assert run["counts"] == {"?": 7}
+    assert run["run_position"] is None
+    assert run["advice"] is None
+    mixed = detect_run([{"position": "?"}] * 4 + [{"position": "QB"}] * 4)
+    assert mixed["run_position"] == "QB"
