@@ -306,12 +306,28 @@ class SleeperAdapter:
 
         Returns one (key, config_value, live_value) tuple per mismatch (missing on
         either side, or differing values). Empty list means the config is faithful.
+
+        AN ABSENT KEY AND A ZERO KEY ARE THE SAME RULE, and conflating them is what made
+        this check useless. `score_stat_line` multiplies each stat by its weight and sums,
+        so a key the config omits contributes exactly what a key weighted 0.0 contributes:
+        nothing. Sleeper returns its ENTIRE vocabulary in `scoring_settings`, most of it at
+        0.0, so treating absent-vs-0.0 as a mismatch reported 76 differences on a faithful
+        League A config -- and on 2026-09-05 that noise was hiding two real ones
+        (`idp_sack` and `idp_int`, both live-halved 6.0 -> 3.0, sitting on lines 36 and 38
+        of a 78-line wall). A guard that cries wolf 76 times is not a guard.
+
+        Only the no-op pairs are excused. A key the config omits that the live league pays
+        anything at all is still drift, which is the case that actually costs points.
         """
         live: dict[str, Any] = self.get_league(config.league_id).get("scoring_settings", {})
         drift: list[tuple[str, float | None, float | None]] = []
         for key in sorted(set(config.scoring) | set(live)):
             cfg_val = config.scoring.get(key)
             live_val = live.get(key)
+            if cfg_val is None and live_val is not None and float(live_val) == 0.0:
+                continue
+            if live_val is None and cfg_val is not None and float(cfg_val) == 0.0:
+                continue
             if cfg_val is None or live_val is None or abs(float(cfg_val) - float(live_val)) > 1e-9:
                 drift.append((key, cfg_val, live_val if live_val is None else float(live_val)))
         return drift
