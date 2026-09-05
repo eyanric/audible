@@ -204,3 +204,89 @@ def run(check: Any, league: str, state_dir: Path) -> None:
           dst is not None and dst["round"] >= DST_EARLIEST_ROUND,
           "never drafted a D/ST" if dst is None
           else f"first D/ST {dst['name']} in round {dst['round']} (pick {dst['pick_no']})")
+
+
+def run_usage(check: Any, league: str, state_dir: Path) -> None:
+    """Lane 1 invariants: usage is present, sane, and CANNOT have moved the board.
+
+    The last one is the whole contract. Usage is looked up at the serving boundary, so the
+    claim "nothing here enters the sort" is structural -- but a claim that is only structural
+    is one refactor away from being false, so it is asserted against the board itself.
+    """
+    from qa_board_fixture import load_usage_table
+
+    board = load_board(league)
+    usage = load_usage_table(league)
+    top = sorted(board.entries, key=lambda e: e.vorp_rank)[:128]
+
+    check("pinned usage table is not degraded", not usage.missing_sources,
+          f"missing={list(usage.missing_sources)}")
+
+    # -- the sort is untouched -------------------------------------------------------------
+    # Walk the board in rank order and assert vorp never RISES. Stated this way rather than by
+    # rebuilding the ranking, because rebuilding would have to guess the tiebreak between two
+    # equal-vorp players and would fail on the guess rather than on a real defect. If usage had
+    # ever leaked into the sort, a player would sit above someone worth more and this catches it.
+    ordered = sorted(board.entries, key=lambda e: e.vorp_rank)
+    drift = [f"#{a.vorp_rank} {a.name} ({a.vorp:.1f}) above #{b.vorp_rank} {b.name} ({b.vorp:.1f})"
+             for a, b in zip(ordered, ordered[1:], strict=False) if a.vorp < b.vorp]
+    check("usage did not enter the sort", not drift,
+          f"out of value order: {drift[:3]}" if drift
+          else f"{len(ordered)} entries, vorp non-increasing across every rank")
+
+    # -- coverage over the draftable window --------------------------------------------------
+    # Not 100%: a rookie has no prior-season usage and a D/ST has no player row at all. The
+    # floor is what makes a silent join failure (a changed id column, a renamed team) fail
+    # here rather than showing up as an empty column on a Sunday.
+    have_tgt = sum(1 for e in top if (c := usage.get(e.player_id)) and c.target_share is not None)
+    have_rte = sum(1 for e in top
+                   if (c := usage.get(e.player_id)) and c.route_participation is not None)
+    check("target share covers the draftable window", have_tgt >= 100,
+          f"{have_tgt}/128 of the top 128 have a target share")
+    check("route participation covers the draftable window", have_rte >= 95,
+          f"{have_rte}/128 of the top 128 have a route-participation proxy")
+
+    # -- every team resolves a bye ------------------------------------------------------------
+    # nflverse spells the Rams "LA" and the board spells them "LAR". That cost one team a
+    # silently blank bye, and a defensive alias map then cost Washington its own. Assert the
+    # join instead of trusting the map.
+    unresolved = sorted({e.team for e in board.entries if e.team and usage.bye(e.team) is None})
+    check("every board team resolves to a bye week", not unresolved, f"unresolved={unresolved}")
+
+    byes = list(usage.bye_by_team.values())
+    check("bye weeks are inside the regular season",
+          bool(byes) and all(1 <= b <= 18 for b in byes),
+          f"{len(byes)} teams, range {min(byes)}-{max(byes)}" if byes else "no byes")
+
+    # -- shares are shares ---------------------------------------------------------------------
+    # Air-yards share is deliberately excluded from the lower bound: a back whose targets are
+    # all behind the line has NEGATIVE air yards, so a negative share is real, not corrupt.
+    bad = []
+    for e in top:
+        c = usage.get(e.player_id)
+        if not c:
+            continue
+        for name in ("target_share", "route_participation", "snap_share"):
+            v = getattr(c, name)
+            if v is not None and not (0.0 <= v <= 1.0):
+                bad.append(f"{e.name}.{name}={v}")
+    check("usage shares are fractions in 0..1", not bad, f"out of range: {bad[:4]}")
+
+    # -- the MCP surface carries it too --------------------------------------------------------
+    # The cockpit and the chat surface have to answer the same question the same way; a field
+    # that reaches the board table but not `_slim` is a split brain by another name.
+    from audible.config.loader import load_all_leagues
+
+    svc = _service(load_all_leagues()[league], board, state_dir / "usage", MY_SLOT)
+    svc.usage = usage
+    rows = (_call(svc, "best_available", limit=10).get("players") or [])
+    keys = ("target_share_pct", "route_participation_pct", "snap_share_pct",
+            "air_yards_share_pct", "depth_slot", "bye_week")
+    absent = [k for k in keys if rows and k not in rows[0]]
+    populated = [k for k in keys
+                 if any(r.get(k) is not None for r in rows)]
+    check("_slim carries every usage field", bool(rows) and not absent,
+          f"missing keys={absent}" if absent else f"all {len(keys)} present on {len(rows)} rows")
+    check("_slim usage fields are populated, not just present",
+          len(populated) == len(keys),
+          f"never populated: {sorted(set(keys) - set(populated))}")

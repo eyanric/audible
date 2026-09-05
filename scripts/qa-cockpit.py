@@ -91,6 +91,7 @@ SNAP = """
 """
 
 
+
 VIEWPORT_SIZES = [(1920, 1080), (2560, 1440)]
 
 LAYOUT = """
@@ -287,6 +288,17 @@ BOARD_CHECKS: tuple[str, ...] = (
     "slot-8 dry run fills every starting slot",
     "slot-8 roster has no short slot",
     "no D/ST before round 13",
+    # Lane 1: displayed usage context. None of it enters the sort, and the check named
+    # "usage did not enter the sort" is what keeps that true rather than merely intended.
+    "pinned usage table is not degraded",
+    "usage did not enter the sort",
+    "target share covers the draftable window",
+    "route participation covers the draftable window",
+    "every board team resolves to a bye week",
+    "bye weeks are inside the regular season",
+    "usage shares are fractions in 0..1",
+    "_slim carries every usage field",
+    "_slim usage fields are populated, not just present",
 )
 
 VIEWPORT_CHECKS: tuple[str, ...] = (
@@ -409,6 +421,18 @@ async def run_suite(bus: Bus, url: str, readonly: bool) -> None:
     check("arrow moves the highlight", b1["selName"] != b2["selName"],
           "{!r} -> {!r}".format(b1["selName"], b2["selName"]))
     check("caret stays in the search box", b2["focus"] == "q", "focus={}".format(b2["focus"]))
+
+    # 3a. USAGE CONTEXT ON THE BOARD -- two checks deliberately NOT carried across the
+    # merge to main. They asserted a Tgt%/Rte% column pair and a bye chip inside the team
+    # cell, and neither shipped: main had already spent that column budget on `Bye` and
+    # `vs ESPN`, and re-laying out a thumb-drivable table on the morning of a live draft is
+    # not a trade worth making. Nothing they guarded is now ungated --
+    #   * byes on the UI: main's own `heads.index("Bye") == heads.index("Tm") + 1`
+    #   * the usage numbers themselves: `_slim carries every usage field` and `_slim usage
+    #     fields are populated, not just present` in qa_board_invariants, which cover the
+    #     surface Eric actually queries from his phone rather than a table he is not looking
+    #     at while the clock runs.
+    # Restore both if the columns ever land.
 
     print()
     print("=" * 74)
@@ -718,6 +742,11 @@ def start_server(league: str, port: int, state_dir: Path,
     src = REPO / "src"
     scripts = REPO / "scripts"
     board_expr = "build_board(cfg)" if live_board else f"load_board({league!r})"
+    # Usage is pinned in the same fixture as the board. A live board gets live usage, so
+    # --live-board stays one honest check against reality rather than a hybrid.
+    usage_expr = ("load_usage()" if live_board else f"load_usage_table({league!r})")
+    usage_import = ("from audible.draft.usage import load_usage" if live_board
+                    else "from qa_board_fixture import load_usage_table")
     board_import = ("from audible.draft.board import build_board" if live_board
                     else "from qa_board_fixture import load_board")
     boot = "\n".join([
@@ -726,6 +755,7 @@ def start_server(league: str, port: int, state_dir: Path,
         "import uvicorn",
         "from audible.config.loader import load_all_leagues",
         board_import,
+        usage_import,
         "from audible.draft.service import CockpitService",
         "from audible.server import create_app",
         f"cfg=load_all_leagues()[{league!r}]",
@@ -733,6 +763,7 @@ def start_server(league: str, port: int, state_dir: Path,
         "[p.unlink() for p in sd.glob('*.json')]",
         "svc=CockpitService(cfg,state_dir=sd,slot_override=8)",
         f"svc.board={board_expr}",
+        f"svc.usage={usage_expr}",
         "svc.session.draft_id='qa'; svc.session.draft_status='drafting'",
         "svc.session.slot, svc.session.slot_source = 8,'override'",
         "svc.health.last_success=time.time()",
@@ -787,6 +818,7 @@ def main() -> int:
         import qa_board_invariants
         with tempfile.TemporaryDirectory(prefix="audible-qa-inv-") as inv:
             qa_board_invariants.run(check, args.league, Path(inv))
+            qa_board_invariants.run_usage(check, args.league, Path(inv))
     except Exception:
         ABORT.append(traceback.format_exc())
         print("  board invariants ABORTED:")
