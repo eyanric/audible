@@ -14,6 +14,7 @@ from typing import Any
 
 from ..draft.live import Candidate, LiveView, my_slot_on_clock
 from ..draft.service import CockpitService
+from ..draft.usage import UsageTable
 
 log = logging.getLogger(__name__)
 
@@ -28,11 +29,25 @@ RECENT_PICKS_LIMIT = 12
 RUN_WINDOW = 10
 
 
-def _player(cand: Candidate, gaps: dict[str, int] | None = None,
-            byes: dict[str, int] | None = None) -> dict[str, Any]:
+def _player(cand: Candidate, *, gaps: dict[str, int] | None = None,
+            byes: dict[str, int] | None = None,
+            usage: UsageTable | None = None) -> dict[str, Any]:
+    """One board row, serialized. Every annotation arrives here and nowhere earlier.
+
+    KEYWORD-ONLY DELIBERATELY. Two branches each widened this signature with a different
+    second parameter, and merging them bound a `UsageTable` into `gaps` at three MCP call
+    sites -- silently, because the result is a dict of Nones rather than a crash. Every
+    usage field on the MCP surface read as "not measured" and the board still looked fine.
+    Names cannot collide the way positions can.
+    """
     e = cand.entry
     gap = (gaps or {}).get(e.player_id)
     espn_rank = _rank_cache.get(e.player_id)
+    # Usage is looked up here, at the SERVING boundary -- after the board is built, ranked and
+    # frozen. That is what makes it display-only by construction rather than by promise. The
+    # gap and bye annotations above follow the same rule and arrive the same way.
+    ctx = usage.get(e.player_id) if usage else None
+    pct = lambda v: round(v * 100, 1) if v is not None else None  # noqa: E731
     return {
         # Part 3, additive: how far our order departs from the one the room drafts off.
         # None means "not comparable", which the page renders as blank rather than as 0.
@@ -64,6 +79,22 @@ def _player(cand: Candidate, gaps: dict[str, int] | None = None,
         # which the page renders blank rather than as a week.
         "bye": (byes or {}).get(e.team or ""),
         "flags": list(e.flags),
+        # -- displayed usage context; None means UNKNOWN, never zero ----------------------
+        # Prior-season observed volume. DDAFFL pays 0.5/reception to WR/TE, so target and
+        # route volume is where this league's edge lives and consensus prices yards and TDs.
+        "target_share": pct(ctx.target_share) if ctx else None,
+        "air_yards_share": pct(ctx.air_yards_share) if ctx else None,
+        # A PROXY: pass-snap share, not charted routes. A blocking TE still counts.
+        "route_participation": pct(ctx.route_participation) if ctx else None,
+        "snap_share": pct(ctx.snap_share) if ctx else None,
+        "depth_slot": ctx.depth_slot if ctx else None,
+        # Bye joins on team, so a D/ST gets one even though it has no player row anywhere.
+        # Same fact as "bye" above, under the name the MCP surface publishes. It reads
+        # the usage table rather than `byes` directly so the QA harness stays
+        # deterministic against a PINNED table -- and there is still only one
+        # derivation, because `load_usage` is handed `bye_weeks()` and no longer
+        # computes its own.
+        "bye_week": usage.bye(e.team) if usage else None,
     }
 
 
@@ -574,9 +605,14 @@ def build_state(service: CockpitService) -> dict[str, Any]:
     }
     gaps = _espn_gaps(service)
     byes = bye_weeks(service.config.season)
-    base["grab_now"] = [_player(c, gaps, byes) for c in grab]
-    base["best_available"] = [_player(c, gaps, byes) for c in _served_pool(service, view)]
+    usage = getattr(service, "usage", None)
+    base["grab_now"] = [_player(c, gaps=gaps, byes=byes, usage=usage) for c in grab]
+    base["best_available"] = [
+        _player(c, gaps=gaps, byes=byes, usage=usage)
+        for c in _served_pool(service, view)
+    ]
     base["bye_collisions"] = _bye_collisions(service, byes)
+    base["usage_degraded"] = list(usage.missing_sources) if usage else []
     base["teams"] = _teams(service)
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)
