@@ -84,3 +84,95 @@ only because G3 is loose, that is the finding.
 Display only. The lookup happens at the serving boundary in `state._player`, after the
 board is built, ranked and frozen — the pattern `draft/usage.py` established. Nothing under
 `value/`, `scoring/`, `providers/` or `draft/board.py` may import `draft/reach.py`.
+
+---
+
+# Result — measured once, 2026-09-05. **G2 FAILS. R2 is not built.**
+
+## Harness validation, before any R2 number is quoted
+
+The replay reproduces R1's recorded result exactly, which is what makes the rest of this
+trustworthy:
+
+| | this replay | R1 recorded |
+|---|---|---|
+| firings at `value_rank - pick >= 40` | **12** / 128 | 12 |
+| of which QB | **6** | 6 |
+| Burrow's R1 delta | **+52** | +52 |
+
+## G2 — FAIL
+
+**Joe Burrow, DDAFFL pick 57. R2 reach = −3.**
+
+| | |
+|---|---|
+| raw `adp_half_ppr` | **54.5** |
+| market rank | 54 |
+| taken at pick | 57 |
+| **R2 reach (market − pick)** | **−3** |
+| consensus rank | 6 |
+| VORP rank | 109 |
+
+He went **2.5 picks after** the market had him. The market ranks either side of him were
+Drake Maye at 52.3 and Davante Adams at 55.3. **The DDAFFL draft's worst pick was not a
+reach.** It was taken almost exactly on ADP.
+
+R1's "+52" was `vorp_rank(109) − pick(57)`. That is a statement that this board's VORP puts
+Burrow 109th, which it does because a quarterback's points above his own replacement are
+small when eight of them start. It was never a statement about the pick being early. The
+whole motivating example of both R1 and R2 is an artifact of subtracting a pick number from
+a VORP rank.
+
+**G2 and G4 cannot both be satisfied.** G2 enshrines the number 40, which only exists under
+a VORP metric; G4 requires the metric to read the league's ADP market. Under the market
+metric G2's own example scores −3. The gate is not adjusted (hard stop 6) and the metric is
+not swapped back to R1's, which already failed its own specificity gate.
+
+## G3 — PASS, and it does not rescue anything
+
+15 of 128 = **11.7%** at the ≥20 threshold, against G3's 25% ceiling.
+
+Reported alongside, as pre-registered above: R1's original stricter rule re-measured at
+**12/128 = 9.4% against its 6.3% ceiling — still a FAIL.** G3 passes here only because it is
+four times looser than the gate this feature already failed.
+
+## What the firings actually are
+
+| position | firings at ≥20 | ADP→points signal |
+|---|---|---|
+| K | 8 | below noise floor |
+| DEF | 4 | below noise floor |
+| TE | 1 | marginal |
+| RB | 1 | usable |
+| WR | 1 | usable |
+
+**13 of 15 firings are at or below the ADP noise floor.** Honestly marked, the annotation's
+entire unmarked signal across a completed 128-pick draft is **two picks — 1.6%**:
+
+```
+pick  85  MarShawn Lloyd  [RB]  market 180  reach +95
+pick  67  Matthew Golden  [WR]  market 123  reach +56
+```
+
+The kicker and defence firings are real and uninteresting: this room drafted its specialists
+earlier than the market does. That is a roster-construction observation, and at K and DEF
+the market has no signal with which to be right about it.
+
+## The conclusion, stated plainly
+
+Both metrics fail their own defining gate, for one underlying reason. A reach annotation
+needs a market that carries signal at the position where the mistake happens. In these
+leagues the market is only usable at RB and WR — and the picks that *feel* like reaches are
+quarterbacks, kickers and defences, which is exactly where it is not. R1 fired on the
+structure of VORP; R2 fires on the structure of specialist ADP. Neither is a reach.
+
+Nothing was wired into the cockpit, so there is nothing to roll back. G1, G4 and G5 were not
+run: building the feature to exercise the remaining gates after the defining gate failed is
+the tuning this pre-registration exists to prevent.
+
+**What this does not settle.** Measured on DDAFFL only — 8-team, half-PPR, 1-QB. Tonight's
+two leagues are 10-team superflex+IDP and 10-team full PPR, and the specialist ADP picture
+in a 19-round superflex league is not this one. A future attempt should pre-register against
+one of those, and should first answer the question this run raises: is there any position in
+either league where the market both carries signal *and* is disagreed with often enough to
+be worth a column?
