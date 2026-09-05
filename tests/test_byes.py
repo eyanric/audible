@@ -215,8 +215,8 @@ def test_the_row_gains_exactly_one_field(service):
     from audible.draft.live import Candidate
 
     cand = Candidate(entry=_entry(1, "BUF"), survival=0.5, grab_now=False, fills_need=False)
-    without = _player(cand, {}, {})
-    with_bye = _player(cand, {}, {"BUF": 7})
+    without = _player(cand, gaps={}, byes={})
+    with_bye = _player(cand, gaps={}, byes={"BUF": 7})
     assert set(with_bye) - set(without) == set(), "the key exists either way"
     assert without["bye"] is None
     assert with_bye["bye"] == 7
@@ -229,7 +229,7 @@ def test_an_unknown_team_yields_none_not_a_guess(service):
     from audible.draft.live import Candidate
 
     cand = Candidate(entry=_entry(1, "XXX"), survival=0.5, grab_now=False, fills_need=False)
-    assert _player(cand, {}, {"BUF": 7})["bye"] is None
+    assert _player(cand, gaps={}, byes={"BUF": 7})["bye"] is None
 
 
 # --- INERTNESS: the board must not move because byes joined ----------------------

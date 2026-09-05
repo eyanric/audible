@@ -14,6 +14,104 @@ Rules for editing:
 
 ---
 
+## Data enrichment (2026-08-26) — what shipped, what was measured and refused
+
+### Lane 1 shipped: usage context, display-only
+
+Six numbers per player: target share, air-yards share, route participation, snap share and
+depth-chart slot (2025 observed), plus the 2026 bye. Visible as two board columns (Tgt%,
+Rte%), the full set in the row tooltip, all six in `_slim()` so chat and cockpit answer the
+same way.
+
+**Nothing enters the sort, and it is asserted, not promised.** `draft/usage.py` is imported
+by the state builder and the MCP surface only — never `board.py`, `value/`, `scoring/`. The
+lookup happens after the board is built and ranked. `usage did not enter the sort` walks the
+board in rank order asserting VORP never rises; the `usage_in_sort` mutation reorders the
+board by target share while keeping ranks a clean 1..N and only that check catches it.
+
+**Route participation is a PROXY.** nflverse carries no charted routes-run per player.
+`load_participation` does carry, per play, the eleven men on the field and the route charted
+on that play, so the number is *share of the team's charted-route plays he was on the field
+for*. A tight end who stays in to block counts. Validated 2025 before building: Jefferson
+95.6%, Chase 91.5%, St Brown 91.5%, McBride 94.0%, Henry 39.5%.
+
+**CLAUDE.md's "route participation is a known gap" is now stale for 2025.** It was true
+in-season; the delay has passed and `load_participation([2025])` returns 45,184 rows over
+285 games.
+
+### The inventory that motivated it
+
+The opportunity model consumed **11 of ff_opportunity's 159 columns**, **5 of player_stats'
+150**, and **2 of rosters' 36**. `target_share` and `air_yards_share` were already sitting
+in the cached weekly stats, unread. `load_snap_counts` and `load_nextgen_stats` had cached
+adapter wrappers and zero call sites.
+
+### Cache: derived-and-pinned, not raw
+
+| pinned | rows | size |
+|---|---|---|
+| `route_participation_2025` (derived) | 978 | 14 KB |
+| `depth_chart_slots_2026` (derived) | 3,182 | 20 KB |
+| `snap_counts_2025` | 26,612 | 244 KB |
+| `schedules_2026` | 272 | 23 KB |
+
+Raw participation is 45k rows carrying an eleven-id string per play; raw depth charts are
+472k rows. Pinning either whole would bloat the cache the launcher reads before kickoff, so
+the aggregation is cached instead of its input. Fresh process: `from_disk=6, from_network=0`
+→ `/healthz` origin `"disk"`, launcher still says **Data: from DISK**.
+
+**LA vs LAR.** nflverse schedules spell the Rams `LA`; the board says `LAR`. One team, a
+silently blank bye, no other symptom. A first fix also mapped the plausible-looking
+historical aliases and broke Washington, where both sides already said `WAS`. Only the
+measured difference is mapped. `every board team resolves to a bye week` asserts the join.
+
+### Lane 2 REFUSED — measured, not material
+
+`survival_pct` is None wherever `adp_known` is false and `grab_now` leads `recommend`'s
+sort, so unpriced players are invisible to scarcity. The mechanism is real. The magnitude is
+not:
+
+| window | unpriced |
+|---|---|
+| whole board (3,302) | 2,229 (67.5%) |
+| **top 128 — the entire draftable window** | **0** |
+| top 300 | 1 |
+| top 500 | 40 (8.0%) |
+
+Every player reachable in 8×16 picks already has ESPN ADP; the first unpriced sits at rank
+262. Filling from Sleeper ADP would add a low-confidence, mock-contaminated source that
+touches survival in order to fix zero draftable players. **Not built.** Re-measure if the
+league deepens or the board is ever served past ~rank 250.
+
+### Bye-week feasibility of the slot-8 dry run — the answer is NO
+
+Its two RBs are Derrick Henry (BAL, bye 13) and James Cook (BUF, bye 7). A legal lineup does
+**not** exist in every week:
+
+| wk | on bye | unfillable |
+|---|---|---|
+| 7 | Cook | **RB** |
+| 8 | Purdy, HOU | **QB, DEF** |
+| 13 | Henry | **RB** |
+| 14 | McBride, Aubrey | **TE, K** |
+
+Structural, not unlucky: `RB` slots take only `RB` and the roster holds exactly two, so any
+RB bye breaks it. Same single-depth flaw at QB, TE, DEF, K — `recommend` drafted ten WRs and
+exactly one of everything else, which is its slack arithmetic working as written (need binds
+only when slack hits zero). **Flagged, not fixed:** fixing it changes what the board
+recommends, which is out of bounds until the C-B backtest exists.
+
+### Candidates logged, deliberately not built
+
+- **Vegas team totals** — per instruction: candidate only.
+- **Sleeper ADP fallback** — see Lane 2 above; revisit only if the unpriced count inside the
+  draftable window stops being zero.
+- **NGS receiving** (`avg_separation`, `avg_cushion`, `percent_share_of_intended_air_yards`)
+  and **PFR advanced rec** (`adot`, `drop_percent`, `ybc_r`) are available and unused.
+- Nothing above enters the sort before the C-B backtest.
+
+---
+
 ## DRAFT: **Sunday 30 August, ~19:00.** ESPN league 6012. Seat 8.
 
 Settled by the instruction of 2026-08-25, which supersedes the *Friday 28 August, 8:30*

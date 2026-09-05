@@ -253,3 +253,92 @@ def schedules_frame(seasons: list[int]) -> Any:
         lambda: nfl.load_schedules(seasons),
         source="nflverse/schedules",
     )
+
+
+def snap_counts_frame(seasons: list[int]) -> Any:
+    """Per-game snap counts. Keyed by ``pfr_player_id`` -- join via the crosswalk's pfr_id."""
+    nfl = _require_nflreadpy()
+    return _cached(
+        _key("snap_counts", *seasons),
+        lambda: nfl.load_snap_counts(seasons),
+        source="nflverse/snap_counts",
+    )
+
+
+# --- derived-and-pinned sources ---------------------------------------------------------
+# The two below are cached AFTER aggregation, not before. Raw participation is 45k rows
+# carrying an 11-id string per play, and raw depth charts are 472k rows; pinning either
+# whole would bloat the disk cache the draft-day launcher has to read before kickoff, for
+# columns nothing downstream ever looks at. The aggregation is deterministic, so pinning
+# its OUTPUT is the same guarantee at a fraction of the size.
+
+
+def route_participation_frame(season: int) -> Any:
+    """Per-player pass-snap share for one season: the route-participation PROXY.
+
+    True charted routes-run per player are not in nflverse. What is available is, per play,
+    the eleven offensive players on the field (``offense_players``) and the route charted on
+    that play (``route``, non-empty only where one was run). So this counts the charted-route
+    plays a player was on the field for, over his team's charted-route plays.
+
+    That is a proxy and the name says so: a tight end who stays in to block still counts.
+    Validated against 2025 -- Jefferson 95.6%, Chase 91.5%, St. Brown 91.5% -- which is the
+    right neighbourhood for published route participation, so the proxy tracks the real thing
+    closely for the receivers whose usage this league actually pays for.
+    """
+    nfl = _require_nflreadpy()
+
+    def build() -> Any:
+        import polars as pl
+
+        part = nfl.load_participation([season]).with_columns(
+            pl.col("route").fill_null("").alias("route")
+        )
+        routed = part.filter(pl.col("route") != "")
+        on_field = (
+            routed.select(["possession_team", "offense_players"])
+            .with_columns(pl.col("offense_players").str.split(";").alias("gsis_id"))
+            .explode("gsis_id")
+            .filter((pl.col("gsis_id").is_not_null()) & (pl.col("gsis_id") != ""))
+            .group_by(["gsis_id", "possession_team"])
+            .agg(pl.len().alias("route_plays"))
+        )
+        team_plays = routed.group_by("possession_team").agg(pl.len().alias("team_route_plays"))
+        return (
+            on_field.join(team_plays, on="possession_team")
+            .with_columns(
+                (pl.col("route_plays") / pl.col("team_route_plays")).alias("route_participation")
+            )
+            .select(["gsis_id", "possession_team", "route_plays", "team_route_plays",
+                     "route_participation"])
+        )
+
+    return _cached(
+        _key("route_participation", season),
+        build,
+        source="nflverse/participation(derived)",
+    )
+
+
+def depth_chart_slots_frame(season: int) -> Any:
+    """One row per player: his most recent depth-chart slot and rank for the season."""
+    nfl = _require_nflreadpy()
+
+    def build() -> Any:
+        import polars as pl
+
+        dc = nfl.load_depth_charts([season]).filter(pl.col("gsis_id").is_not_null())
+        # `dt` is the snapshot timestamp; the LAST one is the current chart. Ties inside a
+        # timestamp are broken by the better (lower) rank, so a player listed twice in a
+        # week reads as his best listed slot rather than an arbitrary one.
+        return (
+            dc.sort(["dt", "pos_rank"], descending=[True, False])
+            .unique(subset=["gsis_id"], keep="first")
+            .select(["gsis_id", "team", "pos_abb", "pos_name", "pos_slot", "pos_rank"])
+        )
+
+    return _cached(
+        _key("depth_chart_slots", season),
+        build,
+        source="nflverse/depth_charts(derived)",
+    )

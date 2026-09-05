@@ -1,7 +1,7 @@
 """Phase 0: prove the QA suite can actually fail.
 
 A green suite means nothing until you have watched it go red for a reason you planted.
-This breaks the cockpit in seven specific ways and asserts that scripts/qa-cockpit.py
+This breaks the cockpit in ten specific ways and asserts that scripts/qa-cockpit.py
 notices each one -- by ASSERTION, not by crashing. A mutation the harness crashes on is
 not a mutation the harness detects; both exit 1, and only one of them is an oracle.
 
@@ -94,6 +94,27 @@ MUTATIONS = [
         "expect_fail": ["u moved the pick back by exactly one"],
     },
     {
+        "key": "blank_usage",
+        "desc": "blank the pinned target shares (a silently broken usage join)",
+        "path": BOARD,
+        "mutate": "blank_usage",
+        "expect_fail": ["target share covers the draftable window"],
+    },
+    {
+        "key": "rename_rams",
+        "desc": "spell one team the way nflverse does, not the way the board does",
+        "path": BOARD,
+        "mutate": "rename_rams",
+        "expect_fail": ["every board team resolves to a bye week"],
+    },
+    {
+        "key": "usage_in_sort",
+        "desc": "let usage reorder the board (the one thing Lane 1 must never do)",
+        "path": BOARD,
+        "mutate": "usage_in_sort",
+        "expect_fail": ["usage did not enter the sort"],
+    },
+    {
         "key": "console_error",
         "desc": "force a console.error at load",
         "path": COCKPIT,
@@ -117,6 +138,46 @@ def corrupt_rank(text: str) -> str:
     return json.dumps(blob, separators=(",", ":"), sort_keys=True)
 
 
+def blank_usage(text: str) -> str:
+    """Drop every pinned target share -- what a quietly broken id join looks like."""
+    blob = json.loads(text)
+    for row in (blob.get("usage") or {}).get("by_player_id", {}).values():
+        row["target_share"] = None
+    return json.dumps(blob, separators=(",", ":"), sort_keys=True)
+
+
+def rename_rams(text: str) -> str:
+    """Spell the Rams the way nflverse schedules do, so the bye join misses them.
+
+    This is not hypothetical: the first cut of the bye join produced exactly this, one team
+    with a silently blank bye and no other symptom.
+    """
+    blob = json.loads(text)
+    byes = (blob.get("usage") or {}).get("bye_by_team", {})
+    if "LAR" in byes:
+        byes["LA"] = byes.pop("LAR")
+    return json.dumps(blob, separators=(",", ":"), sort_keys=True)
+
+
+def usage_in_sort(text: str) -> str:
+    """Reorder the board by target share -- Lane 1's one forbidden outcome, made real.
+
+    Ranks stay a clean 1..N and every other invariant still holds, so ONLY the check that
+    walks the board asserting value never rises can catch this.
+    """
+    blob = json.loads(text)
+    entries = blob["entries"]
+    usage = (blob.get("usage") or {}).get("by_player_id", {})
+    entries.sort(key=lambda e: -((usage.get(e["player_id"]) or {}).get("target_share") or 0.0))
+    for i, e in enumerate(entries, start=1):
+        e["vorp_rank"] = i
+    return json.dumps(blob, separators=(",", ":"), sort_keys=True)
+
+
+MUTATORS = {"corrupt_rank": corrupt_rank, "blank_usage": blank_usage,
+            "rename_rams": rename_rams, "usage_in_sort": usage_in_sort}
+
+
 def run_suite() -> dict:
     with tempfile.TemporaryDirectory(prefix="audible-mut-") as td:
         out = Path(td) / "verdict.json"
@@ -135,8 +196,8 @@ def apply_mutation(m: dict) -> tuple[Path, bytes]:
     path = REPO / m["path"]
     original = path.read_bytes()
     text = original.decode("utf-8")
-    if m.get("mutate") == "corrupt_rank":
-        new = corrupt_rank(text)
+    if m.get("mutate"):
+        new = MUTATORS[m["mutate"]](text)
     else:
         count = text.count(m["find"])
         if count != 1:
@@ -155,10 +216,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--only", default=None, help="run a single mutation by key")
+    ap.add_argument("--only", default=None,
+                    help="run only these mutations (comma-separated keys)")
     args = ap.parse_args()
 
-    wanted = [m for m in MUTATIONS if args.only in (None, m["key"])]
+    keys = {k.strip() for k in args.only.split(",")} if args.only else None
+    wanted = [m for m in MUTATIONS if keys is None or m["key"] in keys]
     if not wanted:
         raise SystemExit(f"no mutation named {args.only!r}")
 
