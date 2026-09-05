@@ -79,11 +79,16 @@ means **the board wants him earlier than the market takes him** — the directio
 | QB | 7 (Josh Allen) | 3 | −0.4 |
 | DL | 125 (Burns) | 80 | −4.5 |
 
-**DRAFT-NIGHT RULE, League A only:** the board will offer a **D/ST around its rank 74 and a
-kicker around 83**. Both are roughly *twenty and thirteen rounds* before the market takes one.
-**Take neither until the last two rounds.** Same for **Jack Campbell at 28** — the board's first
-linebacker sits inside the third round while the market's first goes at 96. IDP is real in this
-league, but not at that price.
+**DRAFT-NIGHT RULE, League A only.** Measured on the DEPLOYED pod at `192.168.1.111`, which
+is the board Eric actually reads — it differs from a local build by a rank or two because the
+served pool is slightly larger:
+
+> **BoyFun's board offers a D/ST at #73 and a kicker at #85 (Aubrey) — twenty and thirteen
+> rounds before the market takes one. Take neither until the last two rounds. Same for Jack
+> Campbell at #29. Danger Zone needs none of this; all its specialist deltas are negative.**
+
+The table above is the local build (74 / 83 / 28); the deployed board reads 73 / 85 / 29. The
+rule is the same either way — the point is twenty rounds, not one rank.
 
 This is the D/ST-and-K inflation League B used to have, and it is **not** fixable by
 `replacement_bench_slots`: specialists never enter the bench allocation at all
@@ -345,6 +350,9 @@ than being skipped — a starting slot with no name is exactly the drift worth b
 - **`/picks` IS edge-cached** (Cloudflare `s-maxage=30`, measured 57s stale against a 60s pick
   timer). Every poll needs a unique cache-busting param, then an `If-None-Match` for the cheap
   304. Opposite of ESPN — see above.
+- **`my_slot: unresolved` pre-draft is EXPECTED, not a fault.** `draft_order` is `null` until
+  the draft opens, so the seat cannot be derived before then and the cockpit correctly refuses
+  to guess. It resolves at 19:00. Do not "fix" it at 18:55.
 - `draft_order` is `null` until the draft opens. `slot_to_roster_id` exists pre-draft as the
   identity map `{1:1, …}` and **lies**: the completed 2025 draft shows `{1:4, 2:2, 3:6, …}`.
   Never derive a slot from it. A resolution derived pre-draft is never cached.
@@ -512,6 +520,76 @@ recommends, which is out of bounds until the C-B backtest exists.
 
 ---
 
+## Opportunity cost: what shipped 2026-09-05, and the premise that had to be checked twice
+
+`recommend` now answers "who is best **among those who will not survive to my next turn?**"
+alongside "who is best?". The board is untouched: everything below happens in
+`draft/urgency.py`, at the serving boundary, and the `urgency_in_sort` mutation asserts it.
+
+### The Evans anecdote was half right, and the half that was wrong mattered
+
+Verified against the completed DDAFFL draft before a single gate was written, because the
+last attempt was anchored to an unverified number for three days:
+
+| | Mike Evans |
+|---|---|
+| taken at | **pick 56** -- Eric's own pick, not the 40-50 range |
+| board rank | 30 (**#1 among available**) |
+| ESPN displayed rank | 87 |
+| `adp_half_ppr` | 61.9 (market rank 61) |
+| Eric's next pick | **57 -- the very next pick** |
+
+Seat 8 of 8 drafts in back-to-back PAIRS: 8/9, 24/25, 40/41, 56/57. **Nobody picks between
+56 and 57**, so taking Evans at 56 cost nothing at all. The anecdote's shape was right --
+the board did rank him 30 while ESPN showed 87 -- but the pick it blamed was free.
+
+**The costly pick was the next one.** At 57, with 14 opponents before his next turn at 72,
+Eric took Joe Burrow (board **109**). Available and passed: David Montgomery (board 40, ADP
+46.9), D'Andre Swift (43, 48.7), Josh Jacobs (46, 27.1). **Swift went at 58 and Montgomery
+at 63** -- both gone long before 72. That is the pick this feature would have changed, and
+The Call names Montgomery there.
+
+Where the anecdote WAS right: at pick **40**, Evans was board #3 available with
+`ADP - next_pick = +20.9`. Taking him there would have been the error. Eric did not, and
+the new filter would have skipped him -- which is how G2 was satisfied on real data.
+
+### The arithmetic, and why it is not `survival()`
+
+`survives_by = ADP - next_pick`, shown as that subtraction on every row. It does **not**
+call `live.survival()`, which divides by `opponent_picks_until_horizon` -- zero at every
+back-to-back turn, so it returns 1.0 for everyone at exactly the moment two picks are on
+the clock. That is recorded below as a defect, not fixed here.
+
+`ADP` is the primary quantity because it has full coverage. **ESPN's displayed rank covers
+only 57 of the board's top 200 (28%), and 14 of the top 50**; Sleeper publishes ADP markets
+and **no displayed rank at all**. It is shown where it exists and null where it does not.
+
+Every QB, TE, K and DEF figure is marked `survival_confidence: "low"` -- ADP does not
+predict points at those positions (#36's fit against the `1/sqrt(n-1)` floor).
+
+### `_slim` was hiding the numbers
+
+It dropped `points` and `value` from every MCP response, so a model reading that surface
+mid-draft had rank order but no magnitudes and reasoned from general football knowledge
+instead. It now carries `points`, `value`, `adp`, `platform_rank`, `survives_by`,
+`survival_arithmetic` and `survival_confidence`, asserted **populated**, not merely present.
+
+### `recommend` truncated before it sorted
+
+`candidates[: limit * 3]` was sliced by board value and only then sorted by urgency, so a
+`grab_now` candidate one row past the cut was dropped before the thing that made him urgent
+was considered. Sorted first now.
+
+### G4 failed on the first implementation, and that is why it exists
+
+The first version used the horizon only as a *filter*. Freezing `next_pick` to a constant
+produced an **identical Call at all four measured turns**, because the top need-filler was
+eligible either way -- the "today's recommend with new columns bolted on" failure the gate
+was written to catch. Urgency now sits in the ordering (`-need, urgency_tier, vorp_rank`),
+not only in the filter. The gate was not adjusted; the code was.
+
+---
+
 ## Open / next
 
 **Ordered by what breaks the draft, not by what is interesting.**
@@ -527,4 +605,27 @@ recommends, which is out of bounds until the C-B backtest exists.
    the field.
 6. **`SPECIALIST_GAP` says "~15 pts/season" where the measured error is 0.000000.** Reword.
 7. **Reach annotation: do not re-attempt** without answering the question at the end of that
-   section. Two pre-registered gates have now failed on it.
+   section. Two pre-registered gates have now failed on it. Opportunity cost, not reach, was
+   the live question -- reach as scoped fired on 15 of 128 picks and 13 were kickers and
+   defences below the noise floor, leaving 2 picks of unmarked signal.
+8. **`survival()` goes quiet at back-to-back turns.** Seat 8 of 8 picks in pairs -- 8/9,
+   24/25, 40/41, 56/57 -- so `opponent_picks = 9 - 8 - 1 = 0` and it returns 1.0 for every
+   player at exactly the moment two picks are on the clock. `draft/urgency.py` bypasses it
+   with visible subtraction rather than fixing it. Fix or delete it.
+9. **The stat-id equivalence test is numerically degenerate.** `test_espn_stat_equivalence.py`
+   builds its fixture with 157 x 25 = 3925 EXACTLY, so both members of the `(8, 3)` passing-
+   yards pair read the same number and flipping the preference fails **zero** tests in that
+   file. Only `test_espn.py`'s Josh Allen capture (3944.73 != 3925) holds it -- a single
+   point of failure under the check that stops every Danger Zone quarterback scoring with
+   zero passing yards. Give the fixture a bucket value that does not divide evenly.
+10. **The container-restart procedure**, which is not obvious and will be needed again.
+    A pod ROLL wipes the `emptyDir` and `/healthz` returns to `origin: mixed`. A CONTAINER
+    restart keeps it. There is no shell in the image, so signal PID 1 through the
+    interpreter that is there, one pod at a time:
+
+    ```bash
+    POD=$(kubectl -n audible get pod -l app=audible-boyfun -o jsonpath='{.items[0].metadata.name}')
+    kubectl -n audible exec "$POD" -- python -c "import os,signal; os.kill(1, signal.SIGTERM)"
+    ```
+
+    Same pod name back with `restarts=1` is how you know the `emptyDir` survived.

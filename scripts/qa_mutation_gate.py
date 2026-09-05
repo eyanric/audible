@@ -1,7 +1,7 @@
 """Phase 0: prove the QA suite can actually fail.
 
 A green suite means nothing until you have watched it go red for a reason you planted.
-This breaks the cockpit in ten specific ways and asserts that scripts/qa-cockpit.py
+This breaks the cockpit in eleven specific ways and asserts that scripts/qa-cockpit.py
 notices each one -- by ASSERTION, not by crashing. A mutation the harness crashes on is
 not a mutation the harness detects; both exit 1, and only one of them is an oracle.
 
@@ -108,6 +108,13 @@ MUTATIONS = [
         "expect_fail": ["every board team resolves to a bye week"],
     },
     {
+        "key": "urgency_in_sort",
+        "desc": "let availability reorder the board (forbidden for opportunity cost)",
+        "path": BOARD,
+        "mutate": "urgency_in_sort",
+        "expect_fail": ["usage did not enter the sort"],
+    },
+    {
         "key": "usage_in_sort",
         "desc": "let usage reorder the board (the one thing Lane 1 must never do)",
         "path": BOARD,
@@ -159,6 +166,23 @@ def rename_rams(text: str) -> str:
     return json.dumps(blob, separators=(",", ":"), sort_keys=True)
 
 
+def urgency_in_sort(text: str) -> str:
+    """Reorder the board by ADP -- the opportunity-cost lane's one forbidden outcome.
+
+    Same shape as `usage_in_sort` and for the same reason: ranks stay a clean 1..N and
+    every other invariant still holds, so ONLY the check that walks the board asserting
+    value never rises can catch it. If availability could reach the sort, a player the
+    market happens to take early would outrank a better one, which is the board reordering
+    itself to agree with the market -- the exact thing the board exists not to do.
+    """
+    blob = json.loads(text)
+    entries = blob["entries"]
+    entries.sort(key=lambda e: (e.get("adp") is None, e.get("adp") or 0.0))
+    for i, e in enumerate(entries, start=1):
+        e["vorp_rank"] = i
+    return json.dumps(blob, separators=(",", ":"), sort_keys=True)
+
+
 def usage_in_sort(text: str) -> str:
     """Reorder the board by target share -- Lane 1's one forbidden outcome, made real.
 
@@ -175,7 +199,8 @@ def usage_in_sort(text: str) -> str:
 
 
 MUTATORS = {"corrupt_rank": corrupt_rank, "blank_usage": blank_usage,
-            "rename_rams": rename_rams, "usage_in_sort": usage_in_sort}
+            "rename_rams": rename_rams, "usage_in_sort": usage_in_sort,
+            "urgency_in_sort": urgency_in_sort}
 
 
 def run_suite() -> dict:

@@ -20,6 +20,7 @@ Two rules the tools cannot break:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
@@ -64,8 +65,27 @@ def _not_ready(state: dict[str, Any]) -> dict[str, Any]:
     return {"board_ready": False, "message": state.get("message"), "sync": _sync(state)}
 
 
-def _slim(player: dict[str, Any]) -> dict[str, Any]:
-    """One player, trimmed to what a decision actually needs."""
+def _next_pick(s: Mapping[str, Any]) -> int | None:
+    """My next pick number, or None before the seat resolves."""
+    return (s.get("clock") or {}).get("my_next_pick")
+
+
+def _slim(player: dict[str, Any], *, next_pick: int | None = None) -> dict[str, Any]:
+    """One player, trimmed to what a decision actually needs.
+
+    IT USED TO DROP `points` AND `value`, and that was the whole problem. A model reading
+    this surface mid-draft had ranks but no magnitudes, so it could not tell a one-point
+    gap from a forty-point one and reasoned from general football knowledge instead --
+    while the board's own numbers sat right there, invisible to it. Ranks say what order;
+    only points and value say by how much.
+
+    `survives_by` is `adp - next_pick`, computed here and shown as the subtraction that
+    produced it. It deliberately does NOT go through `live.survival()`, which returns 1.0
+    for everyone at a back-to-back turn -- see `draft/urgency.py`.
+    """
+    from ..draft.urgency import confidence, survives_by
+
+    adp = player.get("adp")
     return {
         "id": player["id"],
         "name": player["name"],
@@ -92,6 +112,21 @@ def _slim(player: dict[str, Any]) -> dict[str, Any]:
         "snap_share_pct": player.get("snap_share"),
         "depth_slot": player.get("depth_slot"),
         "bye_week": player.get("bye_week"),
+        # -- the magnitudes, and the availability arithmetic ------------------------------
+        "points": player.get("points"),
+        "value": player.get("value"),
+        "adp": adp,
+        # ESPN's own displayed rank -- the list the other nine people are staring at. None
+        # on Sleeper, which publishes ADP markets and no displayed rank at all, and None
+        # for most of the ESPN board too: measured 57 of the top 200 carry one. ADP is the
+        # primary quantity precisely because it is the one with full coverage.
+        "platform_rank": player.get("espn_rank"),
+        "survives_by": survives_by(adp, next_pick),
+        "survival_arithmetic": (
+            None if (adp is None or next_pick is None)
+            else f"ADP {adp} - next pick {next_pick} = {survives_by(adp, next_pick):+}"
+        ),
+        "survival_confidence": confidence(player.get("position")),
     }
 
 
@@ -162,7 +197,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             rows = [p for p in rows if p["position"] == want]
         priced = sum(1 for p in rows if p.get("adp_known"))
         return {
-            "players": [_slim(p) for p in rows[:limit]],
+            "players": [_slim(p, next_pick=_next_pick(s)) for p in rows[:limit]],
             "returned": min(len(rows), limit),
             "available_matching": len(rows),
             "of_which_priced_by_market": priced,
@@ -185,6 +220,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         clock = s["clock"]
         rivals = clock["opponent_picks_until_horizon"]
         unfilled = s["roster"]["unfilled"]
+        nxt = clock["my_next_pick"]
 
         # An unfilled starting slot is only a CONSTRAINT once every remaining pick is
         # committed to one. Before that it is a preference, and treating it as a filter is
@@ -204,15 +240,19 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         # Forced: only need-fillers can be considered. Otherwise rank the whole board and let
         # need break ties between players of comparable value.
         candidates = need if (forced and need) else pool
-        ranked = candidates[: limit * 3]
+        # SORT, THEN TRUNCATE. This used to slice `candidates[: limit * 3]` FIRST and sort
+        # the slice, so urgency was only ever considered among players who were already
+        # near the top by board value -- and a `grab_now` candidate sitting one row past
+        # the cut was dropped before the thing that made him urgent was looked at. The
+        # whole point of the sort is that it can promote from below the cut.
         ranked = sorted(
-            ranked,
+            candidates,
             key=lambda p: (not p["grab_now"], p["vorp_rank"], not p["fills_need"]),
         )[:limit]
 
         out = []
         for p in ranked:
-            row = _slim(p)
+            row = _slim(p, next_pick=nxt)
             bits = [f"VORP #{p['vorp_rank']} (consensus #{p['consensus_rank']})"]
             bits.append("fills an unfilled starting slot" if p["fills_need"]
                         else "bench depth -- fills no starting slot")
@@ -233,7 +273,23 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
             row["reason"] = "; ".join(bits)
             out.append(row)
 
+        # -- Tasks 3-5: opportunity cost, alongside the value ranking, never inside it ----
+        # `the_call` reads the SAME frozen rows `out` was built from, after they are built.
+        # It cannot reorder the board; it selects from it and says why.
+        from ..draft.urgency import detect_run, roster_needs, the_call
+
+        needs = roster_needs(s["roster"]["slots"])
+        entries = getattr(service.board, "entries", []) if service.board else []
+        taken = service.session.taken_ids()
+        available = [e for e in entries if e.player_id not in taken]
+        call = the_call(
+            [_slim(p, next_pick=nxt) | {"vorp_rank": p["vorp_rank"]} for p in pool],
+            next_pick=nxt, needs=needs, available_entries=available,
+        )
+
         return {
+            "the_call": call,
+            "run": detect_run(s["recent_picks"]),
             "recommendations": out,
             "unfilled_starting_slots": unfilled,
             "starters_complete": s["roster"]["starters_complete"],
@@ -277,7 +333,9 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
                                " He may be drafted, or outside the top of the board.")),
                 "sync": _sync(s),
             }
-        return {"found": True, "matches": [_slim(p) for p in hits[:5]], "sync": _sync(s)}
+        return {"found": True,
+                "matches": [_slim(p, next_pick=_next_pick(s)) for p in hits[:5]],
+                "sync": _sync(s)}
 
     @mcp.tool
     def compare(names: Annotated[list[str], Field(min_length=2, max_length=5)]) -> dict[str, Any]:
@@ -294,7 +352,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         for n in names:
             q = n.strip().lower()
             hit = next((p for p in pool if q in p["name"].lower()), None)
-            (found.append(_slim(hit)) if hit else missing.append(n))
+            (found.append(_slim(hit, next_pick=_next_pick(s))) if hit else missing.append(n))
         return {
             "players": found,
             "not_available": missing,

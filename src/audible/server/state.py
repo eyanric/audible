@@ -69,6 +69,10 @@ def _player(cand: Candidate, *, gaps: dict[str, int] | None = None,
         # 1.0 for him because the market queue cannot rank someone it does not price -- that
         # is an absence of evidence, and the UI must not present it as evidence of safety.
         "adp_known": e.adp is not None,
+        # The NUMBER, not just whether we have one. `survives_by` is `adp - next_pick`
+        # shown as a subtraction, so the left-hand side has to reach the surface.
+        "adp": e.adp,
+        "adp_rank": e.adp_rank,
         "value": e.value,
         "points": round(e.points, 1),
         "grab_now": cand.grab_now,
