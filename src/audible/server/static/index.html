@@ -2358,6 +2358,12 @@ document.addEventListener("keydown", function (e) {
       $("q").select();
       break;
     case "Enter":
+      // The same focused-BUTTON guard `case " "` carries. A click leaves focus on the
+      // button and Enter is the browser's activation key for it, so without this, Enter
+      // after touching pause, undo, a tab or a row's mark button drafts whoever is still
+      // selected -- and preventDefault() swallows the activation the user actually wanted.
+      // Enter is the destructive one of the two; it is the one that needed the guard most.
+      if (e.target && e.target.tagName === "BUTTON") return;
       if (S.sel) {
         var en = currentNavEntry();
         markTaken(S.sel.id, en ? en.el.querySelector(".pname").textContent : S.sel.id);
@@ -2445,7 +2451,12 @@ THUMB_VIEWS.forEach(function (pair) {
 });
 setThumbView("board");
 $("q").addEventListener("input", function () {
-  S.query = this.value;
+  // Trimmed at the SOURCE, not at each reader. The filter below already trimmed while
+  // the "never mark from an empty box" guard in enterTarget tested the raw value, so a
+  // single space satisfied the guard against a board the same space had left unfiltered:
+  // space then Enter took the number one player overall, in two keystrokes, from a box
+  // that is focused on load. One canonical query is what makes that guard mean what it says.
+  S.query = this.value.trim();
   if (S.data) render(S.data);
   // Point the highlight at the top match on every keystroke, so the row Enter will take is
   // always the row that looks selected. Arrows then move it from there.
