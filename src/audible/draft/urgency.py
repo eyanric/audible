@@ -141,7 +141,15 @@ def detect_run(recent: Iterable[Mapping[str, Any]], window: int = 8) -> dict[str
     if not picks:
         return {"window": 0, "counts": {}, "run_position": None, "run_count": 0,
                 "advice": None}
-    pos, n = max(counts.items(), key=lambda kv: (kv[1], kv[0]))
+    # "?" is what `_recent_picks` writes for a pick whose player is not on the board -- an
+    # ESPN id the bridge could not translate, most often. It is an absence of information,
+    # not a position, and counting it as one produced "7 of the last 8 picks were ?" with
+    # reach advice attached. Shown in the counts, never eligible to be the run.
+    named = {k: v for k, v in counts.items() if k != "?"}
+    if not named:
+        return {"window": len(picks), "counts": counts, "run_position": None,
+                "run_count": 0, "advice": None}
+    pos, n = max(named.items(), key=lambda kv: (kv[1], kv[0]))
     # Half the window at one position is a run worth naming. Below that it is a draft.
     is_run = n * 2 >= len(picks) and n >= 3
     return {
@@ -270,8 +278,7 @@ def _why_not(best: Mapping[str, Any], runner: Mapping[str, Any] | None) -> str |
     """One line on the candidate that came second, in the terms it lost on."""
     if runner is None:
         return None
-    line = (f"{runner['player'].get('name')} is board "
-            f"#{runner['player'].get('vorp_rank')} against "
+    line = (f"board #{runner['player'].get('vorp_rank')} against "
             f"#{best['player'].get('vorp_rank')}")
     if runner["need"] != best["need"]:
         line += (", and fills less of a roster hole" if runner["need"] < best["need"]

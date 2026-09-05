@@ -486,6 +486,27 @@ col.w-act{width:140px}
    44px touch), NOT by this `height`, which is only a floor. */
 #grabBody td{height:var(--grab-row-h);border-bottom-color:rgba(255,106,60,.12)}
 #grabPanel{flex:0 0 auto}
+
+/* The call. Deliberately the loudest thing in the column: it is one name, and the whole
+   point is that it is readable in the two seconds before the pick, not studied. */
+#callPanel{flex:0 0 auto;border-color:rgba(120,190,255,.42);
+  background:linear-gradient(180deg,rgba(70,130,200,.14),transparent 96px),var(--panel)}
+#callPanel .phead{border-bottom-color:rgba(120,190,255,.30)}
+#callPanel .ptitle{color:#7fbaff}
+#callBody{padding:8px 10px 10px}
+#callTop{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:3px}
+#callName{font-size:20px;font-weight:700;letter-spacing:.2px}
+.callpos{font-size:12px;font-weight:700;color:var(--muted);
+  border:1px solid #3a4150;border-radius:3px;padding:0 5px}
+.callranks{font-size:12px;color:var(--muted)}
+#callMath{font-variant-numeric:tabular-nums;font-size:13px;color:#cfd6e2;margin-bottom:2px}
+#callWhy,#callCost,#callRunner,#callRun{font-size:12px;color:var(--muted);line-height:1.45}
+#callCost{color:#e0a56a}
+#callRun{margin-top:4px;color:#e0a56a}
+/* Low confidence has to be impossible to miss -- an unmarked number at QB/TE/K/DEF is the
+   failure this whole lane exists to avoid, and grey-on-grey is unmarked in practice. */
+.callflag{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  color:#1b1d22;background:#e8b13a;border-radius:3px;padding:1px 6px}
 #grabScroll,#grabEmpty{
   height:calc(var(--grab-cap) * var(--grab-row-h));
   flex:0 0 auto;box-sizing:border-box;
@@ -880,6 +901,27 @@ col.w-act{width:140px}
 
   <!-- ── centre ───────────────────────────────────────── -->
   <section class="col col-mid">
+
+    <div class="panel" id="callPanel" hidden>
+      <div class="phead">
+        <span class="ptitle">The call</span>
+        <span id="callHint" class="phint">best among those who won&rsquo;t last</span>
+        <span class="spacer"></span>
+        <span id="callConf" class="callflag" hidden></span>
+      </div>
+      <div class="pbody" id="callBody">
+        <div id="callTop">
+          <span id="callName"></span>
+          <span id="callPos" class="callpos"></span>
+          <span id="callRanks" class="callranks"></span>
+        </div>
+        <div id="callMath"></div>
+        <div id="callWhy"></div>
+        <div id="callCost"></div>
+        <div id="callRunner"></div>
+        <div id="callRun" hidden></div>
+      </div>
+    </div>
 
     <div class="panel" id="grabPanel">
       <div class="phead">
@@ -1852,9 +1894,48 @@ function countMatches(list, q) {
   return n;
 }
 
+/* One name, and the arithmetic that produced it. Everything here is read off the payload
+   the server already computed -- this function does no ranking of its own, which is what
+   keeps the board and the page agreeing about what the answer is. */
+function renderCall(d) {
+  var c = d.the_call || {};
+  var p = c.pick;
+  if (!p) { setHidden($("callPanel"), true); return; }
+  setHidden($("callPanel"), false);
+
+  setText($("callName"), p.name || "");
+  setText($("callPos"), p.position || "");
+
+  var ranks = "board #" + p.board_rank;
+  if (p.platform_rank != null) ranks += " · platform #" + p.platform_rank;
+  if (p.adp != null) ranks += " · ADP " + p.adp;
+  setText($("callRanks"), ranks);
+
+  setText($("callMath"), p.survival_arithmetic || "");
+
+  var low = p.survival_confidence === "low";
+  setHidden($("callConf"), !low);
+  setText($("callConf"), low ? "low confidence at " + p.position : "");
+
+  setText($("callWhy"), c.why_now || "");
+  setText($("callCost"), c.what_it_costs ? "Costs: " + c.what_it_costs : "");
+
+  /* The server returns the DIFFERENTIATOR only -- not the name -- so this composes one
+     sentence instead of printing the name twice. */
+  var ru = c.runner_up;
+  setText($("callRunner"), ru
+    ? "Not " + ru.name + " (" + ru.position + "): " + (c.why_not_the_runner_up || "")
+    : "");
+
+  var run = d.run || {};
+  setHidden($("callRun"), !run.advice);
+  setText($("callRun"), run.advice || "");
+}
+
 function renderCentre(d) {
   var notOk = d.ok === false;
   var ready = d.board_ready !== false && !notOk;
+  setHidden($("callPanel"), !ready);
   setHidden($("grabPanel"), !ready);
   setHidden($("bestPanel"), !ready);
   setHidden($("notReady"), ready);
@@ -1871,6 +1952,8 @@ function renderCentre(d) {
     S.sel = null;
     return;
   }
+
+  renderCall(d);
 
   var clock = d.clock || {};
   var grab = (d.grab_now || []).slice(0, GRAB_CAP);
