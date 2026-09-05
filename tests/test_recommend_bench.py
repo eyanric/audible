@@ -152,7 +152,7 @@ def test_the_clock_runs_this_league_s_rounds_not_a_hardcoded_18(
     filling the last starting slots and finishing the draft without a kicker.
     """
     assert espn_config.draft_rounds == 16
-    assert sleeper_config.draft_rounds == 18
+    assert sleeper_config.draft_rounds == 19  # was 18 until the live DEF slot added a round
     for cfg in (espn_config, sleeper_config):
         svc = CockpitService(cfg, state_dir=tmp_path / cfg.key, slot_override=1)
         assert svc.session.rounds == cfg.draft_rounds
