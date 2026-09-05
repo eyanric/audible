@@ -7,12 +7,15 @@ is a breaking change to the UI.
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
 from typing import Any
 
-from ..draft.live import Candidate, LiveView
+from ..draft.live import Candidate, LiveView, my_slot_on_clock
 from ..draft.service import CockpitService
+
+log = logging.getLogger(__name__)
 
 GRAB_NOW_LIMIT = 5
 # The page shows ~25 rows; the rest feed name search and the position tabs.
@@ -25,9 +28,20 @@ RECENT_PICKS_LIMIT = 12
 RUN_WINDOW = 10
 
 
-def _player(cand: Candidate) -> dict[str, Any]:
+def _player(cand: Candidate, gaps: dict[str, int] | None = None,
+            byes: dict[str, int] | None = None) -> dict[str, Any]:
     e = cand.entry
+    gap = (gaps or {}).get(e.player_id)
+    espn_rank = _rank_cache.get(e.player_id)
     return {
+        # Part 3, additive: how far our order departs from the one the room drafts off.
+        # None means "not comparable", which the page renders as blank rather than as 0.
+        "vs_espn": gap,
+        # Where ESPN ranks him, so the page can tell a gap it can trust from one it cannot.
+        "espn_rank": espn_rank,
+        "vs_espn_confident": (
+            espn_rank is not None and gap is not None and espn_rank >= GAP_CONFIDENT_FROM
+        ),
         "id": e.player_id,
         "name": e.name,
         "position": e.position,
@@ -45,6 +59,10 @@ def _player(cand: Candidate) -> dict[str, Any]:
         "grab_now": cand.grab_now,
         "fills_need": cand.fills_need,
         "deviation": e.deviation,
+        # Display only, joined by TEAM at assembly time -- never carried on the player model,
+        # so no value-engine input can reach it. None means "we could not derive one",
+        # which the page renders blank rather than as a week.
+        "bye": (byes or {}).get(e.team or ""),
         "flags": list(e.flags),
     }
 
@@ -173,6 +191,281 @@ def _cliffs(view: LiveView) -> list[dict[str, Any]]:
     return out
 
 
+# Part 3: how our order differs from the one the room is drafting off.
+#
+# WITHIN POSITION, and only over the DRAFTABLE population. Both restrictions are load-bearing
+# and were measured, not assumed. Across positions the comparison is dominated by structure --
+# kickers came out at +832 and quarterbacks at -690, which is VORP-vs-market shape, not the
+# reception seam, and `rank-check` explicitly says not to draft off those. Over the whole 1007
+# shared players the extremes are the junk tail, where both orderings are noise: the top ten
+# were receivers projected zero catches. Restricted this way the extremes are real draftable
+# players in a +-20 band, and the RB direction matches the prediction (Spearman -0.40 against
+# receptions: pass-catching backs move DOWN because this league pays them 0.0 a catch).
+_GAP_POPULATION = 200
+_gap_cache: dict[str, int] | None = None
+_rank_cache: dict[str, int] = {}
+
+# nflverse spells the Rams `LA`; Sleeper and the board spell them `LAR`. Measured across all
+# 32 teams on 2026-09-01, that is the ONLY disagreement between the two vocabularies.
+_SCHEDULE_TEAM_ALIASES = {"LA": "LAR"}
+
+# Byes have not fallen outside weeks 4-14 in the modern schedule. This is a plausibility
+# bound for the self-check, not a claim about any particular season: its job is to catch a
+# derivation that has gone wrong, not to encode the league's calendar.
+BYE_WINDOW = range(4, 15)
+
+_bye_cache: dict[str, int] | None = None
+
+
+def bye_consistency(season: int) -> dict[str, Any]:
+    """Derive byes and check the derivation against what must be true of any NFL season.
+
+    A CONSISTENCY check, not a coverage one -- and the difference is the whole reason to
+    trust it. Coverage asks "how full is this field", which a uniformly meaningless field
+    passes. These four have a known-correct answer that the data cannot fake:
+
+      B1  exactly 32 teams appear
+      B2  each team has exactly one bye
+      B3  every bye falls inside the plausible window
+      B4  games in a week == (32 - teams on bye that week) / 2
+
+    B4 is the load-bearing one. It ties the derivation back to the row count it came from,
+    so a team silently missing from a week fails it arithmetically rather than plausibly.
+    """
+    from ..adapters.nflverse import schedules_frame
+
+    frame = schedules_frame([season])
+    rows = [r for r in frame.iter_rows(named=True) if r.get("game_type") == "REG"]
+    weeks = sorted({r["week"] for r in rows})
+    playing: dict[int, set[str]] = {w: set() for w in weeks}
+    games: dict[int, int] = dict.fromkeys(weeks, 0)
+    for r in rows:
+        playing[r["week"]].update((r["home_team"], r["away_team"]))
+        games[r["week"]] += 1
+
+    teams = sorted({t for wk in playing.values() for t in wk})
+    byes = {t: [w for w in weeks if t not in playing[w]] for t in teams}
+
+    b1 = len(teams) == 32
+    multi = {t: v for t, v in byes.items() if len(v) != 1}
+    b2 = not multi
+    settled = {t: v[0] for t, v in byes.items() if len(v) == 1}
+    outside = {t: w for t, w in settled.items() if w not in BYE_WINDOW}
+    b3 = not outside
+    # Every team that plays in a week is in exactly one game, so games == playing / 2.
+    mismatched = {
+        w: {"games": games[w], "expected": len(playing[w]) // 2}
+        for w in weeks if games[w] != len(playing[w]) // 2
+    }
+    b4 = not mismatched
+
+    return {
+        "season": season, "teams": len(teams), "weeks": weeks,
+        "byes": {_SCHEDULE_TEAM_ALIASES.get(t, t): w for t, w in settled.items()},
+        "per_week": {w: len(teams) - len(playing[w]) for w in weeks},
+        "games_per_week": games,
+        "b1": b1, "b2": b2, "b3": b3, "b4": b4,
+        "ok": b1 and b2 and b3 and b4,
+        "multi_bye": multi, "outside_window": outside, "week_mismatch": mismatched,
+    }
+
+
+def bye_weeks(season: int) -> dict[str, int]:
+    """``board team code -> bye week``, or {} if the derivation cannot be trusted.
+
+    Computed once per process and cached. On ANY failure -- import error, network, or a
+    failed consistency check -- this returns {} and the column simply does not appear.
+    A wrong bye is worse than no bye: it is the kind of error someone plans a whole roster
+    around. Same contract as `_espn_gaps` directly above.
+    """
+    global _bye_cache
+    if _bye_cache is not None:
+        return _bye_cache
+    resolved: dict[str, int] = {}
+    try:
+        report = bye_consistency(season)
+    except Exception as exc:  # noqa: BLE001 -- the board must build without a schedule
+        log.warning("bye weeks unavailable (%s); the column will not appear", exc)
+    else:
+        if report["ok"]:
+            resolved = dict(report["byes"])
+        else:
+            log.warning(
+                "bye derivation failed its own consistency check "
+                "(B1=%s B2=%s B3=%s B4=%s); refusing to serve byes",
+                report["b1"], report["b2"], report["b3"], report["b4"],
+            )
+    _bye_cache = resolved
+    return resolved
+# Measured by scripts/gap-confidence.py: Spearman(receptions, gap) within position, banded on
+# ESPN rank. WR 61-120 = +0.50 and RB 121-200 = -0.40 both clear |0.30|; nothing in 1-60 does
+# (WR +0.24, RB -0.25). So from 61 on the gap is carrying the scoring seam, and above it the
+# two boards mostly agree anyway -- the top-of-board gaps measure 0 and +-1.
+GAP_CONFIDENT_FROM = 61
+
+
+def _espn_gaps(service: CockpitService) -> dict[str, int]:
+    """``board id -> (ESPN position rank - our position rank)``. Positive = we like him more.
+
+    Computed once per process and cached; on any failure this returns {} and the column
+    simply does not appear, because a board with no gap column is much better than a board
+    with a wrong one.
+    """
+    global _gap_cache
+    if _gap_cache is not None:
+        return _gap_cache
+    _gap_cache = {}
+    board = service.board
+    if board is None or service.config.platform.value != "espn":
+        return _gap_cache
+    try:
+        from ..adapters.espn import EspnAdapter, _draft_rank
+        from ..adapters.sleeper import SleeperAdapter
+        from ..draft.espn_ids import build_supplement
+
+        with SleeperAdapter() as sleeper:
+            catalog = sleeper.get_players_catalog()
+        with EspnAdapter() as espn:
+            pool = espn.get_player_pool(service.config)
+        by_espn = {
+            str(entry["espn_id"]): str(pid)
+            for pid, entry in catalog.items()
+            if isinstance(entry, dict) and entry.get("espn_id")
+        }
+        for espn_id, board_id in build_supplement(pool, catalog).items():
+            by_espn.setdefault(espn_id, board_id)
+        ranks: dict[str, float] = {}
+        for row in pool:
+            player = row.get("player") or row
+            rank = _draft_rank(player)
+            board_id = by_espn.get(str(player.get("id")))
+            if rank is not None and board_id:
+                ranks[board_id] = rank
+        shared = [
+            e for e in board.entries
+            if e.player_id in ranks
+            and e.vorp_rank <= _GAP_POPULATION
+            and ranks[e.player_id] <= _GAP_POPULATION
+        ]
+        for position in {e.position for e in shared}:
+            group = [e for e in shared if e.position == position]
+            if len(group) < 3:
+                continue
+            theirs = {e.player_id: i for i, e in enumerate(
+                sorted(group, key=lambda e: ranks[e.player_id]), start=1)}
+            ours = {e.player_id: i for i, e in enumerate(
+                sorted(group, key=lambda e: e.vorp_rank), start=1)}
+            for e in group:
+                _gap_cache[e.player_id] = theirs[e.player_id] - ours[e.player_id]
+                _rank_cache[e.player_id] = int(ranks[e.player_id])
+    except Exception as exc:  # noqa: BLE001 -- no column beats a wrong column
+        log.warning("ESPN gap column unavailable (%s); it will not be shown", exc)
+        _gap_cache = {}
+    return _gap_cache
+
+
+# Anything older than this is called out. A week-old projection set is still usable -- it
+# is what the offline guarantee rests on -- but Eric should know before he trusts it.
+STALE_AFTER_DAYS = 7.0
+
+
+def _data_vintage() -> dict[str, Any]:
+    """How old the board's inputs are. Read from the cache manifest; never fetches."""
+    try:
+        from ..adapters.nflverse import cache_summary  # same source /healthz reports
+
+        summary = cache_summary()
+        oldest = summary.get("oldest_age_s")
+        days = round(oldest / 86400.0, 1) if oldest is not None else None
+        return {
+            "sources": summary.get("keys") or 0,
+            "oldest_age_s": oldest,
+            "oldest_days": days,
+            "stale": (days is not None and days > STALE_AFTER_DAYS),
+        }
+    except Exception as exc:  # noqa: BLE001 -- a readout must never take the board down
+        log.warning("data vintage unavailable (%s)", exc)
+        return {"sources": 0, "oldest_age_s": None, "oldest_days": None, "stale": False}
+
+
+def _bye_collisions(service: CockpitService, byes: dict[str, int]) -> list[dict[str, Any]]:
+    """Rostered players at the SAME primary position sharing a bye week.
+
+    States the fact and stops. No severity, no ranking, no recommendation -- whether two
+    RBs on the same bye is a problem depends on the rest of the roster, the waiver wire and
+    how the season has gone, none of which this knows. Deliberately blind to lineup slots
+    and starter counts: that is weekly-mode scope, and reaching for it here would be
+    inventing a judgment out of a coincidence of dates.
+    """
+    board = service.board
+    if not byes or board is None:
+        return []
+    by_id = {e.player_id: e for e in board.entries}
+    mine = service.session.slot
+    if mine is None:
+        return []
+    grouped: dict[tuple[int, str], list[str]] = {}
+    for pick in service.session.effective_picks():
+        if pick.draft_slot != mine:
+            continue
+        entry = by_id.get(pick.player_id)
+        if entry is None or not entry.team:
+            continue
+        week = byes.get(entry.team)
+        if week is None:
+            continue
+        grouped.setdefault((week, entry.position), []).append(entry.name)
+    return [
+        {"week": week, "position": position, "players": sorted(names)}
+        for (week, position), names in sorted(grouped.items())
+        if len(names) > 1
+    ]
+
+
+def _undo(service: CockpitService) -> dict[str, Any]:
+    """Whether an undoable pick exists, from SERVER truth rather than the browser's stack.
+
+    `takenStack` lives in one page session, so a reload greyed Undo out while the manual
+    picks were still sitting on the server and `undo_taken` would still have worked. Over
+    three hours and a hundred-odd marks a reload is likely, and a mis-mark right after one
+    left no way back through the UI.
+
+    Only MANUAL picks are undoable, and that is a property of `undo_taken` rather than a
+    convention observed here: it reads `session.manual_picks`, rejects any id not in that
+    list, and the only assignment it makes is back to `session.manual_picks`. It never
+    references `session.picks`, so a synced pick cannot be removed by it.
+    """
+    manual = service.session.manual_picks
+    if not manual:
+        return {"available": False, "player_id": None, "name": None}
+    last = manual[-1]
+    board = service.board
+    entry = ({e.player_id: e for e in board.entries}.get(last.player_id)) if board else None
+    return {
+        "available": True,
+        "player_id": last.player_id,
+        "name": entry.name if entry else last.player_id,
+    }
+
+
+def _next_mark(service: CockpitService) -> dict[str, Any]:
+    """The pick number and seat that the NEXT `mark_taken` would be attributed to.
+
+    Mirrors `CockpitService._renumber_manual`: manual picks are numbered contiguously from
+    the last synced pick, so the next one is `base + len(manual) + 1`. A slot of None means
+    the draft is full and there is no pick left to record -- `mark_taken` returns False.
+    """
+    session = service.session
+    base = max((p.pick_no for p in session.picks), default=0)
+    pick_no = base + len(session.manual_picks) + 1
+    slot = my_slot_on_clock(pick_no, service.config.num_teams, session.rounds)
+    return {
+        "pick_no": pick_no if slot is not None else None,
+        "slot": slot,
+        "is_mine": slot is not None and session.slot is not None and slot == session.slot,
+    }
+
+
 def build_state(service: CockpitService) -> dict[str, Any]:
     """The full `/api/state` payload."""
     now = time.time()
@@ -197,6 +490,25 @@ def build_state(service: CockpitService) -> dict[str, Any]:
             "rounds": session.rounds,
             "started": session.draft_status not in ("pre_draft", ""),
         },
+        # WHERE THE NEXT MARK WILL ACTUALLY LAND. Additive; nothing else in the payload moves.
+        #
+        # `mark_taken` appends a manual pick and `_renumber_manual` numbers it as the pick
+        # right after the last synced one, attributing it with the same snake math to
+        # whichever seat is genuinely on the clock. So a mark made on my turn ALREADY is my
+        # pick, recorded correctly -- the machinery was never wrong, the page just never said
+        # so, because it asked `draft.started` instead. League B sits in `pre_draft` for the
+        # whole of a hand-mirrored round, so that gate is false exactly when the distinction
+        # matters most. This asks the honest question instead: whose pick is the next one I
+        # record? Recomputed from the same inputs `_renumber_manual` uses rather than read
+        # off the ESPN clock, so it is true while mirroring by hand and under live sync.
+        "next_mark": _next_mark(service),
+        # Part 3, additive and DISPLAY ONLY. `cache_summary` reads the manifest off disk --
+        # file metadata, no fetch. Nothing here may trigger a refetch: a surprise network
+        # call mid-draft is the exact failure this readout exists to warn about.
+        "data": _data_vintage(),
+        # Additive: the Undo control reads its enabled state from here, not from the
+        # browser's own stack, so it survives a reload.
+        "undo": _undo(service),
         "sync": {
             "age_s": round(age, 1) if age is not None else None,
             "status": health.status(now),
@@ -260,8 +572,11 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "unfilled": list(view.unfilled),
         "starters_complete": view.starters_complete,
     }
-    base["grab_now"] = [_player(c) for c in grab]
-    base["best_available"] = [_player(c) for c in _served_pool(service, view)]
+    gaps = _espn_gaps(service)
+    byes = bye_weeks(service.config.season)
+    base["grab_now"] = [_player(c, gaps, byes) for c in grab]
+    base["best_available"] = [_player(c, gaps, byes) for c in _served_pool(service, view)]
+    base["bye_collisions"] = _bye_collisions(service, byes)
     base["teams"] = _teams(service)
     base["recent_picks"] = _recent_picks(service)
     base["runs"] = _runs(service, view)

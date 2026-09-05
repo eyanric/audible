@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.52.3",
     "fastmcp>=3.4.7",
+    "feedparser>=6.0.14",
 ]
 
 [project.optional-dependencies]
@@ -21,7 +22,12 @@ nflverse = ["nflreadpy>=0.1.5"]
 audible = "audible.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pyright>=1.1",
+    "playwright>=1.62.0",
+]
 
 [build-system]
 requires = ["hatchling"]

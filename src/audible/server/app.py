@@ -35,16 +35,45 @@ class PlayerRef(BaseModel):
     player_id: str | None = None
 
 
+def _build_news_poller(service: CockpitService):
+    """A NewsPoller, or None when polling is off or its inputs are missing.
+
+    Every failure here returns None rather than raising: news arriving is a convenience,
+    and the cockpit must start on a draft night whether or not it does.
+    """
+    from ..news.poll import NewsPoller, poll_enabled
+
+    if not poll_enabled():
+        return None
+    try:
+        from ..news.entities import load_index
+
+        board = service.board
+        roster = {e.player_id for e in board.entries} if board and board.entries else None
+        return NewsPoller(index=load_index(roster))
+    except Exception as exc:  # noqa: BLE001 -- never let news stop the cockpit from starting
+        log.warning("news polling requested but could not start: %s", exc)
+        return None
+
+
 def create_app(
     service: CockpitService, *, warm: bool = True, mcp_token: str | None = None
 ) -> FastAPI:
+    # News is a passenger, never a driver: it is started after the board is warm, it is off
+    # unless AUDIBLE_NEWS_POLL=1, and nothing it does can fail a request or move a number.
+    poller = _build_news_poller(service)
+
     @asynccontextmanager
     async def cockpit_lifespan(app: FastAPI):
         service.restore()
         if warm:
             service.warm_board()
             service.start()
+        if poller is not None:
+            poller.start()
         yield
+        if poller is not None:
+            poller.stop()
         service.stop()
 
     # MCP rides the SAME process and the SAME service instance as the UI. Its session manager
@@ -121,6 +150,15 @@ def create_app(
                 ),
             },
         }
+        # Reporting, NOT readiness. `problems` is deliberately not appended to: a dead news
+        # website must never be able to make the cockpit look unhealthy on a draft night.
+        if poller is not None:
+            try:
+                body["news"] = poller.health()
+            except Exception as exc:  # noqa: BLE001 -- health must not fail on a side channel
+                body["news"] = {"error": str(exc)}
+        else:
+            body["news"] = {"enabled": False}
         return JSONResponse(body, status_code=200 if not problems else 503)
 
     return app
@@ -140,9 +178,15 @@ def serve(
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s | %(message)s"
     )
+    # An explicit --slot still wins; the config seat is the fallback that keeps the timing
+    # term alive when sync cannot answer.
+    seat = slot if slot is not None else config.draft_slot
     service = CockpitService(
-        config, draft_id=draft_id, slot_override=slot, user_name=user_name
+        config, draft_id=draft_id, slot_override=seat, user_name=user_name
     )
+    if seat is not None:
+        log.info("draft slot pinned to %s (%s)", seat,
+                 "--slot" if slot is not None else f"{config.key}.draft_slot")
     token = os.environ.get("MCP_AUTH_TOKEN") or None
     app = create_app(service, mcp_token=token)
     log.info("cockpit for [%s] %s -> http://%s:%d", config.key, config.name, host, port)

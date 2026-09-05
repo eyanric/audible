@@ -48,6 +48,11 @@
   --f-cond:"Bahnschrift Light Condensed","Bahnschrift Condensed","Bahnschrift",
            "Avenir Next Condensed",-apple-system,"Segoe UI",sans-serif;
   --f-mono:"Cascadia Mono","Consolas",ui-monospace,"Menlo",monospace;
+
+  /* Fix 4: GRAB_CAP in the script, and the row height the reservation is built from.
+     Overridden in the touch branch, where the button -- and so the row -- is taller. */
+  --grab-cap:5;
+  --grab-row-h:46px;
 }
 
 *{box-sizing:border-box}
@@ -151,6 +156,72 @@ button,input{font:inherit;color:inherit}
 @media (hover:hover){.btn:hover{background:#242a35;color:var(--txt);border-color:#333c4a}}
 .btn[aria-pressed="true"]{border-color:var(--warm);color:var(--warm);background:rgba(224,145,63,.10)}
 
+/* ── the wall (Part 2) ───────────────────────────────────────
+   8 teams x 16 rounds = 128 picks and there is no 129th. `mark_taken` rejects it cleanly
+   -- returns False, stores nothing, throws nothing -- but `/api/taken` returns 200 with
+   state either way, so the page flashed TAKEN and pushed an undo entry for a pick that was
+   never recorded. A live-looking button that does nothing is what read as a freeze. */
+/* PART 3 -- how old the thing on screen actually is. Display only; reading it never
+   triggers a fetch, because a surprise network call mid-draft is the failure it warns about. */
+#dataAge{
+  font-family:var(--f-cond);font-size:11px;letter-spacing:.06em;color:var(--txt-3);
+  white-space:nowrap;margin-right:10px;
+}
+#dataAge.stale{color:var(--warm)}
+#dataAge[hidden]{display:none}
+
+#pickOf{
+  font-family:var(--f-cond);font-size:11px;letter-spacing:.08em;color:var(--txt-3);
+  margin-left:6px;white-space:nowrap;
+}
+.mark:disabled,.mark[disabled]{
+  opacity:.45;cursor:not-allowed;background:#171b22;border-color:#2b313c;color:var(--txt-3);
+  border-style:dashed;
+}
+@media (hover:hover){.mark:disabled:hover{background:#171b22;border-color:#2b313c;color:var(--txt-3)}}
+#board.complete .prow{cursor:default}
+
+/* ── help panel (C2) ─────────────────────────────────────────
+   A FIXED OVERLAY, not an in-flow block. The requirement is that opening it must not move
+   the board; reserving space for a panel this size would cost that space permanently, and
+   an in-flow panel that pushes anything is the exact defect the Grab now fix removed. Taken
+   out of flow, the board cannot move by construction -- there is nothing to shift. */
+#helpPanel{
+  position:fixed;inset:auto 0 0 0;top:0;z-index:60;display:flex;
+  align-items:center;justify-content:center;padding:24px;
+  background:rgba(8,10,14,.72);
+}
+#helpPanel[hidden]{display:none}
+#helpCard{
+  width:min(1100px,96vw);max-height:88vh;overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:18px 20px 20px;
+  font-size:12.5px;line-height:1.5;color:var(--txt-2);
+}
+#helpCard h2{
+  font-family:var(--f-display);font-size:15px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--txt);margin:0 0 4px;
+}
+#helpCard h3{
+  font-family:var(--f-cond);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--txt-3);margin:18px 0 8px;border-bottom:1px solid var(--line-soft);padding-bottom:4px;
+}
+#helpCard dl{display:grid;grid-template-columns:132px 1fr;gap:8px 14px;margin:0}
+#helpCard dt{
+  font-family:var(--f-display);font-size:13px;font-weight:600;color:var(--txt);
+  letter-spacing:.02em;
+}
+#helpCard dd{margin:0;color:var(--txt-2)}
+#helpCard dd b{color:var(--txt);font-weight:600}
+#helpCard .eg{display:block;color:var(--txt-3);margin-top:2px}
+#helpCard code{
+  font-family:var(--f-mono);font-size:12px;color:var(--txt);
+  background:#20252e;border:1px solid var(--line);border-radius:3px;padding:0 4px;
+}
+#helpHead{display:flex;align-items:center;gap:12px}
+#helpHead .spacer{flex:1}
+#helpClose{min-height:32px;min-width:80px}
+
 /* ── alert strip ─────────────────────────────────────────── */
 #alert{
   flex:0 0 auto;display:flex;align-items:baseline;gap:10px;
@@ -249,16 +320,27 @@ button,input{font:inherit;color:inherit}
   border-radius:2px;padding:0 4px;color:var(--txt-2);margin-right:4px;
 }
 .legend div{margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* F5: nine lines is a wall nobody reads at pick speed. Five stay; the rest are one
+   keystroke (`?`) or one click away, which is the right cost for keys you look up once. */
+#legendMore[hidden]{display:none}
+.legend-more{
+  margin-top:3px;padding:0;background:none;border:0;cursor:pointer;
+  font-family:var(--f-cond);font-size:10.5px;letter-spacing:.06em;color:var(--txt-3);
+}
+@media (hover:hover){.legend-more:hover{color:var(--txt-2)}}
+@media (hover:none){.legend-more{min-height:44px;font-size:12px}}
 
 /* ── player tables ───────────────────────────────────────── */
 .ptable{table-layout:fixed;width:100%;border-collapse:collapse}
 col.w-name{width:auto}
 col.w-pos{width:44px}
 col.w-team{width:40px}
+col.w-bye{width:38px}
 col.w-r{width:48px}
 col.w-surv{width:52px}
-col.w-flags{width:146px}
-col.w-act{width:24px}
+col.w-gap{width:62px}
+col.w-flags{width:200px}
+col.w-act{width:140px}
 /* WIDE DESKTOP. `table-layout:fixed` with every column but the name at a fixed px width
    makes the NAME column the only elastic one, so on a wide monitor every spare pixel is
    inserted between a player and his numbers: ~670px of empty row at 1920 and ~1100px at
@@ -280,21 +362,49 @@ col.w-act{width:24px}
    affordance with no touch equivalent, so on a phone the cursor promised an explanation
    that no gesture can retrieve. Gated: the promise is only made where it can be kept. */
 @media (hover:hover){.ptable thead th{cursor:help}}
+/* PART 4 -- sortable headers. The active one is BRIGHTER as well as arrowed, because an
+   arrow alone is four pixels of state on a board being read at pick speed. */
+.ptable thead th.sortable{cursor:pointer;user-select:none}
+@media (hover:hover){.ptable thead th.sortable:hover{color:var(--txt-2)}}
+.ptable thead th.sorted{color:var(--txt)}
+.sarrow{margin-left:3px;font-size:9px;color:var(--txt)}
+#sortReset{
+  margin-left:8px;min-height:24px;padding:0 8px;font-size:11px;text-transform:none;
+  font-family:var(--f-data);letter-spacing:0;
+}
+#sortReset[hidden]{display:none}
 .ptable th.num,.ptable td.num{text-align:right}
 .ptable td{
-  padding:0 6px;height:23px;border-bottom:1px solid var(--line-soft);
+  padding:0 6px;height:44px;border-bottom:1px solid var(--line-soft);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.prow{cursor:default}
+.prow{cursor:pointer;user-select:none;-webkit-user-select:none}
 @media (hover:hover){.prow:hover{background:var(--row-hover)}}
 .prow.sel{background:#232935;box-shadow:inset 2px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
 .prow:focus-visible{outline:none;box-shadow:inset 2px 0 0 0 var(--focus),inset 0 0 0 1px var(--focus)}
 .c-name{font-size:13.5px;color:var(--txt)}
 .c-team{font-family:var(--f-mono);font-size:11px;color:var(--txt-3)}
-.c-num{font-family:var(--f-mono);font-size:12px;color:var(--txt-2);font-variant-numeric:tabular-nums}
+.c-num{font-family:var(--f-mono);font-size:14px;color:var(--txt-2);font-variant-numeric:tabular-nums}
 .c-cons{color:var(--txt-2)}
 .c-vorp{color:var(--txt)}
-.c-flags{font-family:var(--f-cond);font-size:10.5px;color:var(--txt-3);letter-spacing:.02em}
+/* FIX 2. This column carries the REASONING and was the least legible thing on screen:
+   10.5px, condensed, in --txt-3, the dimmest grey on the palette. Not condensed, a
+   third larger, and one step up the text ramp. Presentation only -- nothing about what
+   a flag means or how it is computed changes. */
+.c-flags{font-family:var(--f-data);font-size:12.5px;color:var(--txt-2);letter-spacing:.01em}
+
+/* PART 6 -- one chip per signal, so they are COUNTABLE at a glance instead of being one
+   run-on string. Tinted background rather than coloured text, same as the gap column and
+   for the same reason. Polarity is what the flag MEASURES, not how loud it is: green
+   argues for the player, red against, grey is context that argues neither way. */
+.chipf{
+  display:inline-block;font-family:var(--f-data);font-size:12.5px;line-height:19px;
+  padding:0 7px;border-radius:10px;margin-right:4px;white-space:nowrap;
+  background:rgba(255,255,255,.07);color:var(--txt-2);border:1px solid transparent;
+}
+.chipf.f-pos{background:rgba(70,207,156,.16);color:#8fe6c4;border-color:rgba(70,207,156,.30)}
+.chipf.f-neg{background:rgba(255,106,60,.16);color:#ffb59a;border-color:rgba(255,106,60,.30)}
+.chipf.f-more{background:transparent;color:var(--txt-3);border-color:var(--line)}
 /* most of the board fills a need once the roster opens up, so this stays
    quiet on purpose — its absence is the signal, not its presence */
 .need-tag{
@@ -305,20 +415,56 @@ col.w-act{width:24px}
 .c-opp.dev{color:var(--txt)}
 .c-opp.dev::after{content:"\25B3";font-size:9px;margin-left:3px;vertical-align:1px;color:var(--txt-2)}
 .c-surv.low{color:var(--urgent)}
+
+/* PART 3 -- how far our order departs from the one the room is drafting off.
+   BACKGROUND TINT, never coloured text: small coloured numerals on this dark ground are
+   the thing that has been hardest to read all day. The sign is always printed, so the
+   colour is a second channel rather than the only one, and a +-2 band stays neutral so
+   noise does not light the board up. */
+.c-gap{font-family:var(--f-mono);font-size:14px;font-variant-numeric:tabular-nums;color:var(--txt)}
+.c-gap.g0,.c-vorp.g0{background:transparent}
+.c-gap.gp1,.c-vorp.gp1{background:rgba(70,207,156,.13)}
+.c-gap.gp2,.c-vorp.gp2{background:rgba(70,207,156,.24)}
+.c-gap.gp3,.c-vorp.gp3{background:rgba(70,207,156,.36)}
+.c-gap.gn1,.c-vorp.gn1{background:rgba(255,106,60,.13)}
+.c-gap.gn2,.c-vorp.gn2{background:rgba(255,106,60,.24)}
+.c-gap.gn3,.c-vorp.gn3{background:rgba(255,106,60,.36)}
+/* CONFIDENCE, not a filter. Measured (scripts/gap-confidence.py): the gap tracks receptions
+   at WR 61-120 (+0.50) and RB 121-200 (-0.40); nothing in the top 60 clears |0.30|, and up
+   there the two boards mostly agree anyway -- those gaps measure 0 and +-1. Outside the band
+   the SAME NUMBER is still printed and still sortable, just quieter, so it invites less
+   weight without hiding anything. */
+.c-gap.unsure,.c-vorp.unsure{opacity:.45}
+.c-gap.unsure{color:var(--txt-2)}
 .c-surv.high{color:var(--safe)}
+/* THE ACTION, VISIBLE AT REST. This was an 18x18 glyph with a TRANSPARENT border in a
+   24px column, revealed only by `.prow:hover` -- so on a mouse-driven desktop the one
+   control on the row did not exist until the pointer was already on top of it, and then
+   said only "X". Every enlargement shipped for `hover:none` and desktop matched none of
+   it. The button is now always painted, always labeled, and sized to be aimed at. */
 .mark{
-  width:18px;height:18px;line-height:1;padding:0;border-radius:2px;cursor:pointer;
-  background:transparent;border:1px solid transparent;color:var(--txt-3);font-size:12px;
+  min-width:96px;height:40px;line-height:38px;padding:0 12px;border-radius:4px;cursor:pointer;
+  background:#20252e;border:1px solid var(--line);color:var(--txt-2);
+  font-family:var(--f-data);font-size:14px;font-weight:600;
+  letter-spacing:.01em;text-transform:none;white-space:nowrap;
 }
-/* `.prow.sel .mark` is NOT gated -- selection is a real state a finger can reach.
-   `.prow:hover .mark` is, and that matters beyond tidiness: it outweighs the touch rule
-   below on specificity (0,3,0 against 0,1,0), so while it exists the mark button's
-   appearance on a phone depends on a hover rule that happens to set identical values.
-   Gated, the touch rule is the only thing styling it and cannot be silently overridden. */
-.prow.sel .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
+/* The action cell keeps real space around the control instead of letting the row's
+   6px cell padding put a 96px button flush against the signals text beside it. */
+.ptable td.c-act{padding:0 14px}
+/* MY pick, not someone else's. `picks_until_me === 0` means pressing this records MY
+   selection -- the server already attributes the synthetic pick to the seat on the
+   clock -- so it must not keep wearing an X, which everywhere else means dismiss. */
+.mark.is-draft{
+  min-width:118px;border-color:var(--safe);background:var(--safe);color:#08150f;
+  font-weight:700;font-size:15px;letter-spacing:.02em;
+}
+/* F3: the confirmation lands in the cell that was clicked, not only in a grey string
+   in a panel header 900px away. Held for ~1.2s, then the row leaves on the next poll. */
+.mark.is-done{border-color:var(--txt-2);background:#2f3742;color:var(--txt)}
+.mark.is-done.is-draft{border-color:var(--safe);background:var(--safe);color:#08150f}
 @media (hover:hover){
-  .prow:hover .mark{border-color:var(--line);background:#20252e;color:var(--txt-2)}
-  .mark:hover{border-color:var(--urgent);color:var(--urgent)}
+  .mark:hover{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
+  .mark.is-draft:hover{border-color:#6fe3b6;background:#6fe3b6;color:#08150f}
 }
 
 /* grab now */
@@ -329,7 +475,22 @@ col.w-act{width:24px}
 @media (hover:hover){#grabBody .prow:hover{background:var(--urgent-bg-2)}}
 #grabBody .prow.sel{background:#262a33;box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px #454c5b}
 #grabBody .prow:focus-visible{box-shadow:inset 2px 0 0 0 var(--urgent),inset 0 0 0 1px var(--focus)}
-#grabBody td{height:26px;border-bottom-color:rgba(255,106,60,.12)}
+/* FIX 4. THE BOARD MUST NOT MOVE UNDER THE CURSOR.
+   #grabBody holds 0..GRAB_CAP rows and the panel also swaps #grabScroll for #grabEmpty,
+   so its height changed on EVERY mark -- and because #bestPanel is `.grow` with flex:1,
+   the difference was handed straight to the board you are aiming at. Measured before
+   this: #bestPanel's top moved 101px between a full grab list and an empty one.
+   Both children now reserve the SAME height, so the panel is a fixed box whatever it
+   holds and the empty message renders inside the reservation rather than replacing it.
+   Sized per branch: the row height is driven by the action button (40px desktop,
+   44px touch), NOT by this `height`, which is only a floor. */
+#grabBody td{height:var(--grab-row-h);border-bottom-color:rgba(255,106,60,.12)}
+#grabPanel{flex:0 0 auto}
+#grabScroll,#grabEmpty{
+  height:calc(var(--grab-cap) * var(--grab-row-h));
+  flex:0 0 auto;box-sizing:border-box;
+}
+#grabScroll{overflow-y:auto}
 #grabBody .c-name{font-size:14.5px;color:#fff}
 #grabEmpty{padding:11px 11px 12px;color:var(--txt-2);font-size:12.5px}
 #grabEmpty b{color:var(--txt);font-weight:600}
@@ -337,6 +498,24 @@ col.w-act{width:24px}
 
 .note{font-family:var(--f-cond);font-size:11px;letter-spacing:.04em;color:var(--txt-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:250px}
 .note.err{color:var(--urgent)}
+/* F4: this used to be `hidden` until `takenStack` was non-empty, so the control MOVED
+   the first time it was ever needed. Permanent and disabled instead -- the same reason
+   `#thumbUndo` is disabled rather than hidden on the phone. */
+#undoBtn{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+#undoBtn:disabled{opacity:.4;color:var(--txt-3);border-color:var(--line);cursor:default}
+/* Desktop-only floor. An unscoped `#undoBtn{min-height:30px}` is (1,0,0) and would beat
+   the touch block's `.btn{min-height:44px}` (0,1,0) -- measured: it shrank the phone's
+   Undo from 44px to 30px. Gate it so the phone keeps the taller target. */
+/* Undo is hit under the same time pressure as the row action, so it gets the same floor
+   -- and mixed case at 13px rather than 11.5px condensed caps, so the NAME on it is
+   readable at a glance ("Undo: Bijan Robinson", not "UNDO: BIJAN ROBINSON"). */
+#undoBtn{font-family:var(--f-data);font-size:13px;text-transform:none;letter-spacing:.01em}
+/* A 40px control does not fit a 29px header -- measured, it overhung by 6px top and 5px
+   bottom and sat across the panel border. Only the header that actually carries Undo
+   grows; the others keep their 29px. The grab panel's height stays CONSTANT either way,
+   so Fix 4's no-shift guarantee is unaffected. */
+#grabPanel .phead{height:48px}
+@media (hover:hover){#undoBtn{min-height:40px;min-width:96px}}
 #undoBtn[hidden]{display:none}
 
 /* tabs + search */
@@ -430,6 +609,7 @@ col.w-act{width:24px}
 }
 @media (max-width:520px){
   col.w-team,.c-team,th.h-team{display:none}
+  col.w-bye,.c-bye,th.h-bye{display:none}
   col.w-pos{width:38px}
   col.w-r{width:38px}
   col.w-surv{width:44px}
@@ -453,20 +633,23 @@ col.w-act{width:24px}
 @media (hover:none){
   /* Reveal-on-hover is a desktop affordance. With no hover there is no reveal,
      so the button must simply always be visible. */
+  /* The label is a word now, not a glyph, so the target grows WIDER (44 -> 64) and
+     keeps its full 44px height. `min-width` is restated because the desktop base rule
+     sets it and `width` alone cannot shrink past it. */
   .mark{
-    width:44px;height:44px;font-size:19px;
+    min-width:92px;width:auto;height:44px;font-size:13px;line-height:42px;padding:0 8px;
     border-color:var(--line);background:#20252e;color:var(--txt-2);
   }
-  /* `.prow.sel .mark` (0,3,0) is ungated and sets these same three properties, and the row
-     is ALWAYS selected at the moment of the press: the button's stopPropagation is on its
-     `click` listener, so `pointerdown` has already bubbled to the row and painted `.sel`
-     while the finger is still down. At (0,2,0) this rule lost every time, so a tap on the
-     phone produced no visual change at all -- the only confirmation was the network round
-     trip. `.prow.sel .mark:active` is (0,4,0) and wins. */
+  /* The reveal-on-hover and reveal-on-select rules are gone -- the button is painted at
+     rest now -- so nothing outranks this any more. Both selectors are kept because the row
+     is ALWAYS `.sel` at the moment of the press: the button's stopPropagation is on its
+     `click` listener, so `pointerdown` has already bubbled to the row while the finger is
+     still down. */
   .mark:active,.prow.sel .mark:active{border-color:var(--urgent);color:var(--urgent);background:#2a1f1c}
-  col.w-act{width:52px}
+  col.w-act{width:112px}
   .ptable td{height:44px;padding:0 8px}
-  #grabBody td{height:48px}
+  :root{--grab-row-h:52px}
+
   .c-name{font-size:15px}
   .prow.sel{box-shadow:inset 3px 0 0 0 var(--txt),inset 0 0 0 1px #39414f}
   /* Everything else that has to be hit with a thumb. */
@@ -519,7 +702,7 @@ col.w-act{width:24px}
 <header id="top">
   <div class="t-left">
     <div class="t-pick">
-      <span id="pickNo">—</span>
+      <span id="pickNo">—</span><span id="pickOf"></span>
       <span id="pickRound" class="mono"></span>
     </div>
     <div class="t-league">
@@ -536,6 +719,7 @@ col.w-act{width:24px}
   </div>
 
   <div class="t-right">
+    <span id="dataAge" hidden></span>
     <div id="syncChip" class="off" title="">
       <span id="syncDot" aria-hidden="true"></span>
       <span id="syncText">waiting for first update</span>
@@ -567,16 +751,132 @@ col.w-act{width:24px}
           <div><kbd>/</kbd>search</div>
           <div><kbd>enter</kbd>mark highlighted</div>
           <div><kbd>&uarr;&darr;</kbd>move selection</div>
-          <div><kbd>t</kbd>Mark taken</div>
           <div><kbd>u</kbd> / <kbd>ctrl+z</kbd>Undo</div>
-          <div><kbd>g</kbd> / <kbd>b</kbd>grab now / board</div>
-          <div><kbd>r</kbd> / <kbd>c</kbd>roster / runs</div>
           <div><kbd>space</kbd>Pause updates</div>
-          <div><kbd id="legendDigits">0-6</kbd>position filter</div>
+          <button id="legendToggle" class="legend-more" type="button" aria-expanded="false"
+                  aria-controls="helpPanel">? What do these numbers mean</button>
         </div>
       </div>
     </div>
   </section>
+
+  <!-- ── help (C2): every column and every signal, in plain words ── -->
+  <div id="helpPanel" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+    <div id="helpCard">
+      <div id="helpHead">
+        <h2 id="helpTitle">What the numbers mean</h2>
+        <span class="spacer"></span>
+        <button id="helpClose" class="btn" type="button">Close</button>
+      </div>
+
+      <h3>The four columns</h3>
+      <dl>
+        <dt>Rank</dt>
+        <dd>Where he sits when every player is put in order by the points we expect him to
+          score <b>under this league's own scoring</b> — which pays a receiver half a point a
+          catch and a running back nothing.
+          <span class="eg">Ja'Marr Chase shows 25: twenty-four players are expected to outscore
+            him. Start from this order, then let Value and Usage argue with it.</span></dd>
+
+        <dt>Value</dt>
+        <dd>How many more points he scores than the best player at his position you could
+          still <b>pick up for free</b>, once every team's starting slots are full. It is the
+          size of the gap he puts between you and the next man up.
+          <span class="eg">Jahmyr Gibbs shows 1 while his Rank is 18: seventeen players score
+            more, but none opens a bigger gap. When two players look close on Rank, take the
+            better Value.</span></dd>
+
+        <dt>Usage</dt>
+        <dd>A second opinion built <b>only from the work he gets</b> — carries, targets, and
+          the share of touches left behind by team-mates who have gone. It never changes the
+          order; it argues with it.
+          <span class="eg">Christian McCaffrey shows 10 against a Rank of 35: the workload says
+            top ten even though the points projection does not. A small triangle marks the
+            players where the two disagree most.</span></dd>
+
+        <dt>vs ESPN</dt>
+        <dd>How far this board&rsquo;s order departs from the order <b>ESPN serves the room</b>,
+          compared only against players at the <b>same position</b>. Positive means this board
+          takes him earlier than the room does &mdash; he is a bargain.
+          <span class="eg">Mike Evans shows +20: twenty receivers the room takes ahead of him,
+            this board takes behind him. <b>Green</b> is a bargain, <b>red</b> means the room
+            likes him more, and anything within &plusmn;2 stays grey because that is noise.
+            The same tint is on the Value number, because that is the number it argues about.</span>
+          <span class="eg"><b>Where to trust it.</b> This column earns its keep from roughly
+            the eighth round onward. Near the top of the board the two orderings mostly agree
+            &mdash; those gaps come out at 0 or &plusmn;1 &mdash; so the number there is shown
+            <b>faded</b>. It is still the real number and still sorts; it just deserves less
+            weight.</span>
+          <span class="eg"><b>One caution.</b> This compares a board built from pre-season
+            projections against ESPN ranks that <b>move with the news</b>. A big red number can
+            simply mean the room has heard something the projections have not caught up with
+            yet &mdash; an injury, a depth-chart change &mdash; so check why before you fade
+            somebody on it.</span></dd>
+
+        <dt>Lasts</dt>
+        <dd>The chance he is <b>still unpicked when your next turn comes round</b>.
+          <span class="eg">Derrick Henry shows 93% — he will very likely still be there.
+            Jahmyr Gibbs shows 9% — he will very likely be gone. Spend this pick on a low
+            number and come back for a high one.</span></dd>
+      </dl>
+
+      <h3>Signals — one chip per note beside each player</h3>
+      <p style="margin:0 0 10px;color:var(--txt-3)">
+        <span class="chipf f-pos">green</span> argues <b>for</b> the player &nbsp;
+        <span class="chipf f-neg">red</span> argues <b>against</b> &nbsp;
+        <span class="chipf">grey</span> is context that argues neither way &nbsp;
+        <span class="chipf f-more">+2</span> means two more not shown — hover the cell for all of them.
+      </p>
+      <dl>
+        <dt><code>opp+80</code></dt>
+        <dd>The workload model puts him <b>80 points above</b> the points projection. It only
+          appears when the two disagree by more than 20 points. Treat it as a reason to buy.</dd>
+
+        <dt><code>opp-28</code></dt>
+        <dd>The workload model puts him <b>28 points below</b> the points projection — he is
+          projected on reputation more than on touches. Treat it as a reason to fade.</dd>
+
+        <dt><code>riser</code></dt>
+        <dd>His role was <b>growing</b> through last season — finishing the year with more of
+          the work than he started it with.</dd>
+
+        <dt><code>faller</code></dt>
+        <dd>His role was <b>shrinking</b> through last season.</dd>
+
+        <dt><code>vac+15%</code></dt>
+        <dd><b>15% of his team's touches are unclaimed</b> — carries or targets left behind by
+          players who have left. Somebody inherits them, and he is in line.</dd>
+
+        <dt><code>rookie:offense</code></dt>
+        <dd>His <b>first NFL season</b>, on offence. (<code>rookie:idp</code> is a defender,
+          <code>rookie:special</code> a kicker.) Rookies are projected on consensus alone.</dd>
+
+        <dt><code>R1.008</code></dt>
+        <dd>Where the <b>NFL</b> drafted him: round 1, pick 8. Earlier picks get more chances
+          to earn a role. Only shown for rookies.</dd>
+
+        <dt><code>need</code></dt>
+        <dd>He fills a <b>starting slot you have not filled yet</b>.</dd>
+
+        <dt>Triangle ▲</dt>
+        <dd>Beside a Usage number: Usage and Rank <b>disagree sharply</b> about this player.</dd>
+      </dl>
+
+      <h3>Keys</h3>
+      <dl>
+        <dt><kbd>/</kbd></dt><dd>jump to the search box</dd>
+        <dt><kbd>enter</kbd></dt><dd>mark the highlighted player as taken</dd>
+        <dt><kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd>move the highlight</dd>
+        <dt><kbd>u</kbd> / <kbd>ctrl+z</kbd></dt><dd>undo the last mark</dd>
+        <dt><kbd>space</kbd></dt><dd>pause and resume updates</dd>
+        <dt><kbd>t</kbd></dt><dd>mark the highlighted player as taken</dd>
+        <dt><kbd>g</kbd> / <kbd>b</kbd></dt><dd>jump to Grab now / Best available</dd>
+        <dt><kbd>r</kbd> / <kbd>c</kbd></dt><dd>jump to your roster / runs and cliffs</dd>
+        <dt><kbd id="legendDigits">0-6</kbd></dt><dd>filter the board by position</dd>
+        <dt><kbd>?</kbd></dt><dd>open and close this panel</dd>
+      </dl>
+    </div>
+  </div>
 
   <!-- ── centre ───────────────────────────────────────── -->
   <section class="col col-mid">
@@ -587,7 +887,7 @@ col.w-act{width:24px}
         <span id="grabHint" class="phint">won&rsquo;t last to your next pick</span>
         <span class="spacer"></span>
         <span id="actionNote" class="note"></span>
-        <button id="undoBtn" class="btn" type="button" hidden>Undo</button>
+        <button id="undoBtn" class="btn" type="button" disabled>Undo</button>
       </div>
       <div id="grabEmpty" hidden>
         <b>Nobody at risk before your next pick.</b>
@@ -596,8 +896,8 @@ col.w-act{width:24px}
       <div class="pbody" id="grabScroll">
         <table class="ptable" aria-label="Grab now">
           <colgroup>
-            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
-            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-bye"><col class="w-r"><col class="w-r">
+            <col class="w-r"><col class="w-surv"><col class="w-gap"><col class="w-flags"><col class="w-act">
           </colgroup>
           <tbody id="grabBody"></tbody>
         </table>
@@ -610,24 +910,27 @@ col.w-act{width:24px}
         <div id="tabs" role="group" aria-label="Position filter"></div>
         <span class="spacer"></span>
         <input id="q" type="text" placeholder="Search players — Enter marks the highlighted" aria-label="Search players by name; arrows move the highlight; Enter marks the highlighted player as taken" autocomplete="off" spellcheck="false">
+        <button id="sortReset" class="btn" type="button" hidden>Reset sort</button>
         <span id="enterHint" class="enter-hint" aria-live="polite" hidden></span>
       </div>
       <div class="pbody grow" id="bestScroll">
         <table class="ptable" aria-label="Best available">
           <colgroup>
-            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-r"><col class="w-r">
-            <col class="w-r"><col class="w-surv"><col class="w-flags"><col class="w-act">
+            <col class="w-name"><col class="w-pos"><col class="w-team"><col class="w-bye"><col class="w-r"><col class="w-r">
+            <col class="w-r"><col class="w-surv"><col class="w-gap"><col class="w-flags"><col class="w-act">
           </colgroup>
           <thead>
             <tr>
               <th scope="col" title="Player">Player</th>
               <th scope="col" title="Position">Pos</th>
               <th scope="col" class="h-team" title="NFL team">Tm</th>
-              <th scope="col" class="num" title="Consensus rank — the market's order">Cons</th>
-              <th scope="col" class="num" title="VORP rank — value over replacement in this league">VORP</th>
-              <th scope="col" class="num" title="Opportunity rank — volume and role. A triangle means it disagrees with consensus.">Opp</th>
-              <th scope="col" class="num" title="Chance he survives to your next pick">Surv</th>
-              <th scope="col" class="h-flags" title="Signals">Signals</th>
+              <th scope="col" class="h-bye" title="WHAT IT IS: the week this player&#39;s NFL team does not play.&#10;&#10;WHAT THE NUMBER MEANS: W7 means he scores nothing in week 7, whoever you start.&#10;&#10;WHAT TO DO: nothing on its own - one bye is normal and every player has exactly one. It matters when several of your starters share the same week; the Runs panel says so when that happens.">Bye</th>
+              <th scope="col" class="num sortable" data-sort="cons" title="WHAT IT IS: where he sits when every player is put in order by the points we expect him to score under THIS league&#39;s scoring.&#10;&#10;WHAT THE NUMBER MEANS: Ja&#39;Marr Chase shows 25, so 24 players are expected to outscore him this season.&#10;&#10;WHAT TO DO: start from this order, then let VALUE and USAGE argue with it.">Rank<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="vorp" title="WHAT IT IS: how many more points he scores than the best player at his position you could still pick up for free, once this 8-team league&#39;s starting slots are full.&#10;&#10;WHAT THE NUMBER MEANS: Jahmyr Gibbs shows 1 while his RANK is 18 - seventeen players score more, but none of them puts a bigger gap between you and the free option.&#10;&#10;WHAT TO DO: when two players look close on RANK, take the better VALUE.">Value<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="opp" title="WHAT IT IS: a second opinion built only from the work he gets - carries, targets, and the share of touches left behind by team-mates who have gone.&#10;&#10;WHAT THE NUMBER MEANS: Christian McCaffrey shows 10 against a RANK of 35: the workload says top-10 even though the points projection does not.&#10;&#10;WHAT TO DO: a much better USAGE than RANK is a buy signal. A small triangle marks the players where the two disagree most.">Usage<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="surv" title="WHAT IT IS: the chance he is still unpicked when your next turn comes round.&#10;&#10;WHAT THE NUMBER MEANS: Derrick Henry shows 93% - he will very likely still be there. Jahmyr Gibbs shows 9% - he will very likely be gone.&#10;&#10;WHAT TO DO: spend this pick on a low number and come back for a high one.">Lasts<span class="sarrow"></span></th>
+              <th scope="col" class="num sortable" data-sort="gap" title="WHAT IT IS: how far this board&#39;s order departs from the order ESPN serves the room, compared only against players at the SAME position.&#10;&#10;WHAT THE NUMBER MEANS: Mike Evans shows +20 - twenty receivers the room takes ahead of him, this board takes behind him. He is the bargain. A negative number means the room likes him more than we do.&#10;&#10;WHAT TO DO: green is where this league&#39;s scoring disagrees with the room, and that is the edge. Sort by it to find who is underpriced.">vs ESPN<span class="sarrow"></span></th>
+              <th scope="col" class="h-flags" title="WHAT IT IS: short notes explaining WHY a player is where he is.&#10;&#10;WHAT THE NUMBER MEANS: &#39;opp+80&#39; means the workload model puts him 80 points above the projection; &#39;vac+15%&#39; means 15% of his team&#39;s touches were left behind by players who are gone.&#10;&#10;WHAT TO DO: open the help panel (the ? button, bottom left) for the full list - every flag is spelled out there.">Signals</th>
               <th scope="col"><span class="sr">Mark taken</span></th>
             </tr>
           </thead>
@@ -661,6 +964,8 @@ col.w-act{width:24px}
         <div class="subhead">Tier cliffs</div>
         <div id="cliffsList"></div>
         <div id="cliffsCalm" class="calm" hidden>No cliff within reach.</div>
+        <div class="subhead" id="byeHead" hidden>Shared bye weeks</div>
+        <div id="byeList"></div>
       </div>
     </div>
 
@@ -831,6 +1136,11 @@ var S = {
   selIdx: 0,
   nav: [],               // [{scope,id,el}] in visual order
   takenStack: [],        // [{id,name}] marks made from this screen
+  myPick: false,         // clock.picks_until_me === 0 -> the row button says DRAFT
+  complete: false,       // every pick in the draft has been made; nothing can be marked
+  sortKey: null,         // null = the board's own order (by value rank)
+  sortDir: 0,            // +1 ascending, -1 descending
+  markPending: {},       // id -> true while its POST is in flight (double-click guard)
   actionMsg: "",
   actionErr: false,
   tabsBuilt: false,
@@ -856,27 +1166,29 @@ function createPlayerRow(scope) {
   tdPos.appendChild(chip);
 
   var tdTeam = mk("td", "c-team");
+  var tdBye = mk("td", "c-bye");
   var tdCons = mk("td", "c-num c-cons num");
   var tdVorp = mk("td", "c-num c-vorp num");
   var tdOpp = mk("td", "c-num c-opp num");
   var tdSurv = mk("td", "c-num c-surv num");
+  var tdGap = mk("td", "c-gap num");
   var tdFlags = mk("td", "c-flags");
 
   var tdAct = mk("td", "c-act");
-  var btn = mk("button", "mark", "✕");
+  var btn = mk("button", "mark", "TAKEN");
   btn.type = "button";
-  setAttr(btn, "title", "Mark taken");
+  setAttr(btn, "title", "Mark taken by someone else");
   tdAct.appendChild(btn);
 
   tr.appendChild(tdName); tr.appendChild(tdPos); tr.appendChild(tdTeam);
-  tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
-  tr.appendChild(tdSurv); tr.appendChild(tdFlags); tr.appendChild(tdAct);
+  tr.appendChild(tdBye); tr.appendChild(tdCons); tr.appendChild(tdVorp); tr.appendChild(tdOpp);
+  tr.appendChild(tdSurv); tr.appendChild(tdGap); tr.appendChild(tdFlags); tr.appendChild(tdAct);
 
   var rec = {
     el: tr, scope: scope, id: null,
-    name: nameSpan, need: needTag, chip: chip, team: tdTeam,
+    name: nameSpan, need: needTag, chip: chip, team: tdTeam, bye: tdBye,
     cons: tdCons, vorp: tdVorp, opp: tdOpp, surv: tdSurv,
-    flags: tdFlags, btn: btn
+    flags: tdFlags, gap: tdGap, btn: btn
   };
 
   // pointerdown, not mousedown: iOS synthesises mouse events late and drops them
@@ -886,19 +1198,133 @@ function createPlayerRow(scope) {
   btn.addEventListener("click", function (ev) {
     ev.preventDefault();
     ev.stopPropagation();
-    markTaken(rec.id, rec.name.textContent);
+    fireMark(rec);
+  });
+  // F2: the row is the recovery path for a miss on the button. Single click stays
+  // pure selection -- it is the keyboard-nav anchor -- so the action goes on dblclick.
+  tr.addEventListener("dblclick", function (ev) {
+    ev.preventDefault();
+    fireMark(rec);
   });
 
   return rec;
 }
 
+/* THE ONE ACTION, from either entry point. `markTaken` is guarded per id, so a
+   double-click cannot push two entries onto `takenStack`; the flash is optimistic
+   because the row leaves the board on the next poll and the confirmation has to be
+   visible before it goes. */
+function fireMark(rec) {
+  if (rec.id == null) return;
+  // The server rejects a 129th pick but `/api/taken` still answers 200 with state, so
+  // without this the page would flash a confirmation and push an undo entry for a pick
+  // that was never recorded.
+  if (S.complete) return;
+  if (S.markPending[String(rec.id)]) return;
+  flashMark(rec, !!S.myPick);
+  markTaken(rec.id, rec.name.textContent);
+}
+
+function flashMark(rec, mine) {
+  var b = rec.btn;
+  b.dataset.flash = "1";
+  b.dataset.flashId = String(rec.id);
+  setText(b, mine ? "DRAFTED" : "TAKEN");
+  b.classList.add("is-done");
+  b.classList.toggle("is-draft", mine);
+  setTimeout(function () {
+    if (b.dataset.flash !== "1") return;
+    delete b.dataset.flash;
+    delete b.dataset.flashId;
+    b.classList.remove("is-done");
+  }, 1200);
+}
+
+/* Re-labelled on EVERY render, so it flips live the moment the clock comes round to
+   my seat -- including the back-to-back 8/9 turn, which is still picks_until_me === 0. */
+function setMarkLabel(rec) {
+  var b = rec.btn;
+  if (b.dataset.flash === "1") {
+    // a recycled row now holds a different player; the stale flash must not stick to him
+    if (b.dataset.flashId === String(rec.id)) return;
+    delete b.dataset.flash;
+    delete b.dataset.flashId;
+    b.classList.remove("is-done");
+  }
+  // Visibly dead at the wall, not merely inert: dashed, dimmed, and `disabled` so the
+  // pointer says so too. The old button looked identical whether or not it would work.
+  b.disabled = !!S.complete;
+  if (S.complete) {
+    setText(b, "DRAFT OVER");
+    setAttr(b, "title", "Every pick in this draft has been made");
+    b.classList.remove("is-draft");
+    return;
+  }
+  var mine = !!S.myPick;
+  setText(b, mine ? "DRAFT HIM" : "TAKEN");
+  setAttr(b, "title", mine
+    ? "Draft him — the next pick recorded is yours"
+    : "Mark taken by someone else");
+  b.classList.toggle("is-draft", mine);
+}
+
+/* Three steps each way, on the magnitude of the gap. Returns a class suffix so the same
+   scale can tint both the gap itself and the VALUE it is arguing about. */
+function gapBand(gap) {
+  if (gap == null) return "";
+  var a = gap < 0 ? -gap : gap;
+  if (a <= 2) return " g0";            // noise
+  var step = a <= 7 ? "1" : (a <= 14 ? "2" : "3");
+  return (gap > 0 ? " gp" : " gn") + step;
+}
+
+/* POLARITY. Decided by what the flag measures, not by how it reads:
+     opp+N   the workload model is ABOVE the points projection      -> for  (green)
+     opp-N   the workload model is BELOW it                         -> against (red)
+     riser   his role grew through last season                      -> for
+     faller  his role shrank                                        -> against
+     vac+N%  unclaimed touches he is in line to inherit             -> for
+     rookie: first NFL season                                       -> neutral
+     R1.008  where the NFL drafted him                              -> neutral
+     manual  entered by hand rather than synced                     -> neutral
+   The two rookie flags stay NEUTRAL deliberately: board.py prices draft capital zero times
+   because consensus already prices it, so calling them green would double-count. */
+function flagPolarity(flag) {
+  if (flag.indexOf("opp+") === 0) return " f-pos";
+  if (flag.indexOf("opp-") === 0 || flag.indexOf("opp\u2212") === 0) return " f-neg";
+  if (flag === "riser") return " f-pos";
+  if (flag === "faller") return " f-neg";
+  if (flag.indexOf("vac+") === 0) return " f-pos";
+  return "";                       // rookie:*, R<rd>.<pick>, manual -- context, not a verdict
+}
+
+var FLAG_CHIP_CAP = 3;   // three loud chips beat six quiet ones
+
+function renderFlagChips(cell, flags) {
+  var shown = flags.slice(0, FLAG_CHIP_CAP);
+  var rest = flags.length - shown.length;
+  // Rebuild only when the content actually changes -- this runs for every row on every
+  // poll, and the reconciler exists precisely so the board does not churn its DOM.
+  var signature = shown.join("|") + (rest > 0 ? "|+" + rest : "");
+  if (cell.dataset.sig === signature) return;
+  cell.dataset.sig = signature;
+  while (cell.firstChild) cell.removeChild(cell.firstChild);
+  for (var i = 0; i < shown.length; i++) {
+    cell.appendChild(mk("span", "chipf" + flagPolarity(shown[i]), shown[i]));
+  }
+  if (rest > 0) cell.appendChild(mk("span", "chipf f-more", "+" + rest));
+  setAttr(cell, "title", flags.join("  ") || null);
+}
+
 function updatePlayerRow(rec, p) {
   rec.id = p.id;
   setAttr(rec.el, "data-id", String(p.id));
+  setMarkLabel(rec);
   setText(rec.name, p.name || "—");
   setHidden(rec.need, !p.fills_need);
   setPos(rec.chip, p.position);
   setText(rec.team, p.team || "—");
+  setText(rec.bye, p.bye == null ? "" : "W" + p.bye);
   setText(rec.cons, rank(p.consensus_rank));
   setText(rec.vorp, rank(p.vorp_rank));
   setText(rec.opp, rank(p.opp_rank));
@@ -907,6 +1333,19 @@ function updatePlayerRow(rec, p) {
     ? "Opportunity disagrees with consensus"
     : null);
 
+  // PART 3. Signed text plus a background tint, and a neutral band either side of zero:
+  // a +-2 gap is two ranks of noise, not a signal, and lighting it up would train the eye
+  // to ignore the colour entirely. Bands are deliberately coarse -- three steps a glance
+  // can tell apart, not a gradient.
+  var gap = p.vs_espn;
+  setText(rec.gap, gap == null ? "" : (gap > 0 ? "+" + gap : String(gap)));
+  var band = gapBand(gap);
+  // Muted outside the band where the gap was measured to carry the seam. The value is
+  // unchanged and still sorts; only its loudness moves.
+  var unsure = (gap != null && p.vs_espn_confident !== true) ? " unsure" : "";
+  setClassName(rec.gap, "c-gap num" + band + unsure);
+  setClassName(rec.vorp, "c-num c-vorp num" + band + unsure);
+
   // deliberately narrow bands: if half the column is coloured the run
   // warnings stop registering
   var s = p.survival;
@@ -914,10 +1353,9 @@ function updatePlayerRow(rec, p) {
   rec.surv.classList.toggle("low", s != null && s < 0.15);
   rec.surv.classList.toggle("high", s != null && s >= 0.80);
 
-  var f = (p.flags && p.flags.length) ? p.flags.join(" ") : "";
-  if (p.manual) f = f ? (f + " manual") : "manual";
-  setText(rec.flags, f);
-  setAttr(rec.flags, "title", f || null);
+  var flags = (p.flags || []).slice();
+  if (p.manual) flags.push("manual");
+  renderFlagChips(rec.flags, flags);
 
   setAttr(rec.btn, "aria-label", "Mark taken: " + (p.name || p.id));
 }
@@ -1068,13 +1506,35 @@ function renderTop(d) {
   // the clock and the next pick I control, so zero means both are mine right now. Showing a
   // single pick number here reads as one pick, and the second one gets made in a hurry
   // against a board that never said it was coming.
+  // THE WALL. Capacity is teams x rounds and the server will refuse pick 129, so the page
+  // has to stop offering it. Derived from the payload rather than hardcoded, because a
+  // league with different structure has a different wall.
+  var capacity = (lg.num_teams || 0) * (draft.rounds || 0);
+  S.complete = complete || (capacity > 0 && (clock.current_pick || 0) > capacity);
+  setText($("pickOf"), capacity ? " of " + capacity : "");
+  $("board").classList.toggle("complete", !!S.complete);
+
+  // Driven by where the NEXT MARK LANDS, not by the ESPN clock. The old gate was
+  // `started && picks_until_me === 0`, and League B reports `pre_draft` for the whole of a
+  // hand-mirrored round -- so `started` was false exactly when the distinction mattered and
+  // every row read TAKEN forever. `next_mark.is_mine` is the server telling us which seat
+  // `_renumber_manual` would attribute the next manual pick to, which is the thing that is
+  // actually about to happen. Same endpoint, same payload; only the label changes.
+  S.myPick = !!(d.next_mark && d.next_mark.is_mine);
+
   var twoOnClock = started && !complete
     && clock.picks_until_me === 0
     && clock.opponent_picks_until_horizon === 0
     && clock.survival_horizon != null;
 
   // left
-  if (started && clock.current_pick != null) {
+  if (S.complete) {
+    // `current_pick` runs one PAST the last real pick at the wall, so the raw counter reads
+    // "PICK 129 of 128", which is nonsense on the one screen that has to be unambiguous.
+    setText($("pickNo"), "DRAFT COMPLETE");
+    setText($("pickOf"), capacity ? " " + capacity + " of " + capacity : "");
+    setText($("pickRound"), "");
+  } else if (started && clock.current_pick != null) {
     setText($("pickNo"), twoOnClock
       ? "PICK " + clock.current_pick + "+" + clock.survival_horizon
       : "PICK " + clock.current_pick);
@@ -1100,7 +1560,9 @@ function renderTop(d) {
     subText = [draft.type, draft.rounds ? draft.rounds + " rounds" : null].filter(Boolean).join("  ·  ");
   } else if (complete) {
     wordMode = "Draft complete";
-    subText = clock.current_pick ? clock.current_pick + " picks made" : "";
+    // current_pick runs one PAST the last real pick once the draft is over.
+    subText = capacity ? capacity + " picks made"
+            : (clock.current_pick ? (clock.current_pick - 1) + " picks made" : "");
   } else if (clock.my_slot == null) {
     wordMode = "Slot unresolved";
     subText = "board is still usable · no countdown until your slot is known";
@@ -1125,6 +1587,20 @@ function renderTop(d) {
   top.classList.toggle("onclock", started && !complete && n === 0);
   top.classList.toggle("twopicks", twoOnClock);
   top.classList.toggle("soon", started && !complete && n != null && n > 0 && n <= 2);
+
+  // Data vintage: ESPN's ranks move with the news, the board's inputs do not.
+  var dv = d.data || {};
+  var age = $("dataAge");
+  if (dv.oldest_days == null) {
+    setHidden(age, true);
+  } else {
+    setHidden(age, false);
+    setText(age, "board data: " + dv.oldest_days
+                 + (dv.oldest_days === 1 ? " day old" : " days old"));
+    age.classList.toggle("stale", dv.stale === true);
+    setAttr(age, "title", "Oldest of the " + dv.sources + " inputs this board is built from."
+      + (dv.stale ? " Older than a week." : ""));
+  }
 
   // browser tab — he is usually looking at the Sleeper window
   var t;
@@ -1214,7 +1690,9 @@ function renderAlert() {
     kind = ""; head = "Not started";
     body = "The draft has not started. Board and roster shape are live; there is no clock yet.";
   } else if (d && d.clock && d.clock.complete === true) {
-    kind = ""; head = "Draft complete";
+    var cap = (d.league && d.league.num_teams ? d.league.num_teams : 0)
+            * (d.draft && d.draft.rounds ? d.draft.rounds : 0);
+    kind = ""; head = cap ? "Draft complete · " + cap + " of " + cap : "Draft complete";
     body = "The draft is over. This board is frozen at the final state.";
   } else if (d && d.message) {
     kind = ""; head = "Note";
@@ -1287,6 +1765,35 @@ function renderRoster(d) {
 
 /* ───────────────────────── centre board ────────────────────── */
 
+/* Which field each header sorts on, and which way round is "best first". Ranks are
+   ascending because 1 is the good end; survival and the ESPN gap are descending because
+   the big number is. */
+var SORTS = {
+  cons: { get: function (p) { return p.consensus_rank; }, dir: 1 },
+  vorp: { get: function (p) { return p.vorp_rank; }, dir: 1 },
+  opp:  { get: function (p) { return p.opp_rank; }, dir: 1 },
+  surv: { get: function (p) { return p.survival; }, dir: -1 },
+  gap:  { get: function (p) { return p.vs_espn; }, dir: -1 }
+};
+
+/* Nulls always sink, whichever way the sort runs: a player with no ESPN rank is not the
+   biggest bargain on the board, he is simply not comparable. */
+function sortRows(rows) {
+  var spec = SORTS[S.sortKey];
+  if (!spec || !S.sortDir) return rows;
+  var dir = S.sortDir;
+  rows.sort(function (a, b) {
+    var x = spec.get(a), y = spec.get(b);
+    var xn = (x == null), yn = (y == null);
+    if (xn && yn) return a.vorp_rank - b.vorp_rank;
+    if (xn) return 1;
+    if (yn) return -1;
+    if (x === y) return a.vorp_rank - b.vorp_rank;   // stable, by the board's own order
+    return (x < y ? -1 : 1) * dir;
+  });
+  return rows;
+}
+
 function filteredBest(list) {
   var q = S.query.trim().toLowerCase();
   var out = [];
@@ -1295,9 +1802,43 @@ function filteredBest(list) {
     if (S.filter !== "ALL" && p.position !== S.filter) continue;
     if (q && String(p.name || "").toLowerCase().indexOf(q) < 0) continue;
     out.push(p);
-    if (out.length >= MAX_ROWS) break;
   }
-  return { rows: out, total: countMatches(list, q) };
+  // Sort BEFORE the cap. Capping first would sort only the first MAX_ROWS of the board's
+  // own order, so "sort by vs ESPN" would miss every bargain below row 140 -- which is
+  // most of them.
+  var total = out.length;
+  sortRows(out);
+  return { rows: out.slice(0, MAX_ROWS), total: total };
+}
+
+function setSort(key) {
+  if (S.sortKey === key) {
+    S.sortDir = -S.sortDir;                 // second click reverses
+  } else {
+    S.sortKey = key;
+    S.sortDir = SORTS[key].dir;
+  }
+  if (S.data) render(S.data);
+}
+
+function resetSort() {
+  S.sortKey = null; S.sortDir = 0;
+  if (S.data) render(S.data);
+}
+
+/* The header is the only place the sort state is visible, so it carries BOTH an arrow and
+   a brightness change, and the Reset appears only when there is something to reset. */
+function renderSortHeaders() {
+  var heads = document.querySelectorAll("#bestPanel thead th.sortable");
+  Array.prototype.forEach.call(heads, function (th) {
+    var key = th.dataset.sort;
+    var on = (key === S.sortKey && S.sortDir !== 0);
+    th.classList.toggle("sorted", on);
+    setAttr(th, "aria-sort", on ? (S.sortDir === 1 ? "ascending" : "descending") : null);
+    var arrow = th.querySelector(".sarrow");
+    if (arrow) setText(arrow, on ? (S.sortDir === 1 ? "\u25B2" : "\u25BC") : "");
+  });
+  setHidden($("sortReset"), S.sortKey === null);
 }
 
 function countMatches(list, q) {
@@ -1353,6 +1894,7 @@ function renderCentre(d) {
   setText($("grabHint"), hint);
 
   // best available
+  renderSortHeaders();
   var res = filteredBest(best);
   reconcile($("bestBody"), res.rows,
     function (p) { return String(p.id); },
@@ -1438,6 +1980,25 @@ function renderRight(d) {
       setClassName(rec.el, "warnbox sev-" + (r.severity || "low") + (loud ? " loud" : ""));
     });
 
+  var byes = d.bye_collisions || [];
+  setHidden($("byeHead"), byes.length === 0);
+  reconcile($("byeList"), byes,
+    function (b) { return b.week + ":" + b.position; },
+    function () {
+      var el = mk("div", "warnbox");
+      var chip = mk("span", "chip");
+      var t = mk("span", "wtext");
+      el.appendChild(chip); el.appendChild(t);
+      return { el: el, chip: chip, t: t };
+    },
+    function (rec, b) {
+      setPos(rec.chip, b.position);
+      var names = b.players || [];
+      setText(rec.t, "week " + b.week + " — " + names.join(", "));
+      setAttr(rec.el, "title", names.length + " " + b.position
+              + " on your roster share the week " + b.week + " bye");
+    });
+
   var cliffs = d.cliffs || [];
   setHidden($("cliffsCalm"), cliffs.length > 0);
   reconcile($("cliffsList"), cliffs,
@@ -1496,16 +2057,34 @@ function renderAction() {
   var note = $("actionNote"), btn = $("undoBtn");
   setText(note, S.actionMsg || "");
   setClassName(note, "note" + (S.actionErr ? " err" : ""));
-  setHidden(btn, S.takenStack.length === 0);
   // The thumb bar's Undo is DISABLED rather than hidden: on a phone the bar is fixed
   // furniture, and a control that appears and vanishes moves the other three under a
-  // thumb that is already on its way down.
+  // thumb that is already on its way down. F4: the desktop Undo now works the same way,
+  // for the same reason -- it used to appear only once it was needed, which is the one
+  // moment you cannot afford to go looking for where a control moved to.
+  // PART 1. SERVER TRUTH decides whether Undo is enabled, never the browser's own stack.
+  // `takenStack` lives in one page session, so a reload used to grey this out while the
+  // manual picks were still on the server and `undo_taken` would have worked fine. The
+  // stack is kept ONLY as an optimisation: it names the player instantly after a mark,
+  // before the next poll lands. It may make the label sharper; it may never disable.
   var thumb = $("thumbUndo");
-  if (thumb) thumb.disabled = S.takenStack.length === 0;
-  if (S.takenStack.length) {
-    var top = S.takenStack[S.takenStack.length - 1];
-    setAttr(btn, "title", "Undo: " + top.name);
-    if (thumb) setAttr(thumb, "title", "Undo: " + top.name);
+  var srv = (S.data && S.data.undo) || {};
+  var local = S.takenStack.length ? S.takenStack[S.takenStack.length - 1] : null;
+  var can = (srv.available === true) || !!local;
+  var name = local ? local.name : (srv.name || null);
+
+  setHidden(btn, false);
+  btn.disabled = !can;
+  if (thumb) thumb.disabled = !can;
+  if (!can) {
+    setText(btn, "Undo");
+    setAttr(btn, "title", "Nothing to undo");
+    if (thumb) setAttr(thumb, "title", "Nothing to undo");
+  } else {
+    var label = name ? ("Undo: " + name) : "Undo last pick";
+    setText(btn, label);
+    setAttr(btn, "title", label);
+    if (thumb) setAttr(thumb, "title", label);
   }
 }
 
@@ -1578,6 +2157,15 @@ function post(path, id) {
    target is the first row of the FILTERED best-available list -- not S.nav[0], which
    starts with the grab-now rows and ignores the query entirely. */
 function enterTarget() {
+  // A HIDDEN BOARD IS STILL A BOARD IN THE DOM. `renderCentre` returns early when the
+  // payload is not ready -- it hides #bestPanel and clears S.nav/S.sel, but the rows it
+  // rendered last time are still children of #bestBody, and this function falls back to
+  // `body.firstElementChild`. So with a query still sitting in the box, one Enter would
+  // mark a player off a stale, invisible board at exactly the moment the feed went bad --
+  // which is exactly when you are typing fastest. Same readiness test as renderCentre.
+  // The guard can only ever PREVENT a mark, never cause one: it fails to "Enter does
+  // nothing", which is immediately visible and recoverable.
+  if (!S.data || S.data.ok === false || S.data.board_ready === false) return null;
   // Still gated on a query: Enter into an empty box must never mark anybody. The box is
   // focused on load, so an unguarded Enter would be one stray keystroke from a wrong pick.
   if (!S.query) return null;
@@ -1604,8 +2192,21 @@ function renderEnterHint() {
 
 function markTaken(id, name) {
   if (id == null) return;
+  if (S.complete) {
+    S.actionMsg = "Draft complete — every pick has been made";
+    S.actionErr = false;
+    renderAction();
+    return;
+  }
   var label = name || id;
+  // Keyed on the id rather than one global flag: two DIFFERENT players marked in quick
+  // succession from the keyboard must both go through, but the same player twice
+  // (double-click, or a fat-fingered double Enter) must not push two entries.
+  var key = String(id);
+  if (S.markPending[key]) return;
+  S.markPending[key] = true;
   post("/api/taken", id).then(function (j) {
+    delete S.markPending[key];
     S.takenStack.push({ id: String(id), name: label });
     S.actionMsg = "Marked taken: " + label;
     S.actionErr = false;
@@ -1613,6 +2214,7 @@ function markTaken(id, name) {
     S.lastFetchError = null;
     applyState(j);
   }).catch(function (err) {
+    delete S.markPending[key];
     console.error("[audible] mark taken failed:", err);
     S.actionMsg = "Mark taken failed: " + label;
     S.actionErr = true;
@@ -1621,6 +2223,26 @@ function markTaken(id, name) {
 }
 
 function undoTaken() {
+  // Server truth again: after a reload the stack is empty but the pick is still undoable.
+  var srvUndo = (S.data && S.data.undo) || {};
+  if (!S.takenStack.length && srvUndo.available === true) {
+    var who = srvUndo.name || "last pick";
+    // The id explicitly, not null: `post` stringifies, so a null would arrive as "null"
+    // and match no pick. The payload already names the one that would be undone.
+    post("/api/taken/undo", srvUndo.player_id).then(function (j) {
+      S.actionMsg = "Undone: " + who;
+      S.actionErr = false;
+      S.fetchFail = 0;
+      S.lastFetchError = null;
+      applyState(j);
+    }).catch(function (err) {
+      console.error("[audible] undo failed:", err);
+      S.actionMsg = "Undo failed: " + who;
+      S.actionErr = true;
+      renderAction();
+    });
+    return;
+  }
   if (!S.takenStack.length) {
     S.actionMsg = "Nothing to undo";
     S.actionErr = false;
@@ -1673,7 +2295,28 @@ document.addEventListener("keydown", function (e) {
   }
   if (e.ctrlKey || e.altKey || e.metaKey) return;
 
+  // `?` and Escape answer wherever focus happens to be, BEFORE the typing branch. The
+  // search box holds focus on load and after every mark, so gating these on the switch
+  // below would mean `?` typed a character into the box instead of opening anything --
+  // which is exactly how the digit shortcuts already fail in the eyes-off state. No player
+  // search needs a question mark, so intercepting it costs nothing.
+  if (e.key === "?") { toggleLegend(); e.preventDefault(); return; }
+  if (e.key === "Escape" && !$("helpPanel").hidden) {
+    toggleLegend(false); e.preventDefault(); return;
+  }
   if (isTyping(e.target)) {
+    // The legend advertises 0-6, but the search box holds focus on load and after every
+    // Enter, so in the eyes-off state a digit FILTERED the board instead of switching
+    // sections -- the shortcut we advertise was unreachable in the only state Eric is
+    // actually in. An EMPTY box disambiguates it: no name on either board contains a digit
+    // anywhere (audited 2026-08-31 across 10,928 entries and the 12,225-player catalog;
+    // team defences are abbreviations like SF, not "San Francisco 49ers"), so a digit into
+    // an empty box can only be the shortcut. The moment a query exists, digits are text
+    // again, so nothing that could ever match a player is intercepted.
+    if (e.key >= "0" && e.key <= "9" && $("q").value === "") {
+      var tabIdx = parseInt(e.key, 10);
+      if (tabIdx < S.tabKeys.length) { setFilter(S.tabKeys[tabIdx]); e.preventDefault(); return; }
+    }
     if (e.key === "Enter") {
       var target = enterTarget();
       if (target) {
@@ -1742,6 +2385,7 @@ document.addEventListener("keydown", function (e) {
       undoTaken();
       e.preventDefault();
       break;
+    // `?` is handled above the typing branch -- see the comment there.
     case " ":
       if (e.target && e.target.tagName === "BUTTON") return;
       setPaused(!S.paused);
@@ -1769,6 +2413,28 @@ document.addEventListener("keydown", function (e) {
 /* ───────────────────────── wiring ──────────────────────────── */
 
 $("pauseBtn").addEventListener("click", function () { setPaused(!S.paused); });
+/* C2. The help panel is a fixed overlay, so opening it cannot move the board -- there is
+   nothing in flow to shift. Reachable by BOTH a labelled button and `?`, because a keyboard
+   shortcut alone is not an affordance for someone who has never seen this page. */
+function toggleLegend(force) {
+  var panel = $("helpPanel"), b = $("legendToggle");
+  var open = (force === undefined) ? panel.hidden : !!force;
+  setHidden(panel, !open);
+  setAttr(b, "aria-expanded", open ? "true" : "false");
+  if (open) $("helpClose").focus(); else $("q").focus();
+}
+Array.prototype.forEach.call(
+  document.querySelectorAll("#bestPanel thead th.sortable"),
+  function (th) { th.addEventListener("click", function () { setSort(th.dataset.sort); }); }
+);
+$("sortReset").addEventListener("click", function () { resetSort(); });
+
+$("legendToggle").addEventListener("click", function () { toggleLegend(true); });
+$("helpClose").addEventListener("click", function () { toggleLegend(false); });
+$("helpPanel").addEventListener("click", function (ev) {
+  if (ev.target === $("helpPanel")) toggleLegend(false);   // click the backdrop to dismiss
+});
+
 $("undoBtn").addEventListener("click", function () { undoTaken(); });
 $("thumbUndo").addEventListener("click", function () { undoTaken(); });
 
