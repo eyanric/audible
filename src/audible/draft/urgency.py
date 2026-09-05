@@ -159,40 +159,73 @@ def detect_run(recent: Iterable[Mapping[str, Any]], window: int = 8) -> dict[str
 
 @dataclass(frozen=True, slots=True)
 class RosterNeed:
-    """Startable bodies held against starting slots required, per position."""
+    """A starting slot: how many the league demands, how many are filled, and WHO can fill it.
+
+    `eligible` is the league's own `slot_eligibility` for this slot. It is not decoration:
+    without it every flex reads as universal, and a slot only a linebacker can fill hands
+    the same credit to a kicker.
+    """
 
     position: str
     required: int
     held: int
+    eligible: frozenset[str] | None = None
 
     @property
     def short(self) -> int:
         return max(0, self.required - self.held)
 
+    @property
+    def fills(self) -> frozenset[str]:
+        """Positions that can start in this slot. A slot with no declared eligibility is
+        dedicated to the position it is named for -- which is what `QB`, `K` and `DEF` are."""
+        return self.eligible if self.eligible is not None else frozenset({self.position})
 
-def roster_needs(slots: Iterable[Mapping[str, Any]]) -> dict[str, RosterNeed]:
+
+def roster_needs(
+    slots: Iterable[Mapping[str, Any]],
+    eligibility: Mapping[str, Iterable[str]] | None = None,
+) -> dict[str, RosterNeed]:
     """Read the served roster block into per-position need. Visible, so it can be argued
-    with: Eric must be able to see why The Call prefers a back and disagree."""
+    with: Eric must be able to see why The Call prefers a back and disagree.
+
+    `eligibility` is `LeagueConfig.slot_eligibility`, and passing it is what makes this
+    league-aware rather than league-shaped. BoyFun's `IDP_FLEX` takes DL/LB/DB and its
+    `SUPER_FLEX` takes QB/RB/WR/TE; Danger Zone has neither. None of that can be inferred
+    from the slot name.
+    """
+    elig = {str(k).upper(): frozenset(str(v).upper() for v in vals)
+            for k, vals in (eligibility or {}).items()}
     out: dict[str, RosterNeed] = {}
     for s in slots:
         pos = str(s.get("slot") or "").upper()
         if not pos:
             continue
         out[pos] = RosterNeed(position=pos, required=int(s.get("total") or 0),
-                              held=int(s.get("filled") or 0))
+                              held=int(s.get("filled") or 0), eligible=elig.get(pos))
     return out
 
 
 def _need_score(position: str, needs: Mapping[str, RosterNeed]) -> int:
-    """How badly this position is wanted. Direct slot first, then any flex that takes it."""
-    direct = needs.get(position)
-    if direct is not None and direct.short > 0:
-        return 2
-    for name in ("FLEX", "SUPER_FLEX", "IDP_FLEX"):
-        flex = needs.get(name)
-        if flex is not None and flex.short > 0:
-            return 1
-    return 0
+    """How badly this position is wanted: 2 for a slot only he can fill, 1 for a shared one.
+
+    IT ASKS THE LEAGUE WHO CAN FILL A SLOT rather than guessing from its name. The first
+    version walked a hardcoded ("FLEX", "SUPER_FLEX", "IDP_FLEX") list and returned 1 if
+    ANY of them was short, for ANY position -- so with only `IDP_FLEX` open on BoyFun a
+    tight end scored the same as a linebacker, The Call named the tight end because value
+    breaks the tie, and its own reason string said "TE still fills a flex" while the roster
+    panel beside it read `IDP_FLEX: 0/1 short 1`. A required starting slot would never have
+    been recommended for.
+    """
+    pos = position.upper()
+    best = 0
+    for need in needs.values():
+        if need.short <= 0 or pos not in need.fills:
+            continue
+        # A slot only this position can fill is a harder constraint than a shared one:
+        # someone else can take the flex, nobody else can take the kicker slot.
+        best = max(best, 2 if len(need.fills) == 1 else 1)
+    return best
 
 
 def _urgency_tier(gap: float | None) -> int:
@@ -211,6 +244,26 @@ def _urgency_tier(gap: float | None) -> int:
 
 
 TOP_N = 12
+
+
+def _arithmetic(adp: float | None, next_pick: int | None, gap: float | None) -> str:
+    """The subtraction, or the specific reason there isn't one.
+
+    THE TWO REASONS ARE NOT THE SAME REASON. This used to say "no ADP for this player"
+    whenever the figure was missing -- including when the player had a perfectly good ADP
+    and it was the SEAT that was unknown. On BoyFun that is the state right up to kickoff:
+    Sleeper's `slot_to_roster_id` is an identity map that lies until the draft opens, so
+    `my_next_pick` is None and every row read "no ADP" about players whose ADP was on the
+    screen beside it. A wrong explanation for a missing number is worse than none, because
+    it sends you looking in the wrong place at the one moment you cannot afford to.
+    """
+    if gap is not None:
+        return f"ADP {adp} - next pick {next_pick} = {gap:+}"
+    if next_pick is None:
+        return ("MY SEAT IS NOT RESOLVED YET, so there is no next pick to subtract from. "
+                "Sleeper does not publish a truthful draft order until the draft opens. "
+                "This row is ordered by board value and roster need only.")
+    return "no ADP for this player -- availability unknown, not high"
 
 
 def _why_not(best: Mapping[str, Any], runner: Mapping[str, Any] | None) -> str | None:
@@ -300,11 +353,7 @@ def the_call(
             "platform_rank": p.get("platform_rank"),
             "adp": p.get("adp"),
             "survives_by": s["survives_by"],
-            "survival_arithmetic": (
-                f"ADP {p.get('adp')} - next pick {next_pick} = {s['survives_by']:+}"
-                if s["survives_by"] is not None else
-                "no ADP for this player -- availability unknown, not high"
-            ),
+            "survival_arithmetic": _arithmetic(p.get("adp"), next_pick, s["survives_by"]),
             "survival_confidence": s["confidence"],
             "at_tier_cliff": None if cliff is None else
                 f"{cliff.position}{cliff.after_rank}, {cliff.gap} pts below him",
@@ -331,9 +380,17 @@ def the_call(
         cost = (f"passing {other_pos['player'].get('name')} "
                 f"({other_pos['position']}, board #{other_pos['player'].get('vorp_rank')})")
 
+    if next_pick is None:
+        # Say it once, at the top, rather than leaving the reader to infer it from a row of
+        # nulls. Until the seat resolves this is a value-and-need ranking wearing the name
+        # of an availability one.
+        why.insert(0, "SEAT UNRESOLVED -- no availability arithmetic yet, "
+                      "this is board value and roster need only")
+
     return {
         "pick": render(best),
         "runner_up": render(runner),
+        "seat_resolved": next_pick is not None,
         "why_now": "; ".join(why) or "best available among those who will not last",
         "what_it_costs": cost,
         "why_not_the_runner_up": _why_not(best, runner),
