@@ -278,7 +278,7 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         # It cannot reorder the board; it selects from it and says why.
         from ..draft.urgency import detect_run, roster_needs, the_call
 
-        needs = roster_needs(s["roster"]["slots"])
+        needs = roster_needs(s["roster"]["slots"], service.config.slot_eligibility)
         entries = getattr(service.board, "entries", []) if service.board else []
         taken = service.session.taken_ids()
         available = [e for e in entries if e.player_id not in taken]

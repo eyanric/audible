@@ -25,8 +25,10 @@ from audible.draft.urgency import (
     NOISE_FLOOR_POSITIONS,
     SURVIVAL_SAFE,
     RosterNeed,
+    _need_score,
     confidence,
     detect_run,
+    roster_needs,
     survives_by,
     the_call,
 )
@@ -217,3 +219,85 @@ async def test_the_call_stays_inside_the_top_twelve_on_a_real_board(service: Any
 
 def test_the_threshold_is_the_one_that_was_pre_registered() -> None:
     assert SURVIVAL_SAFE == 10
+
+
+# -- roster need reads the league's own slot eligibility ---------------------------------
+# Step 0b on 2026-09-05 found `_need_score` walking a hardcoded flex list and crediting
+# every position for every flex. With only `IDP_FLEX` open on BoyFun, The Call named a
+# tight end and said "TE still fills a flex" while the roster panel beside it read
+# `IDP_FLEX: 0/1 short 1`. These pin the fix in both directions.
+
+_BOYFUN_ELIGIBILITY = {
+    "QB": ["QB"], "RB": ["RB"], "WR": ["WR"], "TE": ["TE"],
+    "FLEX": ["RB", "WR", "TE"], "SUPER_FLEX": ["QB", "RB", "WR", "TE"],
+    "K": ["K"], "DEF": ["DEF"], "IDP_FLEX": ["DL", "LB", "DB"],
+}
+
+
+def _needs(open_slot: str) -> dict[str, RosterNeed]:
+    """Every BoyFun slot filled except *open_slot*."""
+    counts = {"QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "SUPER_FLEX": 1,
+              "K": 1, "DEF": 1, "IDP_FLEX": 1}
+    return roster_needs(
+        [{"slot": s, "total": t, "filled": 0 if s == open_slot else t}
+         for s, t in counts.items()],
+        _BOYFUN_ELIGIBILITY,
+    )
+
+
+def test_only_an_idp_can_score_for_the_idp_slot() -> None:
+    needs = _needs("IDP_FLEX")
+    for pos in ("DL", "LB", "DB"):
+        assert _need_score(pos, needs) > 0, f"{pos} can fill IDP_FLEX"
+    for pos in ("QB", "RB", "WR", "TE", "K", "DEF"):
+        assert _need_score(pos, needs) == 0, f"{pos} cannot fill IDP_FLEX"
+
+
+def test_a_kicker_scores_nothing_from_an_open_flex() -> None:
+    needs = _needs("FLEX")
+    for pos in ("RB", "WR", "TE"):
+        assert _need_score(pos, needs) == 1
+    for pos in ("K", "DEF", "QB", "LB"):
+        assert _need_score(pos, needs) == 0
+
+
+def test_superflex_is_quarterback_demand_and_only_for_who_can_fill_it() -> None:
+    needs = _needs("SUPER_FLEX")
+    for pos in ("QB", "RB", "WR", "TE"):
+        assert _need_score(pos, needs) == 1
+    for pos in ("K", "DEF", "LB"):
+        assert _need_score(pos, needs) == 0
+
+
+def test_a_dedicated_slot_outranks_a_shared_one() -> None:
+    """Someone else can take the flex; nobody else can take the kicker slot."""
+    assert _need_score("K", _needs("K")) == 2
+    assert _need_score("RB", _needs("FLEX")) == 1
+
+
+def test_the_call_names_a_player_who_can_actually_fill_the_hole() -> None:
+    cands = [_cand("1", "A TE", "TE", 1, 40.0), _cand("2", "A LB", "LB", 9, 40.0)]
+    out = the_call(cands, next_pick=57, needs=_needs("IDP_FLEX"), available_entries=[])
+    assert out["pick"]["name"] == "A LB", "named someone who cannot fill the only open slot"
+
+
+# -- the unresolved seat says which number is missing, and why ---------------------------
+
+
+def test_an_unresolved_seat_is_named_as_such_not_blamed_on_a_missing_adp() -> None:
+    """BoyFun's seat is unresolved until kickoff, so this is the pre-draft state."""
+    out = the_call([_cand("1", "Has An ADP", "RB", 1, 2.0)], next_pick=None, needs={},
+                   available_entries=[])
+    assert out["seat_resolved"] is False
+    assert "SEAT UNRESOLVED" in out["why_now"]
+    text = out["pick"]["survival_arithmetic"]
+    assert "SEAT IS NOT RESOLVED" in text
+    assert "no ADP" not in text, "blamed a missing ADP on a player who has one"
+    assert out["pick"]["survives_by"] is None, "invented a figure it could not compute"
+
+
+def test_a_resolved_seat_shows_the_subtraction() -> None:
+    out = the_call([_cand("1", "X", "RB", 1, 2.0)], next_pick=20, needs={},
+                   available_entries=[])
+    assert out["seat_resolved"] is True
+    assert out["pick"]["survival_arithmetic"] == "ADP 2.0 - next pick 20 = -18.0"
