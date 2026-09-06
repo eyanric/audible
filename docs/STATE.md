@@ -289,6 +289,48 @@ The Deployment: `secretKeyRef.name: audible-secrets-espn2`, `--league espn_green
 **no `--slot`** (the seat lives in the TOML, and putting it in two places is what went wrong
 on Danger Zone).
 
+### The Kubernetes side is NOT unaffected by the per-league cookie keys. Two real bugs.
+
+Both were caught by an adversarial review of the manifest, after it was already committed and
+PR'd. Recording them because the first one refutes a premise that was stated as settled.
+
+**1. The container must export the names the CONFIG asks for, not `ESPN_SWID` / `ESPN_S2`.**
+
+The claim "each pod gets its own Secret via `secretKeyRef`, so the variable names stay
+`ESPN_SWID` / `ESPN_S2` inside every container" **stops being true the moment a league names
+non-default keys** -- which is exactly what `espn_green_hope.toml` does.
+`EspnAdapter.for_league` reads the names the CONFIG gives it, and there is deliberately **no
+fallback** to the defaults, because falling back is how a process silently serves the wrong
+account. `.dockerignore` excludes `.env`, so there is no file to fall back to either.
+
+As first written, that pod would have started, built a correct board, reported `ok:true` -- and
+been attached to no draft. Proved by simulating the container (dotenv stubbed empty, only the
+injected variables present):
+
+```
+container exports ESPN_SWID / ESPN_S2 ............ cookies resolve: False
+  -> EspnAuthError: ESPN credentials missing for [espn_green_hope]
+     (league 73131979): set ESPN_SWID_ESPN2 ...
+container exports ESPN_SWID_ESPN2 / ESPN_S2_ESPN2  cookies resolve: True
+```
+
+The SECRET KEYS are unchanged -- `audible-secrets-espn2` still holds `ESPN_SWID` / `ESPN_S2`.
+Only the exported variable names differ, via `name:`. **The Deployment and the TOML now have to
+agree; change one and you must change the other.**
+
+**2. The image bakes the league configs in, so the digest must be repinned.** The Dockerfile
+does `COPY leagues/ ./leagues/`. A digest built before `leagues/espn_green_hope.toml` existed
+has no such league, and `serve --league espn_green_hope` exits 1 -> CrashLoopBackOff (confirmed:
+`_load` raises `SystemExit` on an unknown key). Order: merge the audible PR, let its `image`
+workflow publish (it watches `leagues/**`), take the digest from the job summary, repin, merge
+haven. Renovate would get there unattended; that is not a plan on draft day.
+
+**3. Minor, same review:** `MCP_AUTH_TOKEN` now reads `audible-secrets-espn2` rather than
+`audible-secrets`. Neither Secret defines that key, but `reloader.stakater.com/auto` collects
+the Secret NAMES a pod references, not the keys it finds -- so referencing `audible-secrets`
+would let a rotation of ACCOUNT 1's cookies roll the green-hope pod and wipe the warm
+`emptyDir` board of the one league actually drafting.
+
 **The anti-affinity was extended in the NEW FILE ONLY.** It lists all three app names, so the
 new pod avoids nodes already running either existing cockpit -- which is what matters, since it
 is the only one being scheduled. The two existing Deployments still list two values each.
@@ -660,9 +702,12 @@ if 73131979 is ever served past ~rank 250.**
 Items 1-4 of the previous list are DONE: the per-league cookie source, the 73131979 config,
 the derived-vs-pinned seat assertion, and the haven cockpit manifests (PR open, not merged).
 
-1. **Merge both PRs.** audible `feat/onboard-green-hope-dog-walkers` and haven
-   `feat/audible-cockpit-green-hope`. haven squash-merges; audible merge-commits. Nothing
-   reaches the cluster until the haven one lands.
+1. **Merge both PRs, IN ORDER, with a digest repin between them.** audible
+   `feat/onboard-green-hope-dog-walkers` first (merge-commit), which triggers its `image`
+   workflow; take the digest from that job summary and put it in
+   `deployment-green-hope.yaml`; then merge haven `feat/audible-cockpit-green-hope`
+   (squash). **Merging haven first or without the repin gives a CrashLoopBackOff**, because
+   the league TOMLs are baked into the image. Nothing reaches the cluster until haven lands.
 2. **Validate whether ESPN's ETag advances as picks land. THE LARGEST REMAINING RISK to
    Tuesday.** The endpoint, the conditional request and `EspnSync.poll` are each fine -- 160
    real picks come back through the 304 path on the completed Danger Zone draft. But a server

@@ -17,9 +17,15 @@ num_teams = 8
 
 # Which .env keys carry this league's cookies. The other leagues say nothing and get the
 # historical ESPN_SWID / ESPN_S2 defaults, so both accounts coexist in one .env and one
-# process can serve either. In Kubernetes the pod's Secret supplies ESPN_SWID / ESPN_S2
-# directly, so a containerised run of THIS league would override these -- see the note in
-# config/schema.py.
+# process can serve either.
+#
+# THESE NAMES ARE ALSO WHAT THE CONTAINER MUST EXPORT. haven's
+# kubernetes/apps/audible/deployment-green-hope.yaml sets `name: ESPN_SWID_ESPN2` /
+# `name: ESPN_S2_ESPN2` on the env vars it takes from the audible-secrets-espn2 Secret
+# (whose KEYS are still ESPN_SWID / ESPN_S2). A pod exporting the default names against this
+# config resolves BOTH cookies to None -- there is no fallback, deliberately -- and serves a
+# correct board attached to no draft while /healthz still says ok:true. Change the names here
+# and you must change them there.
 espn_swid_env = "ESPN_SWID_ESPN2"
 espn_s2_env = "ESPN_S2_ESPN2"
 

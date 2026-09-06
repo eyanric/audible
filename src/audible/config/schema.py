@@ -104,9 +104,16 @@ class LeagueConfig(BaseModel):
     # permanently and lets one process serve leagues on either.
     #
     # The defaults are the historical names, so a league that says nothing behaves exactly as
-    # it did. In Kubernetes each pod gets its own Secret via secretKeyRef and the variables
-    # inside the container are always ESPN_SWID / ESPN_S2, so a containerised league leaves
-    # these alone too -- this is for the developer machine, where one process sees one `.env`.
+    # it did.
+    #
+    # THIS IS NOT ONLY A DEVELOPER-MACHINE CONCERN, which is how it was first described and
+    # the description was wrong. Whatever a league names here is what its CONTAINER must
+    # export too: `EspnAdapter.for_league` reads these names and there is NO fallback to the
+    # defaults, because falling back is precisely how a process silently serves the wrong
+    # account. A pod that exports ESPN_SWID against a config asking for ESPN_SWID_ESPN2
+    # resolves both cookies to None and serves a correct board attached to no draft. The
+    # Secret's KEYS can stay ESPN_SWID / ESPN_S2; it is the exported variable NAMES that have
+    # to match. See haven's kubernetes/apps/audible/deployment-green-hope.yaml.
     espn_swid_env: str = "ESPN_SWID"
     espn_s2_env: str = "ESPN_S2"
 
