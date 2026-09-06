@@ -277,17 +277,38 @@ class SleeperAdapter:
     # --- drift guards ------------------------------------------------------
     # Bench/IR slots never demand a weekly starter, so they're excluded from the comparison.
     _NON_STARTER_SLOTS = frozenset({"BN", "IR", "TAXI"})
+    # Slots that hold a player nobody spends a PICK on. The bench is drafted; reserve is not.
+    # This is the Sleeper spelling of ESPN's `sum(lineupSlotCounts) - IR`.
+    _UNDRAFTED_SLOTS = frozenset({"IR", "TAXI"})
 
-    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int, int]]:
-        """Compare the committed starting lineup against the live league's roster_positions.
+    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int | None, int | None]]:
+        """Compare the committed league STRUCTURE against the live league.
 
-        Returns one ``(slot, config_count, live_count)`` tuple per mismatched slot; an empty
-        list means the structure is faithful. This is the structural twin of
-        :meth:`verify_scoring`, and it exists because its absence is exactly how the config
-        came to claim four IDP slots and a DEF slot the live league does not have -- which
-        silently corrupts every replacement baseline the value engine derives.
+        Returns one ``(name, config_value, live_value)`` tuple per mismatch; an empty list
+        means the structure is faithful. Three things are checked, and they are reported the
+        same way:
+
+        * every starting lineup slot,
+        * ``num_teams``,
+        * ``draft_rounds``.
+
+        The slot check exists because its absence is exactly how the config came to claim four
+        IDP slots and a DEF slot the live league does not have -- which silently corrupts every
+        replacement baseline the value engine derives.
+
+        The other two were missing for no reason. Replacement level is derived from
+        ``num_teams`` and the draft clock runs on ``draft_rounds``, and League A's
+        18-to-19-round change had to be found by HAND, out of the draft object, because
+        nothing compared them.
+
+        ROUNDS DO NOT COME FROM ``settings.draft_rounds``. That field is a keeper artifact --
+        League A serves ``3`` on a twenty-slot roster, which is what this league's own config
+        notes call a vestigial copy artifact. Rounds are the roster spots that get drafted:
+        starters plus bench, reserve excluded. Measured 2026-09-05 against the live league,
+        that derivation gives 20 and so does the draft object's ``settings.rounds``.
         """
-        live_positions: list[str] = self.get_league(config.league_id).get("roster_positions", [])
+        league = self.get_league(config.league_id)
+        live_positions: list[str] = league.get("roster_positions") or []
         live_counts: dict[str, int] = {}
         for slot in live_positions:
             if slot in self._NON_STARTER_SLOTS:
@@ -295,11 +316,26 @@ class SleeperAdapter:
             live_counts[slot] = live_counts.get(slot, 0) + 1
 
         cfg_counts = config.slot_counts()
-        return [
+        drift: list[tuple[str, int | None, int | None]] = [
             (slot, cfg_counts.get(slot, 0), live_counts.get(slot, 0))
             for slot in sorted(set(cfg_counts) | set(live_counts))
             if cfg_counts.get(slot, 0) != live_counts.get(slot, 0)
         ]
+
+        settings = league.get("settings") or {}
+        live_teams = settings.get("num_teams", league.get("total_rosters"))
+        live_teams = int(live_teams) if live_teams is not None else None
+        if config.num_teams != live_teams:
+            drift.append(("num_teams", config.num_teams, live_teams))
+
+        live_rounds = (
+            len([slot for slot in live_positions if slot not in self._UNDRAFTED_SLOTS])
+            if live_positions
+            else None
+        )
+        if config.draft_rounds != live_rounds:
+            drift.append(("draft_rounds", config.draft_rounds, live_rounds))
+        return drift
 
     def verify_scoring(self, config: LeagueConfig) -> list[tuple[str, float | None, float | None]]:
         """Compare the committed config scoring against the live league.

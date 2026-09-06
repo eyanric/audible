@@ -69,15 +69,19 @@ def _print_drift(cfg: LeagueConfig, drift: Sequence[tuple[str, float | None, flo
         print(f"[{cfg.key}] config scoring is FAITHFUL to the live league ({faithful}).")
 
 
-def _print_structure(cfg: LeagueConfig, structure: Sequence[tuple[str, int, int]]) -> None:
+def _print_structure(
+    cfg: LeagueConfig, structure: Sequence[tuple[str, int | None, int | None]]
+) -> None:
     if structure:
-        print(f"\n[{cfg.key}] !! ROSTER DRIFT -- {len(structure)} slot(s) differ (config vs live).")
-        print("   Replacement baselines are derived from this, so EVERY value number is wrong:")
-        for slot, cfg_n, live_n in structure:
-            print(f"   {slot:<12} config={cfg_n:<4} live={live_n}")
+        print(f"\n[{cfg.key}] !! STRUCTURE DRIFT -- {len(structure)} item(s) differ "
+              f"(config vs live).")
+        print("   Replacement baselines and the draft clock are derived from this:")
+        for name, cfg_n, live_n in structure:
+            print(f"   {name:<12} config={cfg_n!s:<6} live={live_n!s}")
     else:
-        print(f"\n[{cfg.key}] roster structure is FAITHFUL "
-              f"({len(cfg.starting_slots)} starting slots match).")
+        print(f"\n[{cfg.key}] league structure is FAITHFUL "
+              f"({len(cfg.starting_slots)} starting slots, num_teams={cfg.num_teams}, "
+              f"draft_rounds={cfg.draft_rounds} all match).")
 
 
 def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
@@ -284,12 +288,11 @@ def cmd_live(args: argparse.Namespace) -> int:
 
         # Reconcile against the live draft room before showing a single number. A config that
         # disagrees with the room silently ruins the whole session.
-        for slot, cfg_n, live_n in adapter.verify_structure(cfg):
-            print(f"  !! ROSTER DRIFT {slot}: config={cfg_n} live={live_n} "
+        # verify_structure now covers num_teams and draft_rounds as well as the slots, so
+        # this is the whole reconciliation rather than the slot half of it.
+        for name, cfg_n, live_n in adapter.verify_structure(cfg):
+            print(f"  !! STRUCTURE DRIFT {name}: config={cfg_n} live={live_n} "
                   f"-- value numbers are derived from this and are WRONG until reconciled")
-        live_teams = int(settings.get("teams", cfg.num_teams))
-        if live_teams != cfg.num_teams:
-            print(f"  !! TEAM COUNT DRIFT: config={cfg.num_teams} live={live_teams}")
 
     try:
         while True:
