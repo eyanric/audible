@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from typing import Any
 
+from ..draft import ordering
 from ..draft.live import Candidate, LiveView, my_slot_on_clock
 from ..draft.service import CockpitService
 from ..draft.usage import UsageTable
@@ -63,6 +64,10 @@ def _player(cand: Candidate, *, gaps: dict[str, int] | None = None,
         "team": e.team,
         "consensus_rank": e.consensus_rank,
         "vorp_rank": e.vorp_rank,
+        # The VALUE, not only its rank. A rank cannot be multiplied by anything: scaling a
+        # position in a queue is meaningless, which is why the ordering layer needs the
+        # points-over-replacement number the value engine actually computed.
+        "vorp": round(e.vorp, 2),
         "opp_rank": e.opp_rank,
         "survival": round(cand.survival, 4),
         # An unpriced player is AVAILABLE with unknown survival, not absent. survival reads
@@ -98,6 +103,10 @@ def _player(cand: Candidate, *, gaps: dict[str, int] | None = None,
         # deterministic against a PINNED table -- and there is still only one
         # derivation, because `load_usage` is handed `bye_weeks()` and no longer
         # computes its own.
+        #
+        # TWO NAMES FOR ONE FACT, FROM TWO SOURCES. Harmless while only a column reads it;
+        # a bug waiting to happen the day an ordering does. Collapsing them is part of the
+        # blocked bye work, not something to do while the bye term is switched off.
         "bye_week": usage.bye(e.team) if usage else None,
     }
 
@@ -615,6 +624,7 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         _player(c, gaps=gaps, byes=byes, usage=usage)
         for c in _served_pool(service, view)
     ]
+    _score_rows(service, view, base["best_available"], byes)
     base["bye_collisions"] = _bye_collisions(service, byes)
     base["usage_degraded"] = list(usage.missing_sources) if usage else []
     base["teams"] = _teams(service)
@@ -625,6 +635,79 @@ def build_state(service: CockpitService) -> dict[str, Any]:
     base["the_call"] = _the_call(service, view, base)
     base["run"] = _run_block(base)
     return base
+
+
+def _my_entries(service: CockpitService, view: LiveView) -> list[Any]:
+    """Every player I hold, bench included -- not just the ones placed into starting slots."""
+    if service.board is None or view is None:
+        return []
+    slot = service.session.slot
+    if slot is None:
+        return []
+    by_id = {e.player_id: e for e in service.board.entries}
+    return [
+        by_id[p.player_id]
+        for p in service.session.effective_picks()
+        if p.draft_slot == slot and p.player_id in by_id
+    ]
+
+
+def _slot_week_points(service: CockpitService, view: LiveView) -> float:
+    """What one unfilled STARTING slot for one week costs, in board points.
+
+    Derived from this league's own board rather than chosen: the last player who would
+    start anywhere in the league is `num_teams * starting_slots` deep, and his season
+    points are what a starting slot is worth over a whole season. Divided by the weeks in
+    it, that is the price of having nobody to play.
+    """
+    config = service.config
+    depth = config.num_teams * len(config.starting_slots)
+    ranked = view.ranked
+    if not ranked:
+        return 0.0
+    marginal = ranked[min(depth, len(ranked)) - 1].entry
+    return max(0.0, marginal.points) / ordering.SEASON_WEEKS
+
+
+def _score_rows(
+    service: CockpitService,
+    view: LiveView,
+    rows: list[dict[str, Any]],
+    byes: dict[str, int],
+) -> None:
+    """Attach the composed ordering score to every served row, in place.
+
+    Computed HERE, once, rather than inside `recommend`: this is where the league config,
+    the roster and the bye map are all in scope, and publishing the number on the row makes
+    the ordering arguable instead of hidden. `recommend` then only has to sort.
+    """
+    config = service.config
+    mine = _my_entries(service, view)
+    held: dict[str, int] = {}
+    for e in mine:
+        held[e.position] = held.get(e.position, 0) + 1
+    unfilled = list(view.unfilled)
+    # Cached because this runs on the 2s poll path over ~200 rows: the factor depends only
+    # on the position, so it is priced once per position rather than once per player.
+    factors: dict[str, float] = {}
+
+    for row in rows:
+        position = str(row.get("position") or "")
+        if position not in factors:
+            factors[position] = ordering.marginal_start_factor(
+                position, config=config, unfilled=unfilled, held_counts=held
+            )
+        factor = factors[position]
+
+        # THE BYE TERM IS DELIBERATELY NOT APPLIED. `ordering.bye_conflict_cost` is built
+        # and tested, but `tests/test_byes.py` enforces as a merged hard stop that joining
+        # byes changes no served number, and a bye reaching the ordering is exactly that.
+        # Reported rather than resolved here; see draft/ordering.py.
+        base_value = max(0.0, float(row.get("vorp") or 0.0))
+        row["marginal_start_factor"] = round(factor, 4)
+        row["effective_score"] = round(
+            ordering.effective_score(base_value, factor, 0.0), 3
+        )
 
 
 def _the_call(service: CockpitService, view: LiveView, base: dict[str, Any]) -> dict[str, Any]:

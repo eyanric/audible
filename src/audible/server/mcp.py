@@ -245,9 +245,27 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         # near the top by board value -- and a `grab_now` candidate sitting one row past
         # the cut was dropped before the thing that made him urgent was looked at. The
         # whole point of the sort is that it can promote from below the cut.
+        #
+        # THE SECOND KEY IS A SCALAR, AND THAT IS THE FIX. It used to be
+        # `(not grab_now, vorp_rank, not fills_need)`, and `vorp_rank` is a UNIQUE integer:
+        # a tiebreaker after a unique key is never compared, so roster need was computed,
+        # published, and then discarded. Three separately-reported bugs were that one dead
+        # key. `effective_score` -- board value, discounted by how many weeks the player
+        # would actually start, less what his bye collisions cost -- composes instead of
+        # queueing, and `draft/ordering.py` says how it is built.
+        #
+        # `grab_now` STAYS a leading key rather than being folded into the scalar. Urgency
+        # already reached the ordering and was not the bug; folding it in would change its
+        # behaviour, and that is a separate decision from making need and byes count.
+        # `vorp_rank` remains last as a total order, so the below-replacement tail (whose
+        # value clamps to zero) keeps the board's own sequence rather than an arbitrary one.
         ranked = sorted(
             candidates,
-            key=lambda p: (not p["grab_now"], p["vorp_rank"], not p["fills_need"]),
+            key=lambda p: (
+                not p["grab_now"],
+                -float(p.get("effective_score") or 0.0),
+                p["vorp_rank"],
+            ),
         )[:limit]
 
         out = []
