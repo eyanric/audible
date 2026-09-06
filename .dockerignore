@@ -8,6 +8,11 @@ __pycache__
 **/__pycache__
 *.py[cod]
 tests
+# Defect-reproduction gates. The Dockerfile COPYs an explicit list (src/, leagues/,
+# pyproject.toml, uv.lock, README.md) so sim/ would not be copied anyway -- this is
+# belt and braces, because the image contents are load-bearing and a stray inclusion
+# changes the digest.
+sim
 docs
 snapshots
 cheatsheets
