@@ -215,9 +215,30 @@ Cilium announcer never picked it up — absent from `db/show l2-announce` on all
 bound to the address, not the Service. Cleanup was deferred; it is still deferred.
 
 The new Deployment models on `deployment-danger-zone.yaml` with: `secretKeyRef.name:
-audible-secrets-espn2` (that Secret exists in `kubernetes/apps/audible/` and is listed in the
-kustomization, but **nothing references it yet**), `--league <key>`, **no `--slot`** (the seat
-belongs in the TOML), and the `podAntiAffinity` `values:` list extended to all three apps.
+audible-secrets-espn2`, `--league <key>`, **no `--slot`** (the seat belongs in the TOML), and the
+`podAntiAffinity` `values:` list extended to all three apps.
+
+**`audible-secrets-espn2` is already live**, not just committed: it is on haven `main` and
+appears in the `apps` Flux Kustomization's inventory as `audible_audible-secrets-espn2__Secret`.
+Nothing references it yet. So the cockpit only needs the Deployment and Service.
+
+### The Flux freeze is OFF, and pulling it again is a documented lever
+
+PR #352 suspended `apps` for the 2026-09-05 drafts, merged 17:39 ET, and has been **reverted**.
+Measured on the live cluster 2026-09-06 03:06 UTC: `apps` carries no `suspend`,
+`ReconciliationSucceeded`, healthy. So a merged haven PR **will** apply.
+
+`kubernetes/flux/config/apps.yaml` now carries the procedure in a comment block that names
+**2026-09-08 as the next one**: add `suspend: true` under `dependsOn`, merge, revert afterwards.
+
+**Blast radius, stated plainly: there is no per-app Flux Kustomization.** `apps` reconciles
+`./kubernetes/apps` in its entirety, so suspending it freezes **every** app — home-assistant,
+immich, frigate, mcp, vaultwarden and the rest. `infra` and `cluster` are not suspended. For one
+evening that is acceptable and fully reversible; it is not a lever to leave pulled. While
+suspended, merged PRs simply do not apply — nothing queues up wrong.
+
+**Order for Tuesday:** deploy the third cockpit, `refresh-data`, container-restart to reach
+`origin: disk`, and only then pull the freeze. Freezing first would block the deploy.
 
 ---
 
@@ -505,8 +526,10 @@ if 73131979 is ever served past ~rank 250.**
    `draft_slot = 1`, and today it does not exist.
 4. **haven: a third cockpit** — `deployment-<key>.yaml` + `service-<key>.yaml` on
    **192.168.1.113**, `audible-secrets-espn2`, no `--slot`, anti-affinity extended to three.
-5. **haven: restore the Renovate freeze** before pinning any new digest. Without it a digest PR
-   self-merges and rolls the pods unattended.
+5. **haven: freeze `apps` for Tuesday evening** — the lever and its blast radius are documented
+   in `kubernetes/flux/config/apps.yaml`, which names 2026-09-08 by date. Pull it AFTER the
+   cockpit is deployed and refreshed, not before. Restoring the Renovate freeze on
+   `ghcr.io/eyanric/**` is the narrower belt-and-braces version.
 6. **ESPN live-draft sync has never delivered a pick.** `mDraftDetail` returned clean 304s through
    an entire live draft on 2026-09-05; DDAFFL was entered by hand. **A 304 cannot distinguish
    "nothing changed" from "this never populates."** The instrument has to be validated before it
