@@ -12,8 +12,8 @@ Rules for editing:
 - **Record the decision, not just the finding.** "Flagged not fixed" is the useful half.
 - **Delete what stops being true.** A stale line here is worse than no line.
 
-Last rewritten **2026-09-06, 00:30 ET**, after 73131979 was onboarded and the seat and
-account checks were built.
+Last rewritten **2026-09-06, 13:40 ET**, after The Call was made to order by the same
+scalar `recommend` does and the bye term was wired.
 
 ---
 
@@ -74,6 +74,138 @@ and is the only live one.
 sets `espn_swid_env` / `espn_s2_env`. It is also the only **zero-PPR** league: `statId 53`
 is absent from its live scoring items entirely, so no position is paid for a catch. It pays
 **six-point passing TDs** and **raw** passing yards (`statId 3`), not the 25-yard bucket.
+
+---
+
+## What shipped 2026-09-06: The Call and `recommend` now read ONE number
+
+`audible#60` moved `recommend` to a composed `effective_score` and left **The Call** -- the
+panel on the cockpit page, which is what is actually read while the clock runs -- sorting by
+raw `vorp_rank`. Two surfaces, one board, two answers.
+
+### The live BoyFun defect reproduces on The Call, and neither offered explanation was right
+
+Reconstructed under the real `sleeper_boyfun` config, every starting slot filled but K and
+DEF: The Call named **Next Linebacker (board #20)** over **Next Back (#21)** with `IDP_FLEX`
+already full. `recommend`, on the same rows, scored them **19.0** and **379.0**.
+
+Both hypotheses in the brief were REFUTED by measurement:
+
+- **`_need_score` has no occupancy bug.** It returns 0 for the second linebacker. Occupancy
+  was already correct on this surface too.
+- **`TOP_N = 12` did not starve the sort.** The correct candidate sat at slice position **2**
+  in every case reconstructed. Swept: the G-CALL gates go red at `TOP_N = 1` and stay green
+  at 2, 3 and 12.
+
+The real cause: `need` is a 2/1/0 bucket. Once the lineup is nearly full it ties at 0 for
+almost everyone, and the ordering fell through to board rank -- the one number that knows
+nothing about my roster. `server/state.py::_the_call` rebuilds its candidate rows by hand
+from `best_available` and named six fields; `effective_score`, attached to those very rows
+three lines earlier, was not one of them. **A hand-built projection silently drops what it
+does not name.**
+
+Fix: The Call sorts `(-need, urgency, -effective_score, vorp_rank)`. `need` stays the leading
+key -- `marginal_start_factor` deliberately pays no bonus for filling an empty slot, so the
+two do not substitute for each other -- and the scalar breaks ties *within* a need tier.
+
+### The bye term is wired, and hard stop 2 was narrowed rather than weakened
+
+`tests/test_byes.py`'s "every number must be untouched by the join" existed to stop byes
+contaminating **projections and value**. That intent is correct and is now enforced BY NAME
+over every value-engine field, plus an assertion that nothing outside the bye-consuming set
+may move at all. What is licensed is `effective_score` and The Call. The other three guards
+are untouched: `value/`, `scoring/` and `providers/` still cannot import or name the bye
+accessor, `bye` is still not a field on any player model, and the derivation still cannot
+read a ranking field.
+
+Control re-verified after wiring: roster **14.0**, + RB on the SAME bye **19.0** (+5.0), + RB
+on an UNSHARED bye **15.0** (+1.0).
+
+### Two real bugs found while wiring, both of which only the wiring could expose
+
+1. **`_slot_week_points` mixed units.** It returned `marginal.points / 18` while
+   `effective_score` subtracts it from a base value that is **VORP**. Harmless for exactly as
+   long as the penalty was multiplied by zero. Measured on the pinned Green Hope board, the
+   marginal starter is Garrett Wilson at **141.9 points and 29.9 VORP**, so a slot-week read
+   **7.88** where the commensurate figure is **1.66** -- a four-unit bye collision charged
+   31.5 VORP points against a board whose 50th player is worth 49.2 in total. Now reads
+   `marginal.vorp / 18`: same quantity, same place, on the scale the subtraction happens on.
+   Live effect after the fix: 1.588 baseline, 7.939 for a genuine collider.
+
+2. **`bye` and `bye_week` were two derivations of one fact**, and `_player`'s own comment
+   called that "a bug waiting to happen the day an ordering does" read one of them. That day
+   arrived. They are reconciled in `build_state` before either name is served, so the column
+   the page shows and the number the ordering prices cannot disagree. Offline gates pin a
+   `UsageTable` and no schedule exists there; before reconciliation such a gate saw
+   `bye: None` on every row and a bye term that priced nothing -- a green that means nothing.
+
+### The slice DID starve the ordering, in a case nobody proposed it for
+
+Separate defect, same surface, found while producing the required screenshot. Green Hope's
+board top is **entirely running backs**. Holding four backs against three RB-startable slots,
+The Call's top-12 **by board rank** was twelve rows of the same surplus position, all
+discounted to 0.1562, the best of them scoring **30.8** -- while **Jaxon Smith-Njigba scored
+78.8 at pool row 28** and was never looked at. `recommend` sorts the whole pool and named him.
+Two surfaces disagreeing again, for a different reason.
+
+A cap on "the best N candidates" has to mean best BY THE TOOL'S OWN MEASURE. `the_call` now
+walks the pool in `effective_score` order and takes the first `TOP_N` that are actually
+pickable -- eligibility is tested BEFORE the cap, because a first attempt filtered afterwards
+and spent all twelve places on deep rows the market prices fifty picks away, leaving one
+candidate and no runner-up. `at_a_cliff` is asked only about players `will_last` flagged, so
+the per-poll cost did not grow.
+
+Pinned by G-CALL-SLICE. `docs/img/the-call-surplus.png` is this state on the page: The Call
+names a receiver at board #34 while every row of Best Available beneath it is a discounted
+back.
+
+### Gates, measured
+
+- **G7 junk tail: PASS.** 0 QBs inside the Green Hope top 15 (stop condition is >= 8). The
+  top 15 is entirely running backs.
+- **G9 round-1 board: IDENTICAL before and after.** Same top 10, same pick (Jahmyr Gibbs),
+  same runner-up (Bijan Robinson). Nothing is surplus on an empty roster and no bye can
+  collide with a roster of nobody, so no change was expected and none occurred.
+- **Default suite: 512 collected**, matching the 511-passed-1-xfailed baseline.
+  `tests/test_ui_desktop.py::test_best_available_does_not_move_when_the_grab_list_empties`
+  is an **intermittent pre-existing Playwright layout-timing flake** -- it failed once on
+  `main` before any change here, then passed on re-run and 3/3 in isolation. Not a regression,
+  and worth fixing separately.
+
+### G-SURV retired: the wheel is correct
+
+It asserted `any(grab_now)` at a back-to-back turn. Two merged tests assert the opposite, and
+one of them renders a product feature from it:
+
+- `tests/test_live.py::test_wheel_picks_have_a_one_pick_horizon` -- `assert not any(c.grab_now
+  for c in view.best_available)` at `opponent_picks_until_horizon == 0`.
+- `tests/test_server.py::test_the_page_renders_the_turn_rather_than_one_pick_number` -- the
+  page derives `twoOnClock` from `clock.opponent_picks_until_horizon === 0` and prints
+  **"Two picks on the clock"** (`static/index.html:1567,1612`).
+
+Zero opponents between two consecutive picks is correct: nothing can be taken in between, so
+nothing is urgent. Seat 1 of 8 wheels at **16, 32, 48, 64, 80, 96, 112**. **Joint planning of
+a wheel pair is a real feature and remains open**, not a bug.
+
+### G8 never existed as code, and its numbers are refuted
+
+The "no K or DEF inside the top 100" gate exists only as prose in `audible#60`'s PR body. No
+file in `sim/`, `tests/` or `scripts/` implements it. Its premise numbers do not survive
+measurement either -- on the pinned Green Hope board of 2026-09-06:
+
+```
+first K    board vorp_rank 102   own-market adp 109.5   (Brandon Aubrey)
+first DEF  board vorp_rank  94   own-market adp 110.1   (LAR)
+```
+
+Not 87/92 on the board and not 121/123 in the market. **No replacement threshold was
+invented**, because the property it was reaching for is already enforced in a MEASURED form:
+`scripts/qa_board_invariants.py` check B asserts that no specialist's VORP exceeds the board's
+own RB24/WR24 startable floor -- anchored to this league's supply rather than to a rank number
+somebody chose.
+
+A pinned board for `espn_green_hope` now exists (`scripts/fixtures/`, 3,304 entries), which is
+what made G7, G9 and these numbers measurable offline at all.
 
 ---
 
@@ -627,19 +759,26 @@ Hope — whose top 15 is entirely running backs.
 Measured on DDAFFL. In the 10-team Danger Zone the first DEF goes at 88 and the first K at 93, and
 10 DEF / 9 K are gone by 160.
 
-For 73131979, its own market (`adp_std`) prices the first K at rank 121 and the first DEF
-at 123 — both inside 128, unlike DDAFFL's 131/132 in `adp_half_ppr`. Close to the boundary
-either way; the read-past deltas above are the number to act on.
+For 73131979, **re-measured 2026-09-06 against the pinned board**: its own market
+(`adp_std`) prices the first K at **109.5** and the first DEF at **110.1**, while the board
+ranks them **102** and **94**. The earlier "121 and 123" figures do not reproduce. Board and
+market now agree closely on both, so there is no meaningful read-past delta to act on here.
 
-### `recommend` has no notion of roster balance — still true, still not fixed
+### `recommend` had no notion of roster balance — FIXED, on both surfaces
 
-**Draft-night rule:** `recommend` returns five rows — read all five, not the first. When you
-already hold three startable bodies at a position, take the best row that is not that position.
-The dry run produced **10 WR, 2 RB, 1 TE, 1 QB, 1 DEF, 1 K**. Deliberately not patched — the right
-fix is marginal value against my own roster, which changes what the board recommends.
+Was: `recommend` sorted by `(not grab_now, vorp_rank, not fills_need)` with `vorp_rank`
+unique, so need was computed, published and then discarded; the dry run produced **10 WR,
+2 RB, 1 TE, 1 QB, 1 DEF, 1 K**. `audible#60` replaced the dead key with `effective_score`
+(`vorp * marginal_start_factor - bye penalty`) and `audible#61` made **The Call** read the
+same number, which is the surface the page renders.
+
+**The old draft-night rule is no longer needed but is not yet disproven at a table.** Read all
+five rows anyway on Tuesday: this has been measured against hand-built states and the pinned
+board, never against a live draft.
 
 Its bye-week consequence, measured: a legal lineup does not exist in every week, structurally,
-because `RB` slots take only `RB` and the roster held exactly two.
+because `RB` slots take only `RB` and the roster held exactly two. That is now PRICED --
+convexly, because linear slot-weeks are conserved and therefore discriminate nothing.
 
 ### Opportunity cost shipped, and `survival()` did not
 

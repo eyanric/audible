@@ -104,10 +104,12 @@ def _player(cand: Candidate, *, gaps: dict[str, int] | None = None,
         # derivation, because `load_usage` is handed `bye_weeks()` and no longer
         # computes its own.
         #
-        # TWO NAMES FOR ONE FACT, FROM TWO SOURCES. Harmless while only a column reads it;
-        # a bug waiting to happen the day an ordering does. Collapsing them is part of the
-        # blocked bye work, not something to do while the bye term is switched off.
-        "bye_week": usage.bye(e.team) if usage else None,
+        # TWO NAMES, ONE FACT, ONE SOURCE. `build_state` reconciles the schedule map and the
+        # usage table into a single `byes` before either name is served, so `bye` above and
+        # `bye_week` here cannot disagree. They stay two names because both are published --
+        # `bye` to the page, `bye_week` to the MCP surface -- and renaming a served field is
+        # a breaking change to somebody's client for no gain.
+        "bye_week": (byes or {}).get(e.team or ""),
     }
 
 
@@ -617,8 +619,19 @@ def build_state(service: CockpitService) -> dict[str, Any]:
         "starters_complete": view.starters_complete,
     }
     gaps = _espn_gaps(service)
-    byes = bye_weeks(service.config.season)
     usage = getattr(service, "usage", None)
+    # ONE BYE NUMBER, NOT TWO. `_player` used to serve `bye` from `bye_weeks()` and
+    # `bye_week` from the usage table beside it -- two derivations of one fact, and its own
+    # comment called that "a bug waiting to happen the day an ordering does" read one of
+    # them. That day is this change. They are reconciled HERE, once, so the column the page
+    # shows and the number the ordering prices are the same by construction rather than by
+    # coincidence.
+    #
+    # In production they already agree: `load_usage` is HANDED `bye_weeks()` and computes
+    # nothing of its own. The overlay matters offline, where a gate pins a `UsageTable`
+    # directly and no schedule is on disk -- before this, such a gate saw `bye: None` on
+    # every row and a bye term that priced nothing, which is a green that means nothing.
+    byes = {**bye_weeks(service.config.season), **(usage.bye_by_team if usage else {})}
     base["grab_now"] = [_player(c, gaps=gaps, byes=byes, usage=usage) for c in grab]
     base["best_available"] = [
         _player(c, gaps=gaps, byes=byes, usage=usage)
@@ -655,10 +668,23 @@ def _my_entries(service: CockpitService, view: LiveView) -> list[Any]:
 def _slot_week_points(service: CockpitService, view: LiveView) -> float:
     """What one unfilled STARTING slot for one week costs, in board points.
 
-    Derived from this league's own board rather than chosen: the last player who would
-    start anywhere in the league is `num_teams * starting_slots` deep, and his season
-    points are what a starting slot is worth over a whole season. Divided by the weeks in
-    it, that is the price of having nobody to play.
+    Derived from this league's own board rather than chosen: the last player who would start
+    anywhere in the league is `num_teams * starting_slots` deep, and his VALUE OVER
+    REPLACEMENT is what the worst starting slot is worth across a season. Divided by the
+    weeks in it, that is the price of having nobody to play in one of them.
+
+    IN VORP, NOT IN RAW POINTS, AND THE DIFFERENCE IS NOT SMALL. This returned
+    `marginal.points / 18` while `effective_score` subtracts it from a base value that is
+    VORP -- two different scales either side of one minus sign. Harmless for exactly as long
+    as the penalty was multiplied by zero, and wrong the moment the bye term went live:
+    measured on the pinned Green Hope board, the marginal starter is Garrett Wilson at 141.9
+    points and 29.9 VORP, so a slot-week read 7.88 when the commensurate figure is 1.66, and
+    a four-unit bye collision was charged 31.5 VORP points against a board where the 50th
+    player is worth 49.2 in total. That is a bye moving a candidate twenty-odd ranks, which
+    is not a claim anyone made or measured.
+
+    Still derived, still not tuned: the same quantity from the same place, read on the scale
+    the subtraction actually happens on.
     """
     config = service.config
     depth = config.num_teams * len(config.starting_slots)
@@ -666,7 +692,7 @@ def _slot_week_points(service: CockpitService, view: LiveView) -> float:
     if not ranked:
         return 0.0
     marginal = ranked[min(depth, len(ranked)) - 1].entry
-    return max(0.0, marginal.points) / ordering.SEASON_WEEKS
+    return max(0.0, marginal.vorp) / ordering.SEASON_WEEKS
 
 
 def _score_rows(
@@ -691,6 +717,25 @@ def _score_rows(
     # on the position, so it is priced once per position rather than once per player.
     factors: dict[str, float] = {}
 
+    # -- the bye term ---------------------------------------------------------------------
+    # Priced against MY roster, so it answers "what does adding HIM do to MY weeks" rather
+    # than "how bad is his bye", which is not a question about my team at all.
+    #
+    # `byes` is the same map the `bye` column on this row is joined from, deliberately: the
+    # page must not be able to show one bye and order by another. (`bye_week` beside it comes
+    # from the usage table, a second derivation of the same fact -- see `_player`. The
+    # ordering reads exactly one of them.)
+    #
+    # CACHED ON (eligible slots, bye week), and that key is measured rather than assumed:
+    # sweeping candidate points from 1 to 500 across every position and week moves the
+    # marginal not at all, because `place_into_slots` changes WHO fills a slot with the
+    # ordering but not HOW MANY go unfilled. Without the cache this is ~0.3 ms x ~200 rows
+    # on a 2 s poll; with it, one evaluation per distinct (slot set, week) pair.
+    by_id = {e.player_id: e for e in service.board.entries} if service.board else {}
+    slot_week = _slot_week_points(service, view)
+    bye_base = ordering.bye_conflict_cost(mine, config, byes)
+    bye_marginals: dict[tuple[frozenset[str], int | None], float] = {}
+
     for row in rows:
         position = str(row.get("position") or "")
         if position not in factors:
@@ -699,14 +744,21 @@ def _score_rows(
             )
         factor = factors[position]
 
-        # THE BYE TERM IS DELIBERATELY NOT APPLIED. `ordering.bye_conflict_cost` is built
-        # and tested, but `tests/test_byes.py` enforces as a merged hard stop that joining
-        # byes changes no served number, and a bye reaching the ordering is exactly that.
-        # Reported rather than resolved here; see draft/ordering.py.
+        entry = by_id.get(str(row.get("id") or ""))
+        penalty = 0.0
+        if entry is not None and mine:
+            key = (frozenset(entry.eligible_positions), byes.get(entry.team or ""))
+            if key not in bye_marginals:
+                bye_marginals[key] = ordering.marginal_bye_cost(
+                    mine, entry, config, byes, base=bye_base
+                )
+            penalty = bye_marginals[key] * slot_week
+
         base_value = max(0.0, float(row.get("vorp") or 0.0))
         row["marginal_start_factor"] = round(factor, 4)
+        row["bye_conflict_penalty"] = round(penalty, 3)
         row["effective_score"] = round(
-            ordering.effective_score(base_value, factor, 0.0), 3
+            ordering.effective_score(base_value, factor, penalty), 3
         )
 
 
@@ -727,10 +779,19 @@ def _the_call(service: CockpitService, view: LiveView, base: dict[str, Any]) -> 
     try:
         entries = service.board.entries if service.board else []
         available = [e for e in entries if e.player_id not in service.session.taken_ids()]
+        # `effective_score` RIDES ALONG, and its absence here was the defect. These rows are
+        # rebuilt by hand from `best_available`, so every field not named is silently
+        # dropped -- and the composed scalar `_score_rows` attached three lines above was one
+        # of them. The Call therefore fell back to raw `vorp_rank` and named a player who
+        # could not start, while `recommend`, reading the same pool, got it right.
         rows = [
             {"id": p["id"], "name": p["name"], "position": p["position"],
              "vorp_rank": p["vorp_rank"], "adp": p.get("adp"),
-             "platform_rank": p.get("espn_rank")}
+             "platform_rank": p.get("espn_rank"),
+             "effective_score": p.get("effective_score"),
+             "marginal_start_factor": p.get("marginal_start_factor"),
+             "bye_conflict_penalty": p.get("bye_conflict_penalty"),
+             "bye_week": p.get("bye")}
             for p in base["best_available"]
         ]
         return the_call(

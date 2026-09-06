@@ -190,3 +190,66 @@ def test_the_bye_penalty_is_priced_in_board_points(standard: LeagueConfig) -> No
     )
     raw = ordering.bye_conflict_cost([*roster, _E("c", "RB", "AAA", 240)], standard, BYES)
     assert penalty == pytest.approx(raw * 2.0)
+
+
+def test_adding_a_player_never_lowers_the_bye_cost(standard: LeagueConfig) -> None:
+    """MONOTONICITY, the bye half. A body cannot make a roster's bye shape cheaper.
+
+    Sweeps every rosterable position against all 18 weeks. This is also the measurement
+    behind `marginal_bye_cost` NOT clamping at zero: nothing here scores below it, so a
+    clamp would be inert -- and asserting the property is worth more than hiding it.
+    """
+    roster = _roster()
+    base = ordering.bye_conflict_cost(roster, standard, BYES)
+    for position in ("QB", "RB", "WR", "TE", "K", "DEF"):
+        for week in range(1, ordering.SEASON_WEEKS + 1):
+            byes = {**BYES, "ZZZ": week}
+            cost = ordering.bye_conflict_cost(
+                [*roster, _E("cand", position, "ZZZ", 240)], standard, byes
+            )
+            assert cost >= base - 1e-9, f"{position} on bye {week} LOWERED the cost"
+
+
+def test_the_marginal_is_the_difference_from_the_roster_alone(
+    standard: LeagueConfig,
+) -> None:
+    """`marginal_bye_cost` is what ONE player adds, which is the only discriminating part.
+
+    The roster-level cost is identical for every candidate, so subtracting it from all of
+    them changes no ordering; the difference is the whole signal.
+    """
+    roster = _roster()
+    base = ordering.bye_conflict_cost(roster, standard, BYES)
+    shared = _E("c", "RB", "AAA", 240)
+    unshared = _E("c", "RB", "DDD", 240)
+
+    assert ordering.marginal_bye_cost(roster, shared, standard, BYES) == 5.0
+    assert ordering.marginal_bye_cost(roster, unshared, standard, BYES) == 1.0
+    # Passing the cached base must give the identical answer -- the caller does this on every
+    # poll, and a divergence there would be a silent per-row error.
+    assert ordering.marginal_bye_cost(
+        roster, shared, standard, BYES, base=base
+    ) == ordering.marginal_bye_cost(roster, shared, standard, BYES)
+
+
+def test_the_marginal_does_not_depend_on_the_candidates_points(
+    standard: LeagueConfig,
+) -> None:
+    """WHY `server/state.py` MAY CACHE THIS ON (slot eligibility, bye week).
+
+    `place_into_slots` is greedy by points, so a better candidate can change WHICH slot each
+    player fills. What it cannot change is HOW MANY go unfilled, which is all the cost reads.
+    Measured across five orders of magnitude of value; without this property the cache would
+    quietly serve one player's penalty to another.
+    """
+    roster = _roster()
+    for position in ("QB", "RB", "WR", "TE", "K", "DEF"):
+        for week in (5, 7, 11, 13):
+            byes = {**BYES, "ZZZ": week}
+            costs = {
+                ordering.bye_conflict_cost(
+                    [*roster, _E("cand", position, "ZZZ", points)], standard, byes
+                )
+                for points in (1.0, 50.0, 240.0, 295.0, 500.0)
+            }
+            assert len(costs) == 1, f"{position}/{week} moved with points: {sorted(costs)}"

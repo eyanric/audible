@@ -21,10 +21,16 @@ goes quiet at exactly the moment two picks are on the clock. This module does no
 and does not call it: it shows the subtraction instead, so a wrong number is a visibly
 wrong number rather than a confident one.
 
-WHAT THIS IS NOT. Nothing here enters the sort. This module is imported by the state
-builder and the MCP surface, never by `board.py`, `value/` or `scoring/` -- the board is
-built, ranked and frozen before any of this is looked up. Same contract, and the same
+WHAT THIS IS NOT. Nothing here enters the BOARD's sort. This module is imported by the
+state builder and the MCP surface, never by `board.py`, `value/` or `scoring/` -- the board
+is built, ranked and frozen before any of this is looked up. Same contract, and the same
 mutation gate, as `draft/usage.py`.
+
+It does order its own output, and saying "nothing here enters the sort" flatly is how that
+got missed. The distinction is which sort: `vorp_rank` arrives already decided and leaves
+untouched, and The Call selects from that frozen list. What it selects BY is
+`effective_score`, computed in `server/state.py` from `draft/ordering.py` -- the same
+scalar `recommend` sorts by, handed in on the candidate rows.
 """
 
 from __future__ import annotations
@@ -278,7 +284,13 @@ def _arithmetic(adp: float | None, next_pick: int | None, gap: float | None) -> 
 
 
 def _why_not(best: Mapping[str, Any], runner: Mapping[str, Any] | None) -> str | None:
-    """One line on the candidate that came second, in the terms it lost on."""
+    """One line on the candidate that came second, in the terms it lost on.
+
+    NAMES THE DECIDING TERM. "board #21 against #20" is not a reason when the better board
+    rank is the one that LOST -- which is the normal case now that a surplus player is
+    demoted below someone ranked beneath him. Reading that without the scalar beside it is
+    how you talk yourself back into the pick the tool just argued against.
+    """
     if runner is None:
         return None
     line = (f"board #{runner['player'].get('vorp_rank')} against "
@@ -286,6 +298,10 @@ def _why_not(best: Mapping[str, Any], runner: Mapping[str, Any] | None) -> str |
     if runner["need"] != best["need"]:
         line += (", and fills less of a roster hole" if runner["need"] < best["need"]
                  else ", and fills more of a roster hole but costs more value")
+    elif runner["effective"] != best["effective"]:
+        line += (f", and scores {runner['effective']:.0f} against "
+                 f"{best['effective']:.0f} once the weeks he would actually start, and his "
+                 f"bye, are priced in")
     return line
 
 
@@ -296,48 +312,104 @@ def the_call(
     needs: Mapping[str, RosterNeed],
     available_entries: Sequence[Any],
 ) -> dict[str, Any]:
-    """One named pick from the board's top ``TOP_N`` by VORP, and the runner-up it rejected.
+    """One named pick from the best ``TOP_N`` PICKABLE candidates, and the runner-up.
 
-    It NEVER invents a candidate and NEVER reorders the board: it filters and picks from a
-    list handed to it in the board's own frozen order.
+    It NEVER invents a candidate and NEVER reorders the board: `vorp_rank` arrives and leaves
+    exactly as the value engine set it. What it chooses is which rows to look at and which
+    one to name.
 
     THE FILTER IS THE FEATURE. A candidate the market says will still be there well after
     my next turn is not a pick, he is a later pick -- unless waiting costs a tier cliff.
-    Everything else is ordered by roster need first and then by the board's own value,
-    because among players who will NOT last, value is the whole question.
+
+    ORDERED BY `effective_score`, NOT BY `vorp_rank`, AND THAT IS THE FIX. Raw board rank
+    was the final key here while `recommend`, reading the same pool, had already moved to
+    the composed scalar. Measured on a reconstruction of the live BoyFun state -- every
+    starting slot filled but K and DEF -- The Call named a second linebacker at board #20
+    over a back at #21, because `need` was 0 for BOTH (the filled `IDP_FLEX` was registered
+    correctly) and rank alone then decided. The linebacker's `marginal_start_factor` was
+    0.05: he could start in approximately no weeks. `recommend` demoted him 379 to 19 on the
+    same data. Need was never the broken term and the top-12 slice held the right answer at
+    position 2; the ordering simply could not see surplus, because the number that prices
+    surplus was dropped when these rows were built.
+
+    `need` STAYS THE LEADING KEY. It is a different question from value -- "is there a slot
+    only he can fill" -- and `marginal_start_factor` deliberately gives no bonus for filling
+    an empty slot (see `draft/ordering.py`: rewarding emptiness drafts five tight ends and
+    two defences). So the two do not substitute for one another, and the scalar is what
+    breaks ties WITHIN a need tier rather than what replaces it.
     """
-    pool = list(candidates)[:TOP_N]
-    if not pool:
+    # SLICED BY THE SAME NUMBER IT IS ORDERED BY, AND ONLY REAL CANDIDATES COUNT AGAINST
+    # THE CAP. This took `candidates[:TOP_N]` -- the top twelve by raw board rank -- which
+    # was coherent only while the sort's last key was also raw board rank. Once the ordering
+    # moved to `effective_score`, slicing by VORP and then ranking by the scalar threw away
+    # exactly the candidates the scalar would have ranked highest.
+    #
+    # MEASURED ON THE PINNED GREEN HOPE BOARD, holding four backs against three RB-startable
+    # slots: this board's top is entirely running backs, so all twelve slice rows were the
+    # same surplus position discounted to 0.1562, the best of them scoring 30.8 -- while
+    # Jaxon Smith-Njigba sat at pool row 28 scoring 78.8 and was never looked at. `recommend`
+    # sorts the whole pool and named him; The Call, on the page beside it, could not see him.
+    # A cap on "the best N candidates" has to mean best BY THE TOOL'S OWN MEASURE, or it is a
+    # filter that silently overrides the ranking it feeds.
+    #
+    # THE ELIGIBILITY TEST RUNS BEFORE THE CAP, NOT AFTER. Filtering afterwards spends the
+    # twelve places on players who are then thrown away: a first attempt at this filled the
+    # slice with deep board rows the market prices fifty picks past my turn, every one of
+    # them dropped by `will_last`, leaving a single eligible candidate and no runner-up at
+    # all. "Best twelve" has to mean twelve things that are actually pickable.
+    #
+    # `vorp_rank` breaks ties so the slice is deterministic, and the board itself is still
+    # never reordered -- this chooses WHICH rows to consider, and `vorp_rank` arrives and
+    # leaves exactly as the value engine set it.
+    ordered = sorted(
+        candidates,
+        key=lambda p: (-float(p.get("effective_score") or 0.0), p["vorp_rank"]),
+    )
+    if not ordered:
         return {"pick": None, "runner_up": None, "considered": 0,
                 "why_none": "no candidates on the board"}
 
-    scored = []
-    for p in pool:
+    # `at_a_cliff` rescans the available pool per call, so it is asked only about players
+    # `will_last` has already flagged -- the only ones whose answer can change anything --
+    # and the walk stops as soon as the cap is met. Without both, this is a per-poll scan of
+    # the whole board for every row on it.
+    scored: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    considered = 0
+    for p in ordered:
+        if len(scored) >= TOP_N:
+            break
+        considered += 1
         pos = str(p.get("position") or "").upper()
         gap = survives_by(p.get("adp"), next_pick)
-        cliff = at_a_cliff(available_entries, str(p.get("id")), pos)
         # A player the market prices well past my next turn is skipped -- I can have him
         # later AND someone else now -- unless he is the last man above a cliff, where
         # waiting costs points rather than just patience.
         will_last = gap is not None and gap >= SURVIVAL_SAFE
-        eligible = (not will_last) or (cliff is not None)
+        cliff = at_a_cliff(available_entries, str(p.get("id")), pos) if will_last else None
+        if will_last and cliff is None:
+            skipped.append({"name": p.get("name"), "survives_by": gap})
+            continue
         scored.append({
             "player": p, "position": pos, "survives_by": gap, "cliff": cliff,
-            "eligible": eligible, "will_last": will_last,
+            "eligible": True, "will_last": will_last,
             "need": _need_score(pos, needs),
             "confidence": confidence(pos),
+            # Absent means the caller did not attach it. 0.0 then makes every candidate tie
+            # and `vorp_rank` decides, which is the pre-fix behaviour -- and the rendered
+            # `effective_score` field reads 0.0 on every row, so a broken wiring is visible
+            # on the page rather than silent.
+            "effective": float(p.get("effective_score") or 0.0),
+            "urgency": _urgency_tier(gap),
         })
 
-    for s2 in scored:
-        s2["urgency"] = _urgency_tier(s2["survives_by"])
-
-    eligible = [s for s in scored if s["eligible"]]
+    eligible = scored
     if not eligible:
         return {
-            "pick": None, "runner_up": None, "considered": len(pool),
-            "why_none": (f"every candidate in the top {TOP_N} is priced to last past pick "
-                         f"{next_pick} and none is at a tier cliff -- take the best "
-                         f"available at a position you actually need"),
+            "pick": None, "runner_up": None, "considered": considered,
+            "why_none": (f"every one of the {considered} candidates looked at is priced to "
+                         f"last past pick {next_pick} and none is at a tier cliff -- take "
+                         f"the best available at a position you actually need"),
         }
 
     # Roster hole first, then URGENCY, then the board's own value. Urgency has to be in
@@ -347,7 +419,8 @@ def the_call(
     # identical Call at all four measured turns, because the top need-filler was eligible
     # either way. A horizon that only occasionally prunes is a horizon that is not really
     # being used, which is the "today's recommend with new columns bolted on" failure.
-    eligible.sort(key=lambda s: (-s["need"], s["urgency"], s["player"]["vorp_rank"]))
+    eligible.sort(key=lambda s: (-s["need"], s["urgency"], -s["effective"],
+                                 s["player"]["vorp_rank"]))
     best = eligible[0]
     other_pos = next((s for s in eligible[1:] if s["position"] != best["position"]), None)
     runner = eligible[1] if len(eligible) > 1 else None
@@ -368,6 +441,13 @@ def the_call(
             "at_tier_cliff": None if cliff is None else
                 f"{cliff.position}{cliff.after_rank}, {cliff.gap} pts below him",
             "fills_need": s["need"] > 0,
+            # The ordering, published rather than implied. A recommendation whose reason
+            # cannot be checked against the number that produced it is a recommendation you
+            # have to take on trust at the one moment there is no time to.
+            "effective_score": s["effective"],
+            "marginal_start_factor": p.get("marginal_start_factor"),
+            "bye_conflict_penalty": p.get("bye_conflict_penalty"),
+            "bye_week": p.get("bye_week"),
         }
 
     why = []
@@ -384,6 +464,13 @@ def the_call(
     if best["confidence"] == "low":
         why.append(f"ADP does not predict points at {best['position']} -- "
                    f"this figure is low confidence")
+    factor = best["player"].get("marginal_start_factor")
+    if isinstance(factor, int | float) and factor < 1.0:
+        why.append(f"and even HE is discounted to {factor:.2f} of his value -- I already "
+                   f"hold more {best['position']} than I can start")
+    penalty = best["player"].get("bye_conflict_penalty")
+    if isinstance(penalty, int | float) and penalty > 0:
+        why.append(f"costs {penalty:.0f} points of bye collision against this roster")
 
     cost = None
     if other_pos is not None:
@@ -404,11 +491,10 @@ def the_call(
         "why_now": "; ".join(why) or "best available among those who will not last",
         "what_it_costs": cost,
         "why_not_the_runner_up": _why_not(best, runner),
-        "considered": len(pool),
-        "skipped_as_likely_to_last": [
-            {"name": s["player"].get("name"), "survives_by": s["survives_by"]}
-            for s in scored if s["will_last"] and s["cliff"] is None
-        ],
+        "considered": considered,
+        # Capped: the walk can pass a long tail of players the market says will keep, and
+        # a hundred names is not a reason, it is a wall of text on a sixty-second clock.
+        "skipped_as_likely_to_last": skipped[:TOP_N],
         "roster_need": [
             {"slot": n.position, "required": n.required, "held": n.held, "short": n.short}
             for n in sorted(needs.values(), key=lambda n: n.position)
