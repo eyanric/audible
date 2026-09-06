@@ -40,8 +40,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-REPO = Path(__file__).resolve().parents[1]
-
 SEASONS: tuple[int, ...] = (2021, 2022, 2023, 2024, 2025)
 
 # Generational suffixes, stripped from BOTH sides. They disagree in both directions: FFC
@@ -282,7 +280,10 @@ def join_season(season: int, cache: Path, id_map_rows: list[dict[str, Any]]) -> 
 
 
 def _default_cache() -> Path:
-    return REPO / "data" / "cache"
+    # sim's own root -- see sim/__init__.py. `--cache` still overrides.
+    from . import SIM_CACHE
+
+    return SIM_CACHE
 
 
 def main(argv: list[str] | None = None) -> int:

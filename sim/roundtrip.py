@@ -81,7 +81,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-REPO = Path(__file__).resolve().parents[1]
 SEASONS: tuple[int, ...] = (2021, 2022, 2023, 2024, 2025)
 
 # The league whose season totals are on disk for every season: 6012 == espn_davis_drive.
@@ -265,7 +264,10 @@ def main(argv: list[str] | None = None) -> int:
         prog="sim.roundtrip",
         description="Gate G4: summed weekly rows vs ESPN season totals for league 6012.",
     )
-    parser.add_argument("--cache", type=Path, default=REPO / "data" / "cache")
+    # sim's own root -- see sim/__init__.py. `--cache` still overrides.
+    from . import SIM_CACHE
+
+    parser.add_argument("--cache", type=Path, default=SIM_CACHE)
     parser.add_argument("--seasons", type=int, nargs="+", default=list(SEASONS))
     parser.add_argument("--verbose", action="store_true", help="name every residual")
     args = parser.parse_args(argv)
