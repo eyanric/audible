@@ -48,7 +48,13 @@ def test_verify_structure_catches_roster_drift(
 def test_verify_structure_is_quiet_when_faithful(
     monkeypatch: pytest.MonkeyPatch, sleeper_config: LeagueConfig
 ) -> None:
-    live = {"roster_positions": list(sleeper_config.starting_slots) + ["BN"] * 7}
+    live = {
+        # Rounds are the roster spots that get drafted: starters + bench. Derived from
+        # the config so this stays a faithful mirror when the league shape moves again.
+        "roster_positions": list(sleeper_config.starting_slots)
+        + ["BN"] * (sleeper_config.draft_rounds - len(sleeper_config.starting_slots)),
+        "settings": {"num_teams": sleeper_config.num_teams},
+    }
     monkeypatch.setattr(SleeperAdapter, "get_league", lambda self, league_id: live)
     with SleeperAdapter() as adapter:
         assert adapter.verify_structure(sleeper_config) == []
@@ -161,3 +167,49 @@ def test_player_outside_league_positions_is_dropped(
     # A pure DB (Marcus Jones) can't be rostered in the no-IDP ESPN league.
     primary, eligible = _classify(sample_catalog, "8359", espn_config)
     assert primary is None and not eligible
+
+
+def test_verify_structure_catches_team_count_drift(
+    monkeypatch: pytest.MonkeyPatch, sleeper_config: LeagueConfig
+) -> None:
+    """Replacement level is derived from the team count, so it is a value-engine input and
+    nothing was comparing it."""
+    live = {
+        "roster_positions": list(sleeper_config.starting_slots)
+        + ["BN"] * (sleeper_config.draft_rounds - len(sleeper_config.starting_slots)),
+        "settings": {"num_teams": 12},
+    }
+    monkeypatch.setattr(SleeperAdapter, "get_league", lambda self, league_id: live)
+    with SleeperAdapter() as adapter:
+        drift = {name: (c, live_n) for name, c, live_n in adapter.verify_structure(
+            sleeper_config
+        )}
+    assert drift["num_teams"] == (sleeper_config.num_teams, 12)
+
+
+def test_round_count_comes_from_the_roster_not_the_keeper_artifact(
+    monkeypatch: pytest.MonkeyPatch, sleeper_config: LeagueConfig
+) -> None:
+    """``settings.draft_rounds`` is a KEEPER artifact and reading it would be worse than not
+    checking at all.
+
+    Measured against live League A on 2026-09-05: ``settings.draft_rounds`` is **3** on a
+    twenty-slot roster, while the draft object's own ``settings.rounds`` is **20** and so is
+    starters + bench. Rounds are the roster spots that get drafted; the field that is named
+    after them is the one number here that is not them.
+    """
+    starters = list(sleeper_config.starting_slots)
+    live = {
+        "roster_positions": starters + ["BN"] * 8 + ["IR"] * 2,
+        "settings": {"num_teams": sleeper_config.num_teams, "draft_rounds": 3},
+    }
+    monkeypatch.setattr(SleeperAdapter, "get_league", lambda self, league_id: live)
+    with SleeperAdapter() as adapter:
+        drift = {name: (c, live_n) for name, c, live_n in adapter.verify_structure(
+            sleeper_config
+        )}
+
+    # starters + 8 bench = 20. Reserve is rostered but never drafted, so it is not a round.
+    assert drift["draft_rounds"] == (sleeper_config.draft_rounds, len(starters) + 8)
+    assert drift["draft_rounds"][1] != 3, "the keeper artifact must never reach the report"
+    assert "IR" not in drift and "BN" not in drift

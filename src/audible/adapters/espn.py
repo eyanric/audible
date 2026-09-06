@@ -868,9 +868,9 @@ class EspnAdapter:
                     drift.append((f"{key}[{position}]", cfg_value, live_value))
         return drift
 
-    def lineup_slot_counts(self, config: LeagueConfig) -> dict[int, int]:
-        """``settings.rosterSettings.lineupSlotCounts``, keyed by int lineup-slot id."""
-        counts = (self.get_settings(config).get("rosterSettings") or {}).get("lineupSlotCounts")
+    @staticmethod
+    def _lineup_slot_counts_from(settings: Mapping[str, Any]) -> dict[int, int]:
+        counts = (settings.get("rosterSettings") or {}).get("lineupSlotCounts")
         if not counts:
             raise EspnDataError(
                 "ESPN returned no lineupSlotCounts; roster structure cannot be verified."
@@ -886,32 +886,80 @@ class EspnAdapter:
                 continue
         return out
 
-    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int, int]]:
-        """Compare the committed starting lineup against the live league's lineup slots.
+    def lineup_slot_counts(self, config: LeagueConfig) -> dict[int, int]:
+        """``settings.rosterSettings.lineupSlotCounts``, keyed by int lineup-slot id."""
+        return self._lineup_slot_counts_from(self.get_settings(config))
 
-        Returns one ``(slot, config_count, live_count)`` per mismatched slot; empty means the
-        structure is faithful. This is the structural twin of :meth:`verify_scoring`, and it is
-        the check that caught League A's June-to-August drift -- a config claiming slots the
-        league does not have silently corrupts every replacement baseline the value engine
-        derives, and therefore every number on the board.
+    @staticmethod
+    def _num_teams_from(settings: Mapping[str, Any]) -> int:
+        size = _number(settings.get("size"))
+        if size is None:
+            raise EspnDataError(
+                "ESPN returned no settings.size; the team count cannot be verified, and every "
+                "replacement baseline is derived from it."
+            )
+        return int(size)
+
+    def num_teams(self, config: LeagueConfig) -> int:
+        """``settings.size`` -- how many teams the live league actually has."""
+        return self._num_teams_from(self.get_settings(config))
+
+    def verify_structure(self, config: LeagueConfig) -> list[tuple[str, int | None, int | None]]:
+        """Compare the committed league STRUCTURE against the live league.
+
+        Returns one ``(name, config_value, live_value)`` per mismatch; empty means the
+        structure is faithful. Three things are checked, and they are reported the same way:
+
+        * every starting lineup slot,
+        * ``num_teams``,
+        * ``draft_rounds``.
+
+        This is the structural twin of :meth:`verify_scoring`, and it is the check that caught
+        League A's June-to-August slot drift -- a config claiming slots the league does not
+        have silently corrupts every replacement baseline the value engine derives, and
+        therefore every number on the board.
+
+        The team count and the round count are here for the same reason and were missing for
+        no reason: replacement level is derived from ``num_teams``, and the draft clock runs on
+        ``draft_rounds``. League A's 18-to-19-round change had to be found by HAND, out of the
+        draft object, because nothing compared them.
 
         An ESPN lineup-slot id we do not map is reported as ``slot#<id>`` rather than skipped:
         a starting slot this league rosters and we have no name for is exactly the drift worth
         being loud about.
+
+        Raises :class:`EspnDataError` when the two independent round derivations disagree --
+        see :meth:`draft_rounds_from_slate`. That is a finding about ESPN's own data, not a
+        config drift, so it stops rather than picking a winner.
         """
+        settings = self.get_settings(config)
         live_counts: dict[str, int] = {}
-        for slot_id, count in self.lineup_slot_counts(config).items():
+        for slot_id, count in self._lineup_slot_counts_from(settings).items():
             if slot_id in NON_STARTER_LINEUP_SLOTS or count <= 0:
                 continue
             name = LINEUP_SLOT_TO_NAME.get(slot_id, f"slot#{slot_id}")
             live_counts[name] = live_counts.get(name, 0) + count
 
         cfg_counts = config.slot_counts()
-        return [
+        drift: list[tuple[str, int | None, int | None]] = [
             (slot, cfg_counts.get(slot, 0), live_counts.get(slot, 0))
             for slot in sorted(set(cfg_counts) | set(live_counts))
             if cfg_counts.get(slot, 0) != live_counts.get(slot, 0)
         ]
+
+        live_teams = self._num_teams_from(settings)
+        if config.num_teams != live_teams:
+            drift.append(("num_teams", config.num_teams, live_teams))
+
+        live_rounds = self._draft_rounds_verified(config, settings)
+        if config.draft_rounds != live_rounds:
+            drift.append(("draft_rounds", config.draft_rounds, live_rounds))
+        return drift
+
+    @staticmethod
+    def _draft_rounds_from(settings: Mapping[str, Any]) -> int:
+        counts = EspnAdapter._lineup_slot_counts_from(settings)
+        return sum(counts.values()) - counts.get(IR_LINEUP_SLOT, 0)
 
     def draft_rounds(self, config: LeagueConfig) -> int:
         """How many rounds the draft runs: every roster slot that is drafted, IR excluded.
@@ -919,8 +967,43 @@ class EspnAdapter:
         Derived from roster structure rather than from the pick slate, so it stays right
         whatever ESPN chooses to serve in ``draftDetail.picks`` once a draft is under way.
         """
-        counts = self.lineup_slot_counts(config)
-        return sum(counts.values()) - counts.get(IR_LINEUP_SLOT, 0)
+        return self._draft_rounds_from(self.get_settings(config))
+
+    def draft_rounds_from_slate(self, config: LeagueConfig) -> int | None:
+        """The SECOND opinion on the round count: ``max(roundId)`` over the pick slate.
+
+        Independent of :meth:`draft_rounds`, which counts roster slots. ESPN builds the whole
+        grid before a draft opens -- one row per seat per round, every ``playerId`` -1 -- so
+        this is available pre-draft and stays available after.
+
+        ``None`` when the slate is empty. An absent second opinion is not a disagreement, and
+        a league whose draft grid ESPN has not built yet must not fail structural verification
+        over it.
+        """
+        picks = (self.get_draft_detail(config).get("draftDetail") or {}).get("picks") or []
+        rounds = [_int(row.get("roundId")) for row in picks]
+        seen = [r for r in rounds if r > 0]
+        return max(seen) if seen else None
+
+    def _draft_rounds_verified(self, config: LeagueConfig, settings: Mapping[str, Any]) -> int:
+        """The round count both derivations agree on.
+
+        Two ways of counting the same thing that disagree is a fact about ESPN's data, and
+        breaking the tie in either direction would bury it. The slate is the room ESPN will
+        actually run; the slot arithmetic is what the cockpit clock uses. If they part company
+        the honest answer is neither.
+        """
+        from_slots = self._draft_rounds_from(settings)
+        from_slate = self.draft_rounds_from_slate(config)
+        if from_slate is not None and from_slate != from_slots:
+            raise EspnDataError(
+                f"ESPN league {config.league_id} reports its round count two ways and they "
+                f"DISAGREE: max(roundId) over the draft slate = {from_slate}, "
+                f"sum(lineupSlotCounts) - IR = {from_slots}. One of them is wrong and there is "
+                "no basis here for choosing; the draft clock and the replacement baseline both "
+                "ride this number. Resolve it against the live league before drafting."
+            )
+        return from_slots
 
     def live_reception_points(self, config: LeagueConfig, position: str = "WR") -> float | None:
         """The live per-reception value for *position* (statId 53), or None if unscored.

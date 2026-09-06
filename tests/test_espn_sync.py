@@ -1,8 +1,12 @@
 """ESPN draft sync -- offline, against a trimmed live capture of league 6012.
 
-The fixture is a real pre-draft ``mDraftDetail`` + ``mTeam`` + ``mSettings`` response cut to
-rounds 1-2 of the placeholder slate. Owner SWIDs are replaced with synthetic GUIDs: SWID is
-half the auth cookie pair and seven of the eight belong to other people.
+The fixture is a real pre-draft ``mDraftDetail`` + ``mTeam`` + ``mSettings`` response carrying
+the COMPLETE 128-row placeholder slate -- 8 seats x 16 rounds, snaking on
+``draftSettings.pickOrder``, every ``playerId`` -1, exactly as ESPN serves it. It was cut to
+rounds 1-2 until rounds began to be verified two ways; a 2-round slate against a 16-slot roster
+is a genuine self-disagreement and the trim was manufacturing one. Rows 1-16 are byte-identical
+to the original capture. Owner SWIDs are replaced with synthetic GUIDs: SWID is half the auth
+cookie pair and seven of the eight belong to other people.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from typing import Any
 import httpx
 import pytest
 
-from audible.adapters.espn import EspnAdapter
+from audible.adapters.espn import EspnAdapter, EspnDataError
 from audible.config import LeagueConfig
 from audible.draft.identity import SOURCE_OVERRIDE, SOURCE_PICK_ORDER, SOURCE_UNRESOLVED
 from audible.draft.service import CockpitService
@@ -281,22 +285,111 @@ def test_the_id_bridge_records_what_it_cannot_translate() -> None:
 # --- roster structure ----------------------------------------------------------------------
 
 
+def _reslate(detail: dict[str, Any], rounds: int) -> dict[str, Any]:
+    """Rebuild the placeholder slate for *rounds* rounds, snaking on pickOrder.
+
+    Rounds are verified two ways, so a test that moves the roster depth has to move the slate
+    with it or it is testing the disagreement rather than the thing it means to.
+    """
+    payload = copy.deepcopy(detail)
+    order = payload["settings"]["draftSettings"]["pickOrder"]
+    template = payload["draftDetail"]["picks"][0]
+    slate = []
+    for rnd in range(1, rounds + 1):
+        seats = order if rnd % 2 == 1 else list(reversed(order))
+        for seat, team_id in enumerate(seats, 1):
+            overall = (rnd - 1) * len(order) + seat
+            row = dict(template)
+            row.update(id=overall, overallPickNumber=overall, roundId=rnd,
+                       roundPickNumber=seat, teamId=team_id, playerId=-1)
+            slate.append(row)
+    payload["draftDetail"]["picks"] = slate
+    return payload
+
+
 def test_verify_structure_is_faithful(detail: dict[str, Any], espn_config: LeagueConfig) -> None:
     with _adapter(detail, "{X}") as adapter:
         assert adapter.verify_structure(espn_config) == []
         assert adapter.draft_rounds(espn_config) == 16
+        assert adapter.num_teams(espn_config) == 8
+        assert adapter.draft_rounds_from_slate(espn_config) == 16, "the second opinion agrees"
+
+
+def test_verify_structure_catches_team_count_drift(
+    detail: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """Every replacement baseline is derived from the team count and nothing compared it."""
+    payload = copy.deepcopy(detail)
+    payload["settings"]["size"] = 10
+
+    with _adapter(payload, "{X}") as adapter:
+        drift = {name: (c, live) for name, c, live in adapter.verify_structure(espn_config)}
+
+    assert drift["num_teams"] == (8, 10)
+
+
+def test_verify_structure_catches_round_count_drift(
+    detail: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """League A's 18-to-19-round change had to be found by hand. This is the guard that would
+    have found it -- here on League B's shape, both derivations moved together."""
+    payload = _reslate(detail, 14)
+    payload["settings"]["rosterSettings"]["lineupSlotCounts"]["20"] = 5  # bench 7 -> 5
+
+    with _adapter(payload, "{X}") as adapter:
+        drift = {name: (c, live) for name, c, live in adapter.verify_structure(espn_config)}
+
+    assert drift["draft_rounds"] == (16, 14)
+    assert "num_teams" not in drift, "a shorter bench is not a smaller league"
+
+
+def test_rounds_that_disagree_two_ways_stop_rather_than_pick_a_winner(
+    detail: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """max(roundId) over the slate and sum(lineupSlotCounts) - IR count the same thing. When
+    they part company the answer is neither -- the draft clock and the replacement baseline
+    both ride this number, and quietly preferring one derivation is how a wrong clock ships.
+    """
+    payload = _reslate(detail, 15)  # slate says 15, the roster still says 16
+
+    with _adapter(payload, "{X}") as adapter, pytest.raises(EspnDataError) as excinfo:
+        adapter.verify_structure(espn_config)
+
+    message = str(excinfo.value)
+    assert "15" in message and "16" in message, "both numbers must be named"
+    assert "DISAGREE" in message
+
+
+def test_an_absent_slate_is_not_a_disagreement(
+    detail: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """A league whose draft grid ESPN has not built yet has no second opinion. Missing is not
+    conflicting, and structural verification must not fail over it."""
+    payload = copy.deepcopy(detail)
+    payload["draftDetail"]["picks"] = []
+
+    with _adapter(payload, "{X}") as adapter:
+        assert adapter.draft_rounds_from_slate(espn_config) is None
+        assert adapter.verify_structure(espn_config) == []
 
 
 def test_verify_structure_catches_drift(
     detail: dict[str, Any], espn_config: LeagueConfig
 ) -> None:
     """League A's config silently claimed slots the live league had dropped, and every
-    replacement baseline derived from it was wrong. League B now has the same guard."""
+    replacement baseline derived from it was wrong. League B now has the same guard.
+
+    The bench is trimmed alongside so total roster depth stays 16. Rounds are checked two
+    ways now, and a shape that adds a starting slot without adding a round is not slot drift
+    at all -- it is ESPN disagreeing with itself, which is a different finding with its own
+    test below.
+    """
     payload = copy.deepcopy(detail)
     counts = payload["settings"]["rosterSettings"]["lineupSlotCounts"]
     counts["4"] = 3  # WR 2 -> 3
     counts["17"] = 0  # K dropped
     counts["11"] = 1  # a DL slot we do not map at all
+    counts["20"] = 6  # ...and one fewer bench, so the roster is still 16 deep.
 
     with _adapter(payload, "{X}") as adapter:
         drift = {slot: (c, live) for slot, c, live in adapter.verify_structure(espn_config)}
