@@ -325,16 +325,16 @@ Suite: **492 passed, 1 xfailed**, no skips. ruff clean, pyright 0 errors.
 
 ---
 
-## The seat pin, and the one case still open
+## The seat pin, and the case it found -- now closed
 
-The assertion exists now -- see "What shipped 2026-09-06" above. What remains is the case it
-found and was not allowed to fix:
+The assertion exists now -- see "What shipped 2026-09-06" above. It found this, and it has
+since been fixed:
 
-**`leagues/espn_danger_zone.toml` says `draft_slot = 5`; the SWID-derived seat is 6; and
-`deployment-danger-zone.yaml` carries a hand-added `--slot 6`.** The argument is right and the
-config is stale. `verify-scoring espn_danger_zone` exits 1 on it today. Fixing the TOML and
-dropping the `--slot` argument belongs to Eric -- a seat pinned in two places will disagree
-again.
+**`leagues/espn_danger_zone.toml` said `draft_slot = 5`; the SWID-derived seat is 6; and
+`deployment-danger-zone.yaml` carried a hand-added `--slot 6`.** The argument was right and
+the config was stale, so `verify-scoring espn_danger_zone` exited 1 on it. **Closed
+2026-09-06**: the TOML pins 6 and eyanric/haven#376 drops the override, in that order --
+dropping it first would have moved the cockpit silently to seat 5.
 
 Seat 1 of 8, which is what `espn_green_hope` pins, is where a wrong pin is **least** visible:
 it never has an opponent pick before its own turn to contradict it. That is exactly why the
@@ -382,7 +382,13 @@ over-broad and is corrected.** It generalised from one league. Measured 2026-09-
 | `espn_danger_zone` | projections | 0/12 | 1 |
 
 The split is **actuals vs projections**, and the mechanism is `statId 63` -- an offensive
-fumble recovered for a touchdown, paid 6.0, unmapped in our vocabulary and deliberately so.
+fumble recovered for a touchdown, paid 6.0. It was unmapped in our vocabulary, deliberately.
+
+**As of 2026-09-06 it is mapped and paid, and this residual is closed.** `STAT_ID_TO_KEY`
+carries `63: ("fum_rec_td", 1.0)` and each ESPN league config carries `fum_rec_td = 6`. The
+key was not new vocabulary -- League A already scored it. The same event is nflverse's
+`fumble_recovery_tds`, which `sim/roundtrip.py` pays at 6.0 to reproduce ESPN season totals
+to the cent; that is what identified it. The numbers below are what it WAS.
 
 * **Projections** carry it as a FRACTIONAL expected value on nearly every line, so every
   recomputable player is a little light. Danger Zone did not exist in 2025 and so has no
@@ -593,6 +599,32 @@ this post-draft probe cannot see it. That is a much narrower thing to validate t
 instrument may be fundamentally broken", and it has an obvious mitigation if it proves true:
 drop the conditional request for the draft view and eat a full body every 5s.
 
+**Still unsettled 2026-09-06, and now mitigated anyway.** Nothing in this repo has ever
+recorded a live ESPN ETag, and the only committed draft fixture is a pre-draft snapshot with
+no HTTP headers, so the question cannot be answered offline. What WAS settled offline is the
+consequence, and it is worse than "stale picks": `_draft_etag` and `_draft_last` are written
+only on a 200, so a frozen tag freezes the adapter on the FIRST body it ever saw. A cockpit
+started before kickoff would serve the pre-draft placeholder slate -- `picks: 0`,
+`draft_status: pre_draft`, `sync_status: live` -- for the whole draft.
+
+`get_draft_detail` now skips its conditional request every 6th poll (~30s at a 5s tick), so a
+non-advancing ETag can cost at most a third of a pick clock instead of an entire draft. The
+conditional request is kept the rest of the time: it is measured, it works, and dropping it
+outright invites a 429.
+
+The cockpit also measures pick silence directly (`SyncHealth.pick_silence_s`). **The two
+COMPOSE; they are not independent safety nets, and an earlier draft of this section wrongly
+said the silence check catches this "whatever its cause".** It does not. The silence clock is
+armed by `draft_status == "drafting"`, and for ESPN that status rides the SAME conditional
+response as the picks -- so a body frozen while it still says `pre_draft` freezes the arming
+condition too, and the detector stays quiet. Measured: 200 successful polls replaying a
+pre-draft body leave `picks_stale` False after two simulated hours.
+
+What closes that case is the forced full body above, which stops the status being held at
+`pre_draft` for more than ~30s. The silence clock then covers everything after the draft
+opens. The limitation is pinned by a test rather than left to be rediscovered:
+`test_a_feed_frozen_BEFORE_the_draft_opens_is_not_caught_here`.
+
 ### Danger Zone's `draft_slot` is wrong in the TOML, and the guard now SAYS so
 
 Same probe, no override: the seat derived from the account-1 SWID against `teams[].owners` is
@@ -601,14 +633,28 @@ Same probe, no override: the seat derived from the account-1 SWID against `teams
 the stale one.**
 
 As of 2026-09-06 this is no longer merely recorded: `verify-scoring espn_danger_zone` exits 1
-with `draft_slot config=5 live=6`. Correcting the TOML and dropping the `--slot` argument is
-Eric's -- both were out of bounds this session.
+with `draft_slot config=5 live=6`.
 
-### Reconciliation residual
+**Fixed 2026-09-06.** `leagues/espn_danger_zone.toml` now pins `draft_slot = 6`, and haven's
+`deployment-danger-zone.yaml` drops the hand-added `--slot 6` in the same change, so the seat
+lives in one place again. The two must land in that order: removing the override while the
+TOML still said 5 would have silently moved the cockpit to seat 5.
 
-`statId 63` (offensive fumble recovered for a TD, paid 6.0) is unmapped; the config is not
-changing. It is the **entire** difference between our recomputation and ESPN's `appliedTotal`.
-See the `verify-actuals` section above for the per-position numbers.
+### Reconciliation residual -- CLOSED 2026-09-06
+
+`statId 63` (offensive fumble recovered for a TD, paid 6.0) was the **entire** difference
+between our recomputation and ESPN's `appliedTotal`. It is now mapped to `fum_rec_td` and
+weighted 6 in every ESPN league config, so the recomputation is exact rather than
+"exact apart from one known stat".
+
+Why it was worth closing a residual that was only 0.06% of a QB season: a tolerance with a
+known thing in it has room for an UNKNOWN thing to hide. `verify-actuals` could not
+distinguish "the documented statId 63 gap" from "statId 63 plus something new", because both
+present as a small negative number. With 63 paid, any residual at all is now a new finding.
+
+Measured after the change, offline against the pinned corpora: league 6012's 2025 sample
+reconciles 12/12 exact under the reception model that season actually used, and the single
+`statId 63` carrier in 73131979's corpus (Woody Marks) moves from -6.00 to 0.00.
 
 ### Fallback populations (6012's 1,026-player pool)
 
@@ -871,9 +917,10 @@ the derived-vs-pinned seat assertion, and the haven cockpit manifests (PR open, 
    the narrower belt-and-braces version -- PR #344 deleted it and the live rule is
    `automerge: true, minimumReleaseAge: '0 days'`, so a digest bump merges itself and rolls the
    pods unattended.
-6. **Correct `espn_danger_zone.toml`: `draft_slot` 5 -> 6, and drop `--slot 6` from
-   `deployment-danger-zone.yaml`.** `verify-scoring espn_danger_zone` is RED until this is
-   done -- correctly, and for the first time. A seat pinned in two places will disagree again.
+6. ~~**Correct `espn_danger_zone.toml`: `draft_slot` 5 -> 6, and drop `--slot 6` from
+   `deployment-danger-zone.yaml`.**~~ DONE 2026-09-06. The TOML pins 6 and
+   eyanric/haven#376 drops the override. `verify-scoring espn_danger_zone` still needs one
+   live run to confirm green -- it cannot be run without ESPN cookies.
 7. **Correct League A's config**: 7 IDP weights and `draft_rounds` 19 -> 20. In-season only
    now, but the guard keeps shouting.
 8. **`survival()` goes quiet at back-to-back turns, and seat 1 of 8 is its worst case.**

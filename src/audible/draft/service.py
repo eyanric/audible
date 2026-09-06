@@ -20,6 +20,7 @@ import logging
 import random
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,27 @@ POLL_INTERVAL_S = 5.0
 STALE_AFTER_S = 10.0
 FAILING_AFTER_S = 30.0
 
+# How long the FEED may go without delivering a pick while the draft is running before the
+# cockpit says so. Every number above measures the age of the last successful POLL, which is
+# a different question and the reason 2026-09-05 was invisible: ESPN answers a conditional
+# request with 304, the adapter replays the body it already had, nothing raises, and
+# `last_success` advances. A whole draft can run that way with `sync_status: "live"` and
+# `picks: 0`.
+#
+# 180s is two full pick clocks for the SLOWEST league here. One clock cannot trip it -- a
+# manager using every second of their turn is normal, and an indicator that cries during
+# normal play is one nobody reads by round three. Two consecutive clocks with nothing
+# arriving is not something a healthy draft does.
+#
+# 90s is espn_green_hope's clock, the longest of the three and the one drafting 2026-09-08.
+# League A runs a 60s timer (`pick_timer: 60` in tests/fixtures/sleeper_draft_2025.json), so
+# the same 180s is THREE clocks there. Deliberately one threshold rather than one per league:
+# the slowest league sets it, which makes the number conservative everywhere and impossible
+# to trip during normal play on the faster ones. If a league ever runs a clock longer than
+# 90s, this has to move with it.
+PICK_CLOCK_S = 90.0
+PICK_SILENCE_S = 2 * PICK_CLOCK_S
+
 # Retry with jitter on a failed poll. A draft is 180 picks over a couple of hours; a transient
 # 5xx must cost a beat, never the session.
 RETRY_BASE_S = 1.0
@@ -50,11 +72,46 @@ class SyncHealth:
     last_error: str | None = None
     poll_count: int = 0
     fail_streak: int = 0
+    # The SECOND clock. `last_success` answers "did the last request work"; these answer "is
+    # the feed actually delivering". A 304 satisfies the first and says nothing about the
+    # second, which is the whole defect.
+    #
+    # `last_pick_change` moves only when the SYNCED pick slate actually changes. A pick typed
+    # in by hand deliberately does not touch it: hand-entry keeps the BOARD current, it is not
+    # evidence the feed recovered, and letting it reset the clock would silence the warning
+    # exactly when someone is working around a dead feed.
+    last_pick_change: float | None = None
+    # When the draft was first seen in progress. Without it a draft that opens and never
+    # delivers a single pick has no anchor to measure silence from, and that is the precise
+    # shape of the 2026-09-05 failure.
+    drafting_since: float | None = None
+    # Set while the platform reports an explicit pause. The silence is still measured and
+    # still shown; it is simply not called a failure, because it is quiet on purpose.
+    paused: bool = False
 
     def age_s(self, now: float | None = None) -> float | None:
         if self.last_success is None:
             return None
         return max(0.0, (now if now is not None else time.time()) - self.last_success)
+
+    def pick_silence_s(self, now: float | None = None) -> float | None:
+        """Seconds since the feed last delivered a pick, or None when the draft is not live.
+
+        None is the pre-draft answer and it is load-bearing. Before the draft opens a feed
+        that has delivered nothing is CORRECT, and an age-only check cannot tell that apart
+        from a draft in progress delivering nothing. Returning None means the caller cannot
+        accidentally render a permanent false alarm on a quiet Tuesday afternoon.
+        """
+        if self.drafting_since is None:
+            return None
+        anchors = [t for t in (self.last_pick_change, self.drafting_since) if t is not None]
+        return max(0.0, (now if now is not None else time.time()) - max(anchors))
+
+    def picks_stale(self, now: float | None = None) -> bool:
+        if self.paused:
+            return False
+        silence = self.pick_silence_s(now)
+        return silence is not None and silence >= PICK_SILENCE_S
 
     def status(self, now: float | None = None) -> str:
         age = self.age_s(now)
@@ -65,6 +122,36 @@ class SyncHealth:
         if age >= FAILING_AFTER_S:
             return "failing"
         return "stale" if age >= STALE_AFTER_S else "live"
+
+
+# The one status value that means "the clock is running". The vocabulary is Sleeper's for
+# both platforms -- `sync.espn_draft_status` translates ESPN's two booleans into it.
+DRAFTING_STATUS = "drafting"
+
+# Statuses that genuinely end a draft's run, and the ONLY ones that clear the silence anchor.
+# Anything else -- a pause, an unrecognised string, a momentary flap -- leaves it armed, so a
+# blip cannot wipe out how long the feed has actually been quiet.
+_NOT_RUNNING = frozenset({"pre_draft", "complete", ""})
+
+# Sleeper publishes an explicit pause. A paused draft is quiet ON PURPOSE, so the silence is
+# still measured and still shown, but it is not called a failure. ESPN has no pause in its
+# vocabulary at all -- `espn_draft_status` maps only drafted/inProgress -- so a paused ESPN
+# draft will read as silence. That is a known false alarm and it is the right way round: a
+# spurious warning during a pause costs a glance, a missed one costs the draft.
+PAUSED_STATUS = "paused"
+
+
+def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
+    """Cheap identity for a pick slate: how many, how far, and who was last.
+
+    Compared rather than hashed in full because this runs under the service lock on every
+    tick. The last pick's number AND player are both included: a re-numbered slate of the
+    same length, or a corrected player at the same number, are both real changes.
+    """
+    if not picks:
+        return (0, 0, "")
+    last = picks[-1]
+    return (len(picks), last.pick_no, last.player_id)
 
 
 def _pick_json(p: Pick) -> dict[str, Any]:
@@ -189,8 +276,19 @@ class CockpitService:
 
     def save(self) -> None:
         tmp = self._state_path.with_suffix(".tmp")
+        blob = self.session.to_json()
+        # The silence clocks ride along with the session. Without this a cockpit restarted
+        # mid-draft forgets how long the feed has been quiet and starts a fresh 180s blind
+        # window -- measured: a crash-restart every two minutes against a completely dead
+        # feed never published more than 115s of silence and never once warned. They are
+        # wall-clock, so carrying them forward is what makes a 20-minute outage still read
+        # as 20 minutes on the other side of a restart.
+        blob["health"] = {
+            "last_pick_change": self.health.last_pick_change,
+            "drafting_since": self.health.drafting_since,
+        }
         with tmp.open("w", encoding="utf-8") as fh:
-            json.dump(self.session.to_json(), fh)
+            json.dump(blob, fh)
         tmp.replace(self._state_path)  # atomic: a crash mid-write must not corrupt the session
 
     def restore(self) -> bool:
@@ -199,7 +297,8 @@ class CockpitService:
             return False
         try:
             with path.open(encoding="utf-8") as fh:
-                restored = DraftSession.from_json(json.load(fh))
+                blob = json.load(fh)
+            restored = DraftSession.from_json(blob)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             log.warning("ignoring unreadable draft state %s: %s", path, exc)
             return False
@@ -208,6 +307,11 @@ class CockpitService:
         keep_id = self.session.draft_id or restored.draft_id
         self.session = restored
         self.session.draft_id = keep_id
+        health = blob.get("health") or {}
+        for field_name in ("last_pick_change", "drafting_since"):
+            value = health.get(field_name)
+            if value is not None:
+                setattr(self.health, field_name, float(value))
         log.info("restored %d picks from %s", len(self.session.picks), path)
         return True
 
@@ -269,6 +373,31 @@ class CockpitService:
             session.roster_id = update.identity.roster_id
             session.slot = update.identity.slot
             session.slot_source = update.identity.source
+        # The staleness clock, stamped BEFORE the assignment because it needs both sides.
+        # `update.picks` is rebuilt from the payload every tick, so it is never the same list
+        # object as `session.picks` -- but on a 304 the adapter replays the identical body, so
+        # the two compare EQUAL. That equality is exactly the signal: a poll that succeeded
+        # and moved nothing.
+        now = time.time()
+        before, after = _pick_fingerprint(session.picks), _pick_fingerprint(update.picks)
+        # A DELIVERY, not merely a difference. A slate that SHRANK is not evidence the feed is
+        # working -- an all-placeholder ESPN response parses to zero picks, and Sleeper's own
+        # 304 path hands back `self._picks_last.get(draft_id, [])`, which is empty for a draft
+        # id it has never seen. Both would otherwise read as "a pick just arrived" and clear
+        # the warning at the exact moment the feed broke.
+        if after != before and after[0] >= before[0]:
+            self.health.last_pick_change = now
+
+        if session.draft_status == DRAFTING_STATUS and self.health.drafting_since is None:
+            self.health.drafting_since = now
+        self.health.paused = session.draft_status == PAUSED_STATUS
+        if session.draft_status in _NOT_RUNNING:
+            # Cleared only when the draft is definitively not running. Re-arming on the way
+            # back in would otherwise DISCARD accumulated silence: one spurious non-drafting
+            # poll a minute kept the anchor pinned to `now` forever, and an hour of a
+            # completely frozen slate never published more than 50 seconds of silence.
+            self.health.drafting_since = None
+
         session.picks = update.picks
         # Sync is authoritative: drop any hand-entered pick it now covers, and renumber the
         # rest to follow it. Without this, regaining sync after mirroring by hand

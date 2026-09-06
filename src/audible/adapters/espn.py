@@ -95,12 +95,26 @@ RAW_PASS_YARDS_STAT_ID = 3
 
 # ESPN statId -> (our stat key, multiplier into that key's units).
 #
-# Reconciled against ESPN's own appliedTotal on the live 2026 projections: QB -0.233,
-# RB -0.069, WR -0.045, TE -0.022 points across a full season. The whole residual is one
-# stat -- statId 63, an offensive fumble recovered for a touchdown, paid 6.0 -- which our
-# config has no key for and which the config is not being changed to add. It is worth
-# 0.06% of a QB season, it is monotone in fumbles (already penalised via `fum_lost`), and
-# it cannot reorder the board.
+# statId 63 -- an offensive fumble recovered for a touchdown, paid 6.0 -- was deliberately
+# left out of this table, and the residual it caused was recorded in docs/STATE.md as
+# unexplained: QB -0.233, RB -0.069, WR -0.045, TE -0.022 points across a full season on the
+# 2026 projections. It is now IDENTIFIED and PAID.
+#
+# It is the same event nflverse calls `fumble_recovery_tds`, which `sim/roundtrip.py` pays at
+# 6.0 to reproduce ESPN's season totals to the cent. Leaving it unmapped meant our
+# recomputation of ESPN's own numbers could never be exact, and "a small documented residual"
+# is a weaker check than "exact": it has room in it for the NEXT unmapped stat to hide.
+#
+# On ACTUALS it is an integer and rare -- one carrier in the whole 2025 corpus for 73131979
+# (Woody Marks, worth exactly 6.00) -- which is why the actuals path was already exact for
+# most samples. On PROJECTIONS it is a small fraction on nearly every line, which is where
+# the per-position residuals above came from.
+#
+# The key `fum_rec_td` is not new vocabulary: League A already scores it
+# (leagues/sleeper_boyfun.toml). Each ESPN league config now carries its own weight, because
+# `verify_scoring` compares this table against the league's live scoring items and an absent
+# config key reads as 0.0 -- so mapping without weighting would turn a silent residual into
+# four noisy drift rows per league.
 STAT_ID_TO_KEY: dict[int, tuple[str, float]] = {
     3: ("pass_yd", 1.0),
     4: ("pass_td", 1.0),
@@ -114,6 +128,7 @@ STAT_ID_TO_KEY: dict[int, tuple[str, float]] = {
     43: ("rec_td", 1.0),
     44: ("rec_2pt", 1.0),
     53: ("rec", 1.0),
+    63: ("fum_rec_td", 1.0),
     72: ("fum_lost", 1.0),
 }
 
@@ -142,6 +157,12 @@ IR_LINEUP_SLOT = 21
 # 16-round draft -- every one with playerId -1. Counting rows instead of real picks reports a
 # finished draft before the first selection is made.
 UNDRAFTED_PLAYER_ID = -1
+
+# How often the draft poll skips its conditional request and takes a full body anyway.
+# At the cockpit's 5s poll that is roughly every 30 seconds -- a third of a ninety-second
+# pick clock. See the reasoning in `get_draft_detail`: it bounds how long a non-advancing
+# ETag could hide picks, a question nothing in this repo has ever been able to settle.
+DRAFT_FULL_BODY_EVERY = 6
 
 # Stat ids that mean the SAME quantity counted differently, most-preferred first. ESPN ships
 # every member of a group on every line regardless of which one the league pays, so without a
@@ -393,6 +414,7 @@ class EspnAdapter:
         # Conditional-request state for the draft poll (see get_draft_detail).
         self._draft_etag: str | None = None
         self._draft_last: dict[str, Any] | None = None
+        self._draft_polls: int = 0
 
     @property
     def swid(self) -> str | None:
@@ -482,7 +504,29 @@ class EspnAdapter:
         60s pick timer, and so must carry a buster. Neither behaviour generalises to the
         other platform; do not copy this decision across.
         """
-        headers = {"If-None-Match": self._draft_etag} if self._draft_etag else {}
+        # PERIODIC FULL BODY. Every conditional request here is a bet that ESPN's ETag
+        # advances when the draft does, and that bet has never been settled: nothing in this
+        # repo has ever recorded a live ESPN ETag, and a clean 304 cannot tell "nothing
+        # changed" from "this tag never moves".
+        #
+        # The consequence if the bet is wrong is not "slightly stale". `_draft_etag` and
+        # `_draft_last` are only ever written on a 200 below, so a frozen tag freezes this
+        # adapter on the FIRST body it ever saw -- and a cockpit started before 19:00 caches
+        # the pre-draft placeholder slate. It would then serve `picks: 0`,
+        # `draft_status: pre_draft` for the whole draft while every poll succeeded.
+        #
+        # So the conditional request is kept -- it is measured, it works, and dropping it
+        # entirely invites a 429 on a metered afternoon -- but it is skipped periodically.
+        # At a 5s poll that is a full body about every 30s, which is a third of a
+        # ninety-second pick clock: a stuck ETag can now cost at most one pick of delay
+        # rather than an entire draft, whichever way the unsettled question falls.
+        self._draft_polls += 1
+        force_full = self._draft_polls % DRAFT_FULL_BODY_EVERY == 0
+        headers = (
+            {"If-None-Match": self._draft_etag}
+            if self._draft_etag and not force_full
+            else {}
+        )
         resp = self._request(config, self.DRAFT_VIEWS, headers=headers)
         if resp.status_code == 304 and self._draft_last is not None:
             return self._draft_last

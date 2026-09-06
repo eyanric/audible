@@ -28,10 +28,21 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 # Sync overrides this; it is what the clock uses before the first successful poll.
 draft_rounds = 16
 
-# Seat 5 of 10. Supplied and confirmed, NOT derived -- ESPN sync is the only other source of
-# it, and when sync is down `my_slot` reads null and every timing term in `recommend` goes
-# null with it while the tool keeps answering as though nothing were missing.
-draft_slot = 5
+# Seat 6 of 10. DERIVED, not supplied: the authenticated SWID matches teams[].owners on a
+# teamId whose position in draftSettings.pickOrder is 6, and `verify-scoring` asserts the two
+# agree on every run.
+#
+# It said 5 until 2026-09-06, and 5 was wrong. The disagreement was found live during the
+# 2026-09-05 draft and patched in the WRONG PLACE -- a hand-added `--slot 6` on haven's
+# deployment-danger-zone.yaml, which wins over this file at runtime. That kept the cockpit
+# correct and left `verify-scoring espn_danger_zone` exiting 1, so a real red check sat there
+# being ignored. A seat pinned in two places will disagree, and this is what it looks like
+# when it does. The override is removed from haven in the same change that fixes this line.
+#
+# The pin still exists because ESPN sync is the only other source: when sync is down
+# `my_slot` reads null and every timing term in `recommend` goes null with it while the tool
+# keeps answering as though nothing were missing.
+draft_slot = 6
 
 # 16 rounds - 9 starting slots = 7 bench picks per team, and the bench is where replacement
 # level actually sits: 70 of the 160 players drafted here never start.
@@ -99,6 +110,9 @@ rec_yd = 0.1       # statId 42
 rec_td = 6         # statId 43
 rec_2pt = 2        # statId 44
 fum_lost = -2      # statId 72
+fum_rec_td = 6      # statId 63. An offensive fumble recovered for a TD. Rare, and
+                   # for a long time the ENTIRE unexplained residual between our
+                   # recomputation and ESPN's appliedTotal -- see docs/STATE.md.
 
 # --- kicker: derived, but NOT verifiable by the harness -------------------------------
 # K is scored from ESPN's own total rather than from a translated line (see SPECIALIST_GAP),

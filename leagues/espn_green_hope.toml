@@ -95,6 +95,9 @@ rec_yd = 0.1       # statId 42
 rec_td = 6         # statId 43
 rec_2pt = 2        # statId 44
 fum_lost = -2      # statId 72
+fum_rec_td = 6      # statId 63. An offensive fumble recovered for a TD. Rare, and
+                   # for a long time the ENTIRE unexplained residual between our
+                   # recomputation and ESPN's appliedTotal -- see docs/STATE.md.
 # Kicker (ESPN tiered makes, distance-based). Declarative only: K and D/ST are never
 # translated -- `_pool_entries` marks them SOURCE_SPECIALIST and the board takes ESPN's own
 # league-applied total, measured to 0.000000 points of difference. verify-scoring does not

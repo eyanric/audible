@@ -146,6 +146,15 @@ button,input{font:inherit;color:inherit}
 #syncChip.off  #syncDot{background:var(--txt-3)}
 #syncChip.warn{color:var(--warm)}
 #syncChip.bad{color:var(--urgent-2)}
+/* The feed answers every request and delivers no picks. Deliberately NOT a fifth shade of
+   the same family: the whole failure mode is that a broken feed looked normal, so this
+   state inverts -- solid urgent fill, dark text -- and pulses. Nothing else on the page
+   pulses. */
+#syncChip.dead{color:#160b06;background:var(--urgent);padding:2px 8px;border-radius:3px;
+  font-weight:700;animation:deadPulse 1.6s ease-in-out infinite}
+#syncChip.dead #syncDot{background:#160b06}
+@keyframes deadPulse{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){#syncChip.dead{animation:none}}
 #syncText{font-variant-numeric:tabular-nums}
 
 .btn{
@@ -1137,6 +1146,16 @@ function pct(v) {
   return n + "%";
 }
 
+/* Same shape as fmtAge but WITHOUT the trailing "ago" — for sentences that supply their
+   own preposition. "no pick for 6m 55s ago" is what happens without this. */
+function fmtDuration(s) {
+  if (s == null || isNaN(s)) return "a while";
+  if (s < 60) return Math.floor(s) + "s";
+  var m = Math.floor(s / 60), r = Math.floor(s % 60);
+  if (m < 60) return m + "m " + (r < 10 ? "0" : "") + r + "s";
+  return Math.floor(m / 60) + "h " + (m % 60) + "m";
+}
+
 function fmtAge(s) {
   if (s == null || isNaN(s)) return "—";
   if (s < 1) return "just now";
@@ -1168,6 +1187,7 @@ var S = {
   receivedAt: 0,         // performance-clock ms when payload landed
   paused: false,
   pausedAge: null,
+  pausedPickSilence: null,
   filter: "ALL",
   query: "",
   inflight: false,
@@ -1665,10 +1685,32 @@ function ageSeconds() {
   return base + (performance.now() - S.receivedAt) / 1000;
 }
 
+/* Seconds since the FEED last delivered a pick, extrapolated between polls the same way
+   ageSeconds() is — otherwise the number would sit frozen for up to 2s at a time and the
+   readout would look less stale than it is.
+
+   null means the draft is not in progress, and that is the whole reason this is a separate
+   function from ageSeconds(). Before the clock starts, a feed that has delivered nothing is
+   correct; an age-only check cannot tell that from a draft in progress delivering nothing,
+   and getting it wrong gives a permanent false alarm on a quiet Tuesday afternoon. */
+function pickSilenceSeconds() {
+  if (!S.data || !S.data.sync) return null;
+  var base = S.data.sync.picks_silent_s;
+  if (typeof base !== "number") return null;
+  if (S.paused && S.pausedPickSilence != null) return S.pausedPickSilence;
+  return base + (performance.now() - S.receivedAt) / 1000;
+}
+
+function pickSilenceLimit() {
+  var lim = S.data && S.data.sync && S.data.sync.pick_silence_limit_s;
+  return typeof lim === "number" ? lim : 180;
+}
+
 function renderSync() {
   var chip = $("syncChip"), text = $("syncText");
   var sync = (S.data && S.data.sync) || {};
   var age = ageSeconds();
+  var silence = pickSilenceSeconds();
   var cls = "", msg;
 
   if (S.paused) {
@@ -1683,6 +1725,12 @@ function renderSync() {
   } else if (sync.status === "failing") {
     cls = "bad";
     msg = "Feed failing · last good " + (sync.last_success || "—");
+  } else if (silence != null && silence >= pickSilenceLimit()) {
+    /* ABOVE the age branches on purpose. This is the case where every age below is small and
+       green — the poll is working, so nothing else here can see the problem. It sits below
+       `failing` only because a feed that is openly erroring already says so more precisely. */
+    cls = "dead";
+    msg = "NO PICKS · " + fmtAge(silence);
   } else if (age != null && age > 30) {
     cls = "bad";
     msg = "STALE · last updated " + (sync.last_success || "—");
@@ -1698,6 +1746,7 @@ function renderSync() {
   setText(text, msg);
 
   var tip = [];
+  if (silence != null) tip.push("last pick " + fmtAge(silence) + " ago");
   if (sync.poll_count != null) tip.push("polls " + sync.poll_count);
   if (sync.status) tip.push("feed " + sync.status);
   if (sync.last_error) tip.push("feed error: " + sync.last_error);
@@ -1726,6 +1775,17 @@ function renderAlert() {
     body = "The server is up but its draft feed is failing"
          + (d.sync.last_error ? " (" + d.sync.last_error + ")" : "")
          + ". Showing last-known board from " + (d.sync.last_success || "earlier") + ".";
+  } else if (d && d.sync && d.sync.picks_stale === true) {
+    /* Server-computed, not re-derived here. The client already keeps its own copies of the
+       10s/30s thresholds and they can silently drift from the server's; this one is
+       published so there is exactly one definition of "silent". */
+    var silent = pickSilenceSeconds();
+    kind = "bad"; head = "No picks arriving";
+    body = "The feed is answering but has delivered no pick for "
+         + fmtDuration(silent)
+         + " while the draft is running — longer than two pick clocks in any of these "
+         + "leagues. Check the draft room; if picks are being made, enter them by hand "
+         + "with Mark taken; the board stays correct, this warning stays up.";
   } else if (panelOwns) {
     head = "";
   } else if (d && d.draft && d.draft.started === false) {
@@ -2353,6 +2413,7 @@ function undoTaken() {
 function setPaused(on) {
   S.paused = !!on;
   S.pausedAge = S.paused ? ageSeconds() : null;
+  S.pausedPickSilence = S.paused ? pickSilenceSeconds() : null;
   // resuming: the frozen age readout is meaningless, go get real data now
   if (!S.paused) poll();
   var b = $("pauseBtn");
