@@ -91,6 +91,32 @@ class LeagueConfig(BaseModel):
     # D/ST -- so it inflates D/ST and K relative to every position that actually gets hoarded.
     replacement_bench_slots: int = Field(default=0, ge=0)
 
+    # Which environment keys carry THIS league's ESPN cookies.
+    #
+    # ESPN auth is a browser session, and a session belongs to one account. Two of these
+    # leagues live on one ESPN account and a third lives on another, so "the ESPN cookies"
+    # is not a single pair -- it is a pair per account, and the league is what says which.
+    #
+    # Until now `adapters/espn.py` read the fixed names ESPN_SWID / ESPN_S2 from the process
+    # environment, so serving a second account meant exporting different values into the
+    # shell before launching -- one process, one account, and every other league 401s for as
+    # long as that shell lives. Naming the keys here lets both accounts sit in `.env`
+    # permanently and lets one process serve leagues on either.
+    #
+    # The defaults are the historical names, so a league that says nothing behaves exactly as
+    # it did.
+    #
+    # THIS IS NOT ONLY A DEVELOPER-MACHINE CONCERN, which is how it was first described and
+    # the description was wrong. Whatever a league names here is what its CONTAINER must
+    # export too: `EspnAdapter.for_league` reads these names and there is NO fallback to the
+    # defaults, because falling back is precisely how a process silently serves the wrong
+    # account. A pod that exports ESPN_SWID against a config asking for ESPN_SWID_ESPN2
+    # resolves both cookies to None and serves a correct board attached to no draft. The
+    # Secret's KEYS can stay ESPN_SWID / ESPN_S2; it is the exported variable NAMES that have
+    # to match. See haven's kubernetes/apps/audible/deployment-green-hope.yaml.
+    espn_swid_env: str = "ESPN_SWID"
+    espn_s2_env: str = "ESPN_S2"
+
     # Adapter drift guards.
     expected_reception_points: float | None = None
     notes: str | None = None

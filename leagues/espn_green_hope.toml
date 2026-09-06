@@ -1,0 +1,125 @@
+# audible league config -- Green Hope Dog Walkers (ESPN)
+#
+# league_id 73131979, private, and on a DIFFERENT ESPN ACCOUNT from the other two ESPN
+# leagues here. That is what `espn_swid_env` / `espn_s2_env` below are for: account 1's
+# cookies return 401 on this league and this account's cookies return 401 on 6012 and
+# 485267278, measured both directions 2026-09-05.
+#
+# Scoring keys use the Sleeper stat vocabulary, so one engine scores every league.
+# Every value below was read from the live API and re-checked with `verify-scoring`.
+
+key = "espn_green_hope"
+name = "Green Hope Dog Walkers"
+platform = "espn"
+league_id = "73131979"
+season = 2026
+num_teams = 8
+
+# Which .env keys carry this league's cookies. The other leagues say nothing and get the
+# historical ESPN_SWID / ESPN_S2 defaults, so both accounts coexist in one .env and one
+# process can serve either.
+#
+# THESE NAMES ARE ALSO WHAT THE CONTAINER MUST EXPORT. haven's
+# kubernetes/apps/audible/deployment-green-hope.yaml sets `name: ESPN_SWID_ESPN2` /
+# `name: ESPN_S2_ESPN2` on the env vars it takes from the audible-secrets-espn2 Secret
+# (whose KEYS are still ESPN_SWID / ESPN_S2). A pod exporting the default names against this
+# config resolves BOTH cookies to None -- there is no fallback, deliberately -- and serves a
+# correct board attached to no draft while /healthz still says ok:true. Change the names here
+# and you must change them there.
+espn_swid_env = "ESPN_SWID_ESPN2"
+espn_s2_env = "ESPN_S2_ESPN2"
+
+# Starting lineup (9), from live lineupSlotCounts {0:1, 2:2, 4:2, 6:1, 16:1, 17:1, 23:1}.
+# 1-QB, one FLEX, team D/ST, no IDP. Same nine-slot shape as DDAFFL.
+starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
+
+# 16 rounds, agreeing two ways against the live league on 2026-09-05: max(roundId) over the
+# 128-row pre-draft slate = 16, and sum(lineupSlotCounts) - IR = 17 - 1 = 16. 8 x 16 = 128
+# matches the slate row count exactly. Sync overrides this once it answers; this is what the
+# clock uses before the first successful poll.
+draft_rounds = 16
+
+# Seat 1 of 8. DERIVED, not taken on trust: the authenticated SWID matches teams[].owners on
+# teamId 2, and draftSettings.pickOrder is [2, 9, 6, 7, 4, 1, 5, 8], so teamId 2 is seat 1.
+# It agrees with what the commissioner said, which is the point -- it was checked rather than
+# copied. `verify-scoring` now reports a draft_slot row when a pin and the live derivation
+# disagree, so this number cannot go stale in silence the way Danger Zone's did.
+#
+# Seat 1 of 8 picks in PAIRS -- 1, 16/17, 32/33, 48/49 -- which is the worst case for
+# `survival()`; see docs/STATE.md. `recommend` uses visible ADP subtraction instead.
+draft_slot = 1
+
+# 9 starters, 16 rounds -> 7 bench picks per team, none of them on the waiver wire.
+# Same derivation and the same number as DDAFFL, which has the identical 8-team, 9-starter,
+# 16-round shape.
+replacement_bench_slots = 7
+
+# Drift guard. This league pays NOTHING for a reception -- statId 53 is absent from the live
+# scoring items entirely, in every position. That is the single biggest difference from the
+# other two ESPN leagues (DDAFFL half-PPR for WR/TE, Danger Zone full PPR everywhere).
+expected_reception_points = 0.0
+
+notes = "8-team, 16-round, 1-QB, STANDARD scoring -- zero PPR. Six-point passing TDs. On the second ESPN account."
+
+# VONA edged VORP in backtest on shallow 1-QB formats, but the current VONA implementation
+# has a junk-tail pathology that produces a QB-dominated board. Standing decision: ship VORP.
+value_metric = "vorp"
+
+# Zero PPR, so the standard market is the one that prices this league. The other two ESPN
+# leagues use adp_half_ppr and adp_ppr; markets are not comparable and are never pooled.
+adp_market = "adp_std"
+
+[slot_eligibility]
+QB = ["QB"]
+RB = ["RB"]
+WR = ["WR"]
+TE = ["TE"]
+FLEX = ["RB", "WR", "TE"]
+DEF = ["DEF"]
+K = ["K"]
+
+# Read from the live scoring items 2026-09-05. No pointsOverrides on any offensive stat --
+# every override in this league targets position 16 (D/ST) -- so there is no
+# [scoring_by_position] table and every position scores the same offensive rules.
+[scoring]
+pass_yd = 0.04     # statId 3, RAW yards. The 25-yard bucket (statId 8) is not a scoring
+                   # item here at all, so translation reads the raw stat.
+pass_td = 6        # statId 4. SIX, not the ESPN default four.
+pass_int = -2      # statId 20
+pass_2pt = 2       # statId 19
+rush_yd = 0.1      # statId 24
+rush_td = 6        # statId 25
+rush_2pt = 2       # statId 26
+rec = 0.0          # statId 53 ABSENT from live scoring items -- no PPR, any position.
+rec_yd = 0.1       # statId 42
+rec_td = 6         # statId 43
+rec_2pt = 2        # statId 44
+fum_lost = -2      # statId 72
+# Kicker (ESPN tiered makes, distance-based). Declarative only: K and D/ST are never
+# translated -- `_pool_entries` marks them SOURCE_SPECIALIST and the board takes ESPN's own
+# league-applied total, measured to 0.000000 points of difference. verify-scoring does not
+# compare these.
+fgm_0_19 = 3       # statId 80 pays 3 across 0-39
+fgm_20_29 = 3
+fgm_30_39 = 3
+fgm_40_49 = 4      # statId 77
+fgm_50p = 5        # statIds 198 (50-59) and 201 (60+), both 5
+xpm = 1            # statId 86
+fgmiss = -1        # statId 85
+# Team D/ST. Also declarative, same reason.
+sack = 1           # statId 99
+int = 2            # statId 95
+fum_rec = 2        # statId 96
+def_td = 6         # statIds 93, 101-104
+safe = 2           # statId 98
+blk_kick = 2       # statId 97
+pts_allow_0 = 5    # statId 89
+pts_allow_1_6 = 4  # statId 90
+pts_allow_7_13 = 3 # statId 91
+pts_allow_14_20 = 1  # statId 92
+pts_allow_28_34 = -1 # statId 123
+pts_allow_35p = -3   # statId 124; statId 125 pays -5 at 46+, which this flat key cannot
+                     # express. Harmless -- nothing scores D/ST from this table.
+# The yards-allowed tiers this league also pays (statIds 128-130, 132-136) have NO key in our
+# vocabulary. That is the documented, deliberate D/ST translation gap; it costs the board
+# nothing because D/ST never leaves ESPN's own number. Do not "fix" it here.

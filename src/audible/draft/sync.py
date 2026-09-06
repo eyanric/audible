@@ -344,7 +344,7 @@ class EspnSync:
         from ..adapters.espn import EspnAdapter
 
         self._config = config
-        self._adapter = adapter if adapter is not None else EspnAdapter()
+        self._adapter = adapter if adapter is not None else EspnAdapter.for_league(config)
         self._slot_override = slot_override
         self._bridge = bridge if bridge is not None else EspnIdBridge(
             adapter=self._adapter, config=config
@@ -365,15 +365,26 @@ class EspnSync:
         A slot invented when it cannot be derived is the ``slot = 0`` bug: it reads as "me",
         which quietly attributes the entire room to my roster.
         """
-        if self._slot_override is not None:
-            return Identity(None, None, self._slot_override, SOURCE_OVERRIDE)
+        # The derivation runs FIRST and ALWAYS -- including when a pin is set. Returning the
+        # override before ever reading teams[].owners is what made `live != override`
+        # unreachable in CockpitService, so the SEAT DRIFT error it guards could not fire on
+        # the only configuration that needs guarding.
         team_id = espn_my_team_id(payload.get("teams") or [], self._adapter.swid)
+        derived = slot_by_team.get(team_id) if team_id is not None else None
+
+        if self._slot_override is not None:
+            return Identity(
+                str(team_id) if team_id is not None else None,
+                team_id,
+                self._slot_override,
+                SOURCE_OVERRIDE,
+                derived_slot=derived,
+            )
         if team_id is None:
             return Identity(None, None, None, SOURCE_UNRESOLVED)
-        slot = slot_by_team.get(team_id)
-        if slot is None:
+        if derived is None:
             return Identity(str(team_id), team_id, None, SOURCE_UNRESOLVED)
-        return Identity(str(team_id), team_id, slot, SOURCE_PICK_ORDER)
+        return Identity(str(team_id), team_id, derived, SOURCE_PICK_ORDER, derived_slot=derived)
 
     def poll(self, draft_id: str | None, *, want_meta: bool, slot_locked: bool) -> DraftUpdate:
         # want_meta and slot_locked are ignored on purpose: one request already carries state,

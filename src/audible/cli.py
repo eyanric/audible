@@ -94,7 +94,7 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     """
     from .adapters.espn import SPECIALIST_GAP, STAT_ID_TO_KEY, TRANSLATED_POSITIONS, EspnAdapter
 
-    with EspnAdapter() as espn:
+    with EspnAdapter.for_league(cfg) as espn:
         drift = espn.verify_scoring(cfg)
         live_rec = espn.live_reception_points(cfg)
         structure = espn.verify_structure(cfg)
@@ -108,7 +108,14 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     expected = cfg.expected_reception_points
     if expected is not None:
         rb_rec = cfg.scoring_for("RB").get("rec")
-        if live_rec is None:
+        if live_rec is None and abs(expected) <= 1e-9:
+            # Unscored live and 0.0 in config are the same claim, not a mismatch. A
+            # league with no PPR at all -- statId 53 absent from every scoring item --
+            # is a real league shape, not a commissioner who has yet to flip a switch.
+            print(f"\n[{cfg.key}] receptions confirmed UNSCORED live, matching the "
+                  f"config's {expected}/rec. This league pays nothing for a catch, in "
+                  f"any position.")
+        elif live_rec is None:
             mismatch = True
             print(f"\n[{cfg.key}] !! RECEPTIONS ARE UNSCORED LIVE -- config expects {expected}.")
         elif abs(live_rec - expected) > 1e-9:
@@ -419,7 +426,7 @@ def cmd_anchoring(args: argparse.Namespace) -> int:
         raise SystemExit("anchoring reads ESPN's per-season served ranks; ESPN leagues only")
 
     print(f"Opponent anchoring -- [{cfg.key}] {cfg.name}")
-    with EspnAdapter() as espn:
+    with EspnAdapter.for_league(cfg) as espn:
         report = build_report(espn, cfg, me=args.me)
 
     print(f"  seasons: {', '.join(str(s) for s in report.seasons)}"
@@ -571,7 +578,7 @@ def cmd_draft_quality(args: argparse.Namespace) -> int:
         raise SystemExit("draft-quality reads ESPN season history; ESPN leagues only")
 
     print(f"Draft quality -- [{cfg.key}] {cfg.name}")
-    with EspnAdapter() as espn:
+    with EspnAdapter.for_league(cfg) as espn:
         report = build_report(espn, cfg)
 
     print(f"  seasons: {', '.join(str(s) for s in report.seasons)}")
@@ -1392,7 +1399,7 @@ def cmd_verify_actuals(args: argparse.Namespace) -> int:
     if cfg.platform.value != "espn":
         raise SystemExit("verify-actuals reads ESPN's own season totals; ESPN leagues only")
 
-    with EspnAdapter() as espn:
+    with EspnAdapter.for_league(cfg) as espn:
         # A league with no completed season -- 485267278 did not exist in 2025 -- still has
         # ESPN's own projected totals under its own scoring, which validates the same
         # arithmetic. Fall back rather than refuse: "no actuals" is a fact about the

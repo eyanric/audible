@@ -164,14 +164,32 @@ def _resolve_equivalents(present: set[int]) -> set[int]:
     return out
 
 
-_AUTH_EXPIRED = (
-    "ESPN credentials expired, re-pull cookies. fantasy.espn.com -> DevTools -> "
-    "Application -> Cookies: copy SWID (keep the curly braces) and espn_s2 into .env."
-)
-_AUTH_MISSING = (
-    "ESPN credentials missing: set ESPN_SWID (keep the curly braces) and ESPN_S2 in .env. "
-    "League B is a private league; both cookies are required."
-)
+def _auth_missing(config: LeagueConfig) -> str:
+    return (
+        f"ESPN credentials missing for [{config.key}] (league {config.league_id}): set "
+        f"{config.espn_swid_env} (keep the curly braces) and {config.espn_s2_env} in .env. "
+        "These leagues are private; both cookies are required."
+    )
+
+
+def _auth_rejected(config: LeagueConfig) -> str:
+    """A 401/403 from a league whose cookies WERE sent.
+
+    It names the league and the two env keys deliberately. The failure this distinguishes is
+    not "no cookie" -- that is caught before the request goes out -- but "a valid session for
+    the WRONG ACCOUNT". ESPN answers both with a bare 401, and a generic "re-pull your
+    cookies" sends you to re-copy credentials that were never the problem. Two of these
+    leagues live on one ESPN account and one lives on another, so pointing a league at the
+    other account's keys is a real, easy mistake with an unhelpful error.
+    """
+    return (
+        f"ESPN rejected the cookies for [{config.key}] (league {config.league_id}). They were "
+        f"read from {config.espn_swid_env} / {config.espn_s2_env}. Either that session "
+        "expired, or those keys hold a DIFFERENT ESPN account's session -- an account that "
+        "cannot see this league answers with exactly this 401. Check which account owns the "
+        "league BEFORE you re-pull cookies: fantasy.espn.com -> DevTools -> Application -> "
+        "Cookies."
+    )
 
 
 class EspnAuthError(RuntimeError):
@@ -329,6 +347,18 @@ class _PoolEntry:
 class EspnAdapter:
     name = "espn"
 
+    @classmethod
+    def for_league(cls, config: LeagueConfig, **kwargs: Any) -> EspnAdapter:
+        """An adapter holding the cookies *config* names, rather than the process default.
+
+        This is the constructor every caller that has a league should use. Passing the KEY
+        NAMES rather than the resolved values matters: a missing key must stay missing and
+        raise, and `__init__`'s `swid=None` means "fall back to the default key", so
+        resolving here and passing the value through would silently serve the wrong account
+        exactly when the named key is absent.
+        """
+        return cls(swid_env=config.espn_swid_env, s2_env=config.espn_s2_env, **kwargs)
+
     def __init__(
         self,
         swid: str | None = None,
@@ -336,9 +366,12 @@ class EspnAdapter:
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
         cache: JsonCache | None = None,
+        *,
+        swid_env: str = "ESPN_SWID",
+        s2_env: str = "ESPN_S2",
     ) -> None:
-        self._swid = swid if swid is not None else _cookie("ESPN_SWID")
-        self._espn_s2 = espn_s2 if espn_s2 is not None else _cookie("ESPN_S2")
+        self._swid = swid if swid is not None else _cookie(swid_env)
+        self._espn_s2 = espn_s2 if espn_s2 is not None else _cookie(s2_env)
         self._cache = cache if cache is not None else JsonCache()
         # Cookies live on the client, not the request: httpx deprecated per-request cookies
         # because persistence across a redirect is ambiguous.
@@ -384,14 +417,14 @@ class EspnAdapter:
         self, config: LeagueConfig, views: list[str], *, headers: dict[str, str] | None = None
     ) -> httpx.Response:
         if not self._swid or not self._espn_s2:
-            raise EspnAuthError(_AUTH_MISSING)
+            raise EspnAuthError(_auth_missing(config))
         resp = self._client.get(
             self._league_url(config),
             params=[("view", view) for view in views],
             headers=headers or {},
         )
         if resp.status_code in (401, 403):
-            raise EspnAuthError(_AUTH_EXPIRED)
+            raise EspnAuthError(_auth_rejected(config))
         return resp
 
     def _get(
@@ -860,11 +893,16 @@ class EspnAdapter:
                 live_value = None if item is None else self._live_points(item, position_id)
                 if live_value is not None:
                     live_value /= factor
-                if (
-                    cfg_value is None
-                    or live_value is None
-                    or abs(float(cfg_value) - live_value) > 1e-9
-                ):
+                # ABSENT AND ZERO ARE THE SAME CLAIM, in both directions: a stat ESPN does
+                # not list is a stat it pays nothing for, and a config that omits a key pays
+                # nothing for it either. Comparing presence instead of value made every such
+                # pair a drift row -- four of them on a league that simply has no PPR -- and
+                # a report that is loud where nothing is wrong is how four REAL drifts hid
+                # inside seventy-eight rows on League A. A value that is present and
+                # different is still drift; only the absent-vs-zero pairing is excused.
+                cfg_number = 0.0 if cfg_value is None else float(cfg_value)
+                live_number = 0.0 if live_value is None else live_value
+                if abs(cfg_number - live_number) > 1e-9:
                     drift.append((f"{key}[{position}]", cfg_value, live_value))
         return drift
 
@@ -912,7 +950,8 @@ class EspnAdapter:
 
         * every starting lineup slot,
         * ``num_teams``,
-        * ``draft_rounds``.
+        * ``draft_rounds``,
+        * ``draft_slot`` -- the seat, pinned against the seat ESPN derives.
 
         This is the structural twin of :meth:`verify_scoring`, and it is the check that caught
         League A's June-to-August slot drift -- a config claiming slots the league does not
@@ -951,10 +990,45 @@ class EspnAdapter:
         if config.num_teams != live_teams:
             drift.append(("num_teams", config.num_teams, live_teams))
 
-        live_rounds = self._draft_rounds_verified(config, settings)
+        # ONE fetch of the draft bundle, shared by both checks below. Rounds-from-slate and
+        # the seat both live in it, and asking twice would put this back to three requests
+        # for two questions -- a conditional GET is cheap but it is not free, and the cost of
+        # this command is documented.
+        bundle = self.get_draft_detail(config)
+
+        live_rounds = self._draft_rounds_verified(config, settings, payload=bundle)
         if config.draft_rounds != live_rounds:
             drift.append(("draft_rounds", config.draft_rounds, live_rounds))
+
+        live_slot = self.derived_draft_slot(config, payload=bundle)
+        if (
+            config.draft_slot is not None
+            and live_slot is not None
+            and config.draft_slot != live_slot
+        ):
+            drift.append(("draft_slot", config.draft_slot, live_slot))
         return drift
+
+    def derived_draft_slot(
+        self, config: LeagueConfig, *, payload: Mapping[str, Any] | None = None
+    ) -> int | None:
+        """My seat, derived from the authenticated SWID against ``teams[].owners``.
+
+        ``None`` when ESPN cannot say -- the cookie matches no team in this league, or the
+        commissioner has not set a pick order yet. That is deliberately NOT a disagreement:
+        a pin exists precisely to carry the seat when the platform is silent, so silence
+        must never be reported as drift.
+
+        Takes an already-fetched draft bundle when the caller has one -- ``verify_structure``
+        does -- so asking for the seat costs no additional round trip.
+        """
+        from ..draft.sync import espn_my_team_id, espn_slot_by_team
+
+        bundle = self.get_draft_detail(config) if payload is None else payload
+        team_id = espn_my_team_id(bundle.get("teams") or [], self.swid)
+        if team_id is None:
+            return None
+        return espn_slot_by_team(bundle.get("settings") or {}).get(team_id)
 
     @staticmethod
     def _draft_rounds_from(settings: Mapping[str, Any]) -> int:
@@ -969,7 +1043,9 @@ class EspnAdapter:
         """
         return self._draft_rounds_from(self.get_settings(config))
 
-    def draft_rounds_from_slate(self, config: LeagueConfig) -> int | None:
+    def draft_rounds_from_slate(
+        self, config: LeagueConfig, *, payload: Mapping[str, Any] | None = None
+    ) -> int | None:
         """The SECOND opinion on the round count: ``max(roundId)`` over the pick slate.
 
         Independent of :meth:`draft_rounds`, which counts roster slots. ESPN builds the whole
@@ -980,12 +1056,19 @@ class EspnAdapter:
         a league whose draft grid ESPN has not built yet must not fail structural verification
         over it.
         """
-        picks = (self.get_draft_detail(config).get("draftDetail") or {}).get("picks") or []
+        bundle = self.get_draft_detail(config) if payload is None else payload
+        picks = (bundle.get("draftDetail") or {}).get("picks") or []
         rounds = [_int(row.get("roundId")) for row in picks]
         seen = [r for r in rounds if r > 0]
         return max(seen) if seen else None
 
-    def _draft_rounds_verified(self, config: LeagueConfig, settings: Mapping[str, Any]) -> int:
+    def _draft_rounds_verified(
+        self,
+        config: LeagueConfig,
+        settings: Mapping[str, Any],
+        *,
+        payload: Mapping[str, Any] | None = None,
+    ) -> int:
         """The round count both derivations agree on.
 
         Two ways of counting the same thing that disagree is a fact about ESPN's data, and
@@ -994,7 +1077,7 @@ class EspnAdapter:
         the honest answer is neither.
         """
         from_slots = self._draft_rounds_from(settings)
-        from_slate = self.draft_rounds_from_slate(config)
+        from_slate = self.draft_rounds_from_slate(config, payload=payload)
         if from_slate is not None and from_slate != from_slots:
             raise EspnDataError(
                 f"ESPN league {config.league_id} reports its round count two ways and they "
