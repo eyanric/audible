@@ -990,11 +990,17 @@ class EspnAdapter:
         if config.num_teams != live_teams:
             drift.append(("num_teams", config.num_teams, live_teams))
 
-        live_rounds = self._draft_rounds_verified(config, settings)
+        # ONE fetch of the draft bundle, shared by both checks below. Rounds-from-slate and
+        # the seat both live in it, and asking twice would put this back to three requests
+        # for two questions -- a conditional GET is cheap but it is not free, and the cost of
+        # this command is documented.
+        bundle = self.get_draft_detail(config)
+
+        live_rounds = self._draft_rounds_verified(config, settings, payload=bundle)
         if config.draft_rounds != live_rounds:
             drift.append(("draft_rounds", config.draft_rounds, live_rounds))
 
-        live_slot = self.derived_draft_slot(config)
+        live_slot = self.derived_draft_slot(config, payload=bundle)
         if (
             config.draft_slot is not None
             and live_slot is not None
@@ -1003,7 +1009,9 @@ class EspnAdapter:
             drift.append(("draft_slot", config.draft_slot, live_slot))
         return drift
 
-    def derived_draft_slot(self, config: LeagueConfig) -> int | None:
+    def derived_draft_slot(
+        self, config: LeagueConfig, *, payload: Mapping[str, Any] | None = None
+    ) -> int | None:
         """My seat, derived from the authenticated SWID against ``teams[].owners``.
 
         ``None`` when ESPN cannot say -- the cookie matches no team in this league, or the
@@ -1011,16 +1019,16 @@ class EspnAdapter:
         a pin exists precisely to carry the seat when the platform is silent, so silence
         must never be reported as drift.
 
-        Rides the draft bundle, which ``verify_structure`` has already fetched for the round
-        slate, so asking costs no additional round trip.
+        Takes an already-fetched draft bundle when the caller has one -- ``verify_structure``
+        does -- so asking for the seat costs no additional round trip.
         """
         from ..draft.sync import espn_my_team_id, espn_slot_by_team
 
-        payload = self.get_draft_detail(config)
-        team_id = espn_my_team_id(payload.get("teams") or [], self.swid)
+        bundle = self.get_draft_detail(config) if payload is None else payload
+        team_id = espn_my_team_id(bundle.get("teams") or [], self.swid)
         if team_id is None:
             return None
-        return espn_slot_by_team(payload.get("settings") or {}).get(team_id)
+        return espn_slot_by_team(bundle.get("settings") or {}).get(team_id)
 
     @staticmethod
     def _draft_rounds_from(settings: Mapping[str, Any]) -> int:
@@ -1035,7 +1043,9 @@ class EspnAdapter:
         """
         return self._draft_rounds_from(self.get_settings(config))
 
-    def draft_rounds_from_slate(self, config: LeagueConfig) -> int | None:
+    def draft_rounds_from_slate(
+        self, config: LeagueConfig, *, payload: Mapping[str, Any] | None = None
+    ) -> int | None:
         """The SECOND opinion on the round count: ``max(roundId)`` over the pick slate.
 
         Independent of :meth:`draft_rounds`, which counts roster slots. ESPN builds the whole
@@ -1046,12 +1056,19 @@ class EspnAdapter:
         a league whose draft grid ESPN has not built yet must not fail structural verification
         over it.
         """
-        picks = (self.get_draft_detail(config).get("draftDetail") or {}).get("picks") or []
+        bundle = self.get_draft_detail(config) if payload is None else payload
+        picks = (bundle.get("draftDetail") or {}).get("picks") or []
         rounds = [_int(row.get("roundId")) for row in picks]
         seen = [r for r in rounds if r > 0]
         return max(seen) if seen else None
 
-    def _draft_rounds_verified(self, config: LeagueConfig, settings: Mapping[str, Any]) -> int:
+    def _draft_rounds_verified(
+        self,
+        config: LeagueConfig,
+        settings: Mapping[str, Any],
+        *,
+        payload: Mapping[str, Any] | None = None,
+    ) -> int:
         """The round count both derivations agree on.
 
         Two ways of counting the same thing that disagree is a fact about ESPN's data, and
@@ -1060,7 +1077,7 @@ class EspnAdapter:
         the honest answer is neither.
         """
         from_slots = self._draft_rounds_from(settings)
-        from_slate = self.draft_rounds_from_slate(config)
+        from_slate = self.draft_rounds_from_slate(config, payload=payload)
         if from_slate is not None and from_slate != from_slots:
             raise EspnDataError(
                 f"ESPN league {config.league_id} reports its round count two ways and they "
