@@ -12,32 +12,48 @@ Rules for editing:
 - **Record the decision, not just the finding.** "Flagged not fixed" is the useful half.
 - **Delete what stops being true.** A stale line here is worse than no line.
 
-Last rewritten **2026-09-05, 22:30 ET**, after all three configured leagues had drafted.
+Last rewritten **2026-09-06, 00:30 ET**, after 73131979 was onboarded and the seat and
+account checks were built.
 
 ---
 
-## THE ONLY DRAFT LEFT IS ONE WE CANNOT READ
+## THE ONLY DRAFT LEFT IS NOW READABLE, CONFIGURED, AND SERVED
 
-**ESPN league `73131979`. Tuesday 2026-09-08, 19:00 ET. Snake, 8 teams, Eric says seat 1.
-There is no config for it and no cockpit that can serve it.**
+**ESPN league `73131979` = "Green Hope Dog Walkers". Tuesday 2026-09-08, 19:00 ET. Snake,
+8 teams, 16 rounds, seat 1.** Config is `leagues/espn_green_hope.toml`; the cockpit manifests
+are in haven on `feat/audible-cockpit-green-hope`.
 
-It lives on a **SECOND ESPN account**. Measured 2026-09-05 with the account-1 cookies in `.env`:
+It lives on a **SECOND ESPN account**, and the two accounts are strictly disjoint. Measured
+2026-09-05/06, both directions:
 
-| league | HTTP | note |
+| league | account 1 cookies | account 2 cookies |
 |---|---|---|
-| `6012` | **200** | `Davis Drive Alumni FF League`, size 8 |
-| `485267278` | **200** | `2026 Danger Zone`, size 10 |
-| **`73131979`** | **401** | `You are not authorized to view this League.` |
-| `999999999999` (control) | 400 | `Invalid parameter for 'leagueId'` |
+| `6012` | **200** | **401** |
+| `485267278` | **200** | **401** |
+| `73131979` | **401** | **200** |
+| `999999999999` (control) | 400 | 400 |
 
-The control matters: a bad id returns **400**, so the 401 means the league **exists and is
-private**, not that the id is wrong. An anonymous request returns the same 401. `adapters/espn.py`
-reads `ESPN_SWID` / `ESPN_S2` from the process environment via `_cookie(...)` — **one process,
-one account** — so nothing can be done against this league until `.env` (or the environment)
-carries account 2.
+The control matters: a bad id returns **400**, so a 401 means the league exists and is private.
 
-**This is the whole blocker.** Everything on the "Open / next" list that touches 73131979 is
-waiting on it and on nothing else.
+**The blocker is gone, and not by swapping cookies.** `LeagueConfig` now names the environment
+keys a league reads -- `espn_swid_env` / `espn_s2_env`, defaulting to the historical
+`ESPN_SWID` / `ESPN_S2` -- and `EspnAdapter.for_league(config)` threads them to all nine
+construction sites. Both accounts sit in `.env` at once and **one process serves either**.
+
+Verified with no shell variables set, in one process tree:
+
+```
+verify-scoring espn_davis_drive  -> FAITHFUL, exit 0     (account 1)
+verify-scoring espn_green_hope   -> FAITHFUL, exit 0     (account 2)
+```
+
+**Do not go back to exporting cookies into a shell.** That gave one process one account, so
+every other league 401'd for as long as the shell lived.
+
+`.env` key names, confirmed by reading (a previous session reported `ESPN_S`, and was wrong --
+nothing was renamed): `ESPN_SWID`, `ESPN_S2`, `ESPN_SWID_ESPN2`, `ESPN_S2_ESPN2`,
+`ANTHROPIC_API_KEY`, `MCP_AUTH_TOKEN`. `ANTHROPIC_API_KEY` is vestigial **and empty**;
+`.env.example` says outright there will never be one. Left alone.
 
 ---
 
@@ -48,10 +64,79 @@ waiting on it and on nothing else.
 | `sleeper_boyfun` | Sleeper `1361543954771738624` | 10-team, half-PPR, SUPERFLEX, IDP | `adp_idp` | 192.168.1.111 | **complete** |
 | `espn_danger_zone` | ESPN `485267278` | 10-team, full PPR every position, 16 rounds | `adp_ppr` | 192.168.1.112 | **complete** (160 picks) |
 | `espn_davis_drive` | ESPN `6012` | 8-team, 1-QB, half-PPR WR/TE, 0.0 RB | `adp_half_ppr` | none | **complete** (128 picks) |
-| **(none yet)** | **ESPN `73131979`** | **8-team snake, seat 1 (unverified)** | ? | **none** | **2026-09-08 19:00** |
+| `espn_green_hope` | ESPN `73131979` | 8-team, 16 rounds, 1-QB, **STANDARD (zero PPR)** | `adp_std` | **192.168.1.113 (PR open)** | **2026-09-08 19:00** |
 
-All three configured leagues report `drafted: true` / status `complete` as of 2026-09-05 22:29
-ET. Their draft-night rules below are **historical**; keep them for method, not for tonight.
+The first three report `drafted: true` / status `complete` as of 2026-09-05 22:29 ET; their
+draft-night rules below are **historical**, kept for method. `espn_green_hope` is `pre_draft`
+and is the only live one.
+
+`espn_green_hope` is the only league here on the second ESPN account, and the only one that
+sets `espn_swid_env` / `espn_s2_env`. It is also the only **zero-PPR** league: `statId 53`
+is absent from its live scoring items entirely, so no position is paid for a catch. It pays
+**six-point passing TDs** and **raw** passing yards (`statId 3`), not the 25-yard bucket.
+
+---
+
+## What shipped 2026-09-06: the seat and the account became checkable
+
+Both were the same bug -- a value that could only ever agree with itself, so the check written
+to catch a disagreement could never fire.
+
+### Per-league cookie source
+
+`LeagueConfig` gained `espn_swid_env` / `espn_s2_env`. `EspnAdapter.for_league(config)` is the
+constructor every caller with a league now uses; all nine non-test construction sites were
+already holding a config, so nothing had to be re-plumbed.
+
+`for_league` passes the key **NAMES**, not resolved values, and that is load-bearing:
+`__init__`'s `swid=None` means "fall back to the default key", so resolving in the factory
+would silently serve the **default account** exactly when the named key is missing. There is a
+test pinning that.
+
+A 401 now names the league and the two env keys it read. "Wrong account" and "expired session"
+are different problems and ESPN answers both with a bare 401; a generic "re-pull your cookies"
+sends you to re-copy credentials that were never the problem.
+
+### The derived-vs-pinned seat assertion, which did not exist
+
+`EspnSync._identity` returned the override **before** reading `teams[].owners`, so
+`CockpitService`'s SEAT DRIFT error compared the override with itself. Unreachable on every
+league that pins a seat -- the only ones that need it.
+
+The derivation now runs unconditionally on **both** platforms. `Identity` carries
+`derived_slot` beside `slot`: the pin still wins (that is its job) while the platform's own
+answer survives to be compared, via `Identity.seat_conflict`.
+
+**The load-bearing part is that it reaches a person.** `verify_structure` now reports a
+`draft_slot` row, so a wrong pin is a **non-zero exit from `verify-scoring`**, not a log line.
+It fires on the live Danger Zone case today:
+
+```
+[espn_danger_zone] !! STRUCTURE DRIFT -- 1 item(s) differ (config vs live).
+   draft_slot   config=5      live=6
+EXIT=1
+```
+
+**That means `verify-scoring espn_danger_zone` is RED until someone fixes that TOML.** It was
+green only because nothing checked. Danger Zone's `draft_slot` and `deployment-danger-zone.yaml`'s
+hand-added `--slot 6` were out of bounds for this session; the argument is right and the config
+is stale. No automation runs this command -- the `audible-sync-watchdog` CronJob calls haven's
+`verify-audible-league.sh`, which does not.
+
+### Absent and zero are the same claim
+
+`verify_scoring` reported drift whenever **either** side merely lacked a key, so a league with
+no PPR produced four rows saying "neither of us pays this". That is how four real drifts hid
+inside seventy-eight on League A. Now only a value that is **present and different** is drift;
+a stat ESPN does not list and a config key that is absent both read as 0.0. `cfg=0.5, live=absent`
+is still drift. The same rule was applied to the reception guard, which called "unscored live"
+a mismatch against a config that expects 0.0.
+
+### Suite
+
+**501 passed, 1 xfailed** (was 492 + 1; +9 new). ruff clean, pyright 0 errors. The new tests
+are load-bearing: reverting `_identity` to the old short-circuit fails exactly the two that
+assert the new behaviour.
 
 ---
 
@@ -108,36 +193,21 @@ Suite: **492 passed, 1 xfailed**, no skips. ruff clean, pyright 0 errors.
 
 ---
 
-## The seat pin has no assertion behind it. Measured, not inferred.
+## The seat pin, and the one case still open
 
-`config/schema.py` says of `draft_slot`: *"Live pickOrder disagreeing with it is logged loudly
-rather than swallowed."* **It is not.** `service.py` has a `SEAT DRIFT` error log, and it is
-**unreachable whenever a pin is set** — which is the only time it matters.
+The assertion exists now -- see "What shipped 2026-09-06" above. What remains is the case it
+found and was not allowed to fix:
 
-The mechanism: `CockpitService` passes its own `_slot_override` into `EspnSync`, and
-`EspnSync._identity()` returns `Identity(..., self._slot_override, SOURCE_OVERRIDE)` **before**
-ever consulting `teams[].owners`. So `update.identity.slot` *is* the override, and
-`live != self._slot_override` can never be true.
+**`leagues/espn_danger_zone.toml` says `draft_slot = 5`; the SWID-derived seat is 6; and
+`deployment-danger-zone.yaml` carries a hand-added `--slot 6`.** The argument is right and the
+config is stale. `verify-scoring espn_danger_zone` exits 1 on it today. Fixing the TOML and
+dropping the `--slot` argument belongs to Eric -- a seat pinned in two places will disagree
+again.
 
-Demonstrated offline against the committed ESPN fixture (`espn_davis_drive`, derived seat 8):
-
-```
-derived seat (no pin)   : 8  source=pick_order
-pinned seat             : 2
-session.slot after poll : 2  source=override
-SEAT DRIFT messages     : 0
-```
-
-This is the Danger Zone failure exactly: `deployment-danger-zone.yaml` carries `--slot 6` against
-a config that says `5`, added live during the draft window, and the argument won in silence.
-**A gate that sets `draft_slot` to the wrong seat and expects a failure is vacuous today.**
-Building that assertion is a prerequisite for trusting `draft_slot = 1` on 73131979, because seat
-1 is where a wrong pin is least visible: it never has an opponent pick before its own turn to
-contradict it.
-
-**Not fixed here** — it belongs with the 73131979 config work that needs it.
-
----
+Seat 1 of 8, which is what `espn_green_hope` pins, is where a wrong pin is **least** visible:
+it never has an opponent pick before its own turn to contradict it. That is exactly why the
+seat there was derived (teamId 2, `pickOrder [2,9,6,7,4,1,5,8]` -> seat 1) rather than taken
+on trust, and why it is asserted rather than assumed.
 
 ## League A drifted again, in-season, and the new guard is what found it
 
@@ -168,79 +238,91 @@ thing that lags, and the guard is the only reason anyone knows.
 
 ---
 
-## `verify-actuals` does NOT exit 0 on any live ESPN league, and never did
+## `verify-actuals`: exit code depends on the BASIS, not on the league
 
-Worth knowing before writing a gate that assumes it does. `verify-actuals espn_danger_zone` exits
-**1** with `exact to the cent : 0/12`:
+**The previous claim here -- "does NOT exit 0 on any live ESPN league, and never did" -- was
+over-broad and is corrected.** It generalised from one league. Measured 2026-09-06:
 
-| pos | residual / season |
-|---|---|
-| QB | −0.23 to −0.28 |
-| RB | −0.07 to −0.09 |
-| WR | −0.04 to −0.05 |
-| TE | −0.02 |
+| league | basis | exact to the cent | exit |
+|---|---|---|---|
+| `espn_green_hope` | **actuals** | **12/12** | **0** |
+| `espn_davis_drive` | **actuals** | **12/12** | **0** |
+| `espn_danger_zone` | projections | 0/12 | 1 |
 
-Confirmed **identical on the pre-change tree** (`git stash`, re-run, restore), so it is not a
-regression. These are the documented `statId 63` residuals — offensive fumble recovered for a TD,
-paid 6.0, unmapped in our vocabulary and deliberately so. K and D/ST report SKIP by design.
+The split is **actuals vs projections**, and the mechanism is `statId 63` -- an offensive
+fumble recovered for a touchdown, paid 6.0, unmapped in our vocabulary and deliberately so.
 
-**So "verify-actuals exits 0, exact to the cent" is not an achievable gate as written.** The
-achievable one is: every recomputable player within the `statId 63` residual, monotone in
-fumbles, and no position outside it.
+* **Projections** carry it as a FRACTIONAL expected value on nearly every line, so every
+  recomputable player is a little light. Danger Zone did not exist in 2025 and so has no
+  actuals; that is why it falls to projections. Per-season residual: QB −0.23 to −0.28,
+  RB −0.07 to −0.09, WR −0.04 to −0.05, TE −0.02.
+* **Actuals** are integers -- a player either recovered a fumble for a touchdown or did not.
+  Measured over the whole 2025 actual corpus for 73131979: **1,091 players, exactly ONE
+  carries a `statId 63` key at all** (Woody Marks, RB, value 1, worth exactly 6.00 points).
+  None of the twelve sampled players carries one, so the residual is 0.00 and the command
+  exits 0.
 
----
+So the mechanism is real, quantified, and simply does not touch this league's sample. K and
+D/ST report SKIP by design in every case.
 
-## haven: the address for a third cockpit is `192.168.1.113`
+## haven: the third cockpit is written and PR'd on `192.168.1.113`
 
-Not built — the manifests need the league key, which needs the cookies. But the address question
-is settled, three ways:
+`kubernetes/apps/audible/deployment-green-hope.yaml` + `service-green-hope.yaml`, added to
+`kustomization.yaml`, on branch `feat/audible-cockpit-green-hope`. **Not merged.**
 
-1. **Cilium pool** `default-pool` is `192.168.1.100–150`; status reports `IPsTotal 51`,
-   **`IPsUsed 12`**, `IPsAvailable 39`.
-2. **Cluster-wide Service enumeration**: exactly **12** LoadBalancer IPs assigned — `.100`
-   home-assistant, `.101` jellyfin, `.102` spoolman, `.103` headlamp, `.104` gatus, `.105`
-   homepage, `.106` immich, `.107` mosquitto, `.108` frigate, `.109` alertmanager-lan, `.111`
-   audible-boyfun, `.112` audible-danger-zone. The two counts agree exactly.
-3. **ARP**: `.113` answers `Destination host unreachable` (nothing on the LAN claims it), while
-   the live cockpit `.111` answers `Request timed out` — a claimed L2 VIP that drops ICMP. The
-   probe distinguishes claimed from unclaimed.
+`.113` was **re-confirmed against the live cluster immediately before committing**: a
+cluster-wide enumeration returns exactly twelve assigned LoadBalancer addresses -- `.100`
+home-assistant, `.101` jellyfin, `.102` spoolman, `.103` headlamp, `.104` gatus, `.105`
+homepage, `.106` immich, `.107` mosquitto, `.108` frigate, `.109` alertmanager-lan, `.111`
+audible-boyfun, `.112` audible-danger-zone -- agreeing with the Cilium pool's own `IPsUsed 12`.
+`.113` is not among them.
 
-**`ping`'s exit code is useless here** — Windows `ping` exits **0** even when the only reply is
-"Destination host unreachable". Read the text, not `$?`. A first pass using the exit code reported
-`.113` and `.114` as *in use*, which was exactly backwards.
+**Do NOT use `.110`.** Free in every listing and **stuck**: measured 2026-09-04 the Cilium
+announcer never picked it up (absent from `db/show l2-announce` on all three nodes, no
+`cilium-l2announce-*` lease) while `.111` answered in ~3ms. Bound to the address, not the
+Service. Cleanup still deferred.
 
-**Do NOT use `.110`.** It is free in every listing and it is **stuck**: measured 2026-09-04, the
-Cilium announcer never picked it up — absent from `db/show l2-announce` on all three nodes, no
-`cilium-l2announce-*` lease in kube-system, while `.111` answered in ~3ms. The stuck state is
-bound to the address, not the Service. Cleanup was deferred; it is still deferred.
+**`ping`'s exit code is useless here** -- Windows `ping` exits 0 even when the only reply is
+"Destination host unreachable". Read the text, not `$?`.
 
-The new Deployment models on `deployment-danger-zone.yaml` with: `secretKeyRef.name:
-audible-secrets-espn2`, `--league <key>`, **no `--slot`** (the seat belongs in the TOML), and the
-`podAntiAffinity` `values:` list extended to all three apps.
+The Deployment: `secretKeyRef.name: audible-secrets-espn2`, `--league espn_green_hope`, and
+**no `--slot`** (the seat lives in the TOML, and putting it in two places is what went wrong
+on Danger Zone).
 
-**`audible-secrets-espn2` is already live**, not just committed: it is on haven `main` and
-appears in the `apps` Flux Kustomization's inventory as `audible_audible-secrets-espn2__Secret`.
-Nothing references it yet. So the cockpit only needs the Deployment and Service.
+**The anti-affinity was extended in the NEW FILE ONLY.** It lists all three app names, so the
+new pod avoids nodes already running either existing cockpit -- which is what matters, since it
+is the only one being scheduled. The two existing Deployments still list two values each.
+Editing them was out of bounds this session, and doing so would roll both live cockpits and
+wipe their warm `emptyDir` boards for no scheduling gain. Measured: the two live pods are
+already on different nodes (`talos-y0w-bvm`, `talos-lt1-mgf`).
+
+Validation run before commit: `yamllint` clean, `kubectl kustomize` builds 9 resources,
+`kubectl apply --dry-run=server` creates both. The dry-run emits a **PodSecurity
+`restricted:latest` warning** (allowPrivilegeEscalation, capabilities, seccompProfile) -- it is
+**pre-existing and identical on `deployment-danger-zone.yaml`**, the `audible` namespace carries
+no PodSecurity enforcement labels, and both live pods are Running. Not introduced here, and not
+fixed here.
+
+**`audible-secrets-espn2` is already live** on haven `main` and in the `apps` Kustomization's
+inventory. It defines exactly `ESPN_SWID` and `ESPN_S2` -- no `MCP_AUTH_TOKEN`, which is why
+the new Deployment reads that key from `audible-secrets` with `optional: true`, exactly as the
+other two do.
 
 ### The Flux freeze is OFF, and pulling it again is a documented lever
 
-PR #352 suspended `apps` for the 2026-09-05 drafts, merged 17:39 ET, and has been **reverted**.
-Measured on the live cluster 2026-09-06 03:06 UTC: `apps` carries no `suspend`,
-`ReconciliationSucceeded`, healthy. So a merged haven PR **will** apply.
+Confirmed on this branch 2026-09-06: `kubernetes/flux/config/apps.yaml` carries no `suspend`
+key, only the procedure in comments. PR #373 lifted the draft-weekend freeze. So a merged haven
+PR **will** apply.
 
-`kubernetes/flux/config/apps.yaml` now carries the procedure in a comment block that names
-**2026-09-08 as the next one**: add `suspend: true` under `dependsOn`, merge, revert afterwards.
+(A mapping agent reported the freeze as ON during this session. It had read `/c/dev/haven-freeze`,
+a stale sibling worktree. Check which directory you are in.)
 
 **Blast radius, stated plainly: there is no per-app Flux Kustomization.** `apps` reconciles
-`./kubernetes/apps` in its entirety, so suspending it freezes **every** app — home-assistant,
-immich, frigate, mcp, vaultwarden and the rest. `infra` and `cluster` are not suspended. For one
-evening that is acceptable and fully reversible; it is not a lever to leave pulled. While
-suspended, merged PRs simply do not apply — nothing queues up wrong.
+`./kubernetes/apps` in its entirety, so suspending it freezes **every** app. `infra` and
+`cluster` are not suspended. Fully reversible; not a lever to leave pulled.
 
 **Order for Tuesday:** deploy the third cockpit, `refresh-data`, container-restart to reach
 `origin: disk`, and only then pull the freeze. Freezing first would block the deploy.
-
----
 
 ## ESPN — verified, do not re-derive
 
@@ -337,13 +419,16 @@ this post-draft probe cannot see it. That is a much narrower thing to validate t
 instrument may be fundamentally broken", and it has an obvious mitigation if it proves true:
 drop the conditional request for the draft view and eat a full body every 5s.
 
-### Danger Zone's `draft_slot` is wrong in the TOML, and the derivation says so
+### Danger Zone's `draft_slot` is wrong in the TOML, and the guard now SAYS so
 
 Same probe, no override: the seat derived from the account-1 SWID against `teams[].owners` is
 **6**. `leagues/espn_danger_zone.toml` says **5**, and `deployment-danger-zone.yaml` carries
-`--slot 6` — added by hand during the draft window. **The argument was right and the config is
-the stale one.** Recorded, not corrected (TOMLs were out of bounds for that session). This is a
-live, already-present case for the derived-vs-pinned assertion above to catch.
+`--slot 6`, added by hand during the draft window. **The argument was right and the config is
+the stale one.**
+
+As of 2026-09-06 this is no longer merely recorded: `verify-scoring espn_danger_zone` exits 1
+with `draft_slot config=5 live=6`. Correcting the TOML and dropping the `--slot` argument is
+Eric's -- both were out of bounds this session.
 
 ### Reconciliation residual
 
@@ -464,21 +549,45 @@ Same pod name back with `restarts=1` is how you know the `emptyDir` survived.
 Board rank of the first player at each position against that league's own ADP market. Positive
 means the board wants him earlier than the market takes him — the direction that costs picks.
 
-`sleeper_boyfun` needed a read-past rule: **DEF +21.3 rounds, K +12.9, LB +6.8**.
-`espn_danger_zone` needed **none** — every specialist delta negative (K −3.4, DEF −2.8, QB −4.1).
-Same engine, opposite answers, because `replacement_bench_slots = 7` there and `0` in League A.
+Measured 2026-09-06 by ONE method across all three, so the numbers are comparable
+(`delta_rounds = (market ADP rank − board rank) / num_teams`):
 
-**So measure it for 73131979 and state which it is. Do not carry either league's rule.**
+| league | market | first K | first DEF |
+|---|---|---|---|
+| `sleeper_boyfun` | `adp_idp` | board 83 vs adp 212 = **+12.9** | board 74 vs adp 287 = **+21.3** |
+| `espn_danger_zone` | `adp_ppr` | board 127 vs adp 93 = **−3.4** | board 116 vs adp 88 = **−2.8** |
+| **`espn_green_hope`** | `adp_std` | board 98 vs adp 121 = **+2.9** | board 92 vs adp 123 = **+3.9** |
+
+Re-running the two historical leagues reproduced their recorded numbers exactly, which is what
+makes the third row comparable rather than merely similar.
+
+**`espn_green_hope` needs a MILD read-past rule: about 3 rounds on K and 4 on DEF.** It sits
+between the two and much closer to Danger Zone — roughly a fifth of League A's inflation, and
+opposite in sign to Danger Zone's. Practically: the board wants a kicker around pick 98 and a
+defence around 92; its market does not take them until ~121 and ~123. **Read past both until
+the last two rounds.** Do not carry League A's rule — four to seven times too big here — and do
+not assume Danger Zone's "no rule needed" either.
+
+Board composition of the top 128 (the whole 8 × 16 draft): RB 53, WR 35, TE 18, QB 8, K 8,
+DEF 6. The RB weight is the zero-PPR shape showing up, not a pathology — receptions pay nothing
+here, so WR points compress while RB replacement sits deep (rank 53 at 66.3 points against WR
+rank 36 at 120.1).
+
 Specialists never enter the bench allocation at all (`_startable_slots(config, pos) >= 2` gates
 them out), so `replacement_bench_slots` cannot fix a League-A-shaped inflation.
 
-**The QB junk-tail pathology has not returned.** Pre-registered stop condition was ≥8 QBs inside
-the board's top 15. Measured: **1** in League A, **0** in Danger Zone.
+**The QB junk-tail pathology has not returned.** Pre-registered stop condition was ≥8 QBs
+inside the board's top 15. Measured: **1** in League A, **0** in Danger Zone, **0** in Green
+Hope — whose top 15 is entirely running backs.
 
 ### In an 8-team league, zero kickers and defences go in the first 128 picks
 
 Measured on DDAFFL. In the 10-team Danger Zone the first DEF goes at 88 and the first K at 93, and
-10 DEF / 9 K are gone by 160. 73131979 is 8-team, so expect the DDAFFL shape.
+10 DEF / 9 K are gone by 160.
+
+For 73131979, its own market (`adp_std`) prices the first K at rank 121 and the first DEF
+at 123 — both inside 128, unlike DDAFFL's 131/132 in `adp_half_ppr`. Close to the boundary
+either way; the read-past deltas above are the number to act on.
 
 ### `recommend` has no notion of roster balance — still true, still not fixed
 
@@ -548,32 +657,55 @@ if 73131979 is ever served past ~rank 250.**
 
 **Ordered by what breaks Tuesday's draft, not by what is interesting.**
 
-1. **Swap `.env` to the second ESPN account's cookies.** Manual, browser session cookies, no API
-   mints them. **Nothing below that names 73131979 can start until this happens.** The per-league
-   cookie source that would remove this step (constructor params already exist on `EspnAdapter`;
-   no CLI path passes them) is a real improvement and worth building once the draft is done.
-2. **Onboard 73131979**: derive the key from the live league name, write
-   `leagues/espn_<key>.toml`, run the verify loop until faithful. **Derive** the seat and assert
-   it equals 1 rather than pinning what Eric said. Measure the specialist read-past deltas and
-   state which league this is.
-3. **Build the derived-vs-pinned seat assertion** — see above. It is a prerequisite for trusting
-   `draft_slot = 1`, and today it does not exist.
-4. **haven: a third cockpit** — `deployment-<key>.yaml` + `service-<key>.yaml` on
-   **192.168.1.113**, `audible-secrets-espn2`, no `--slot`, anti-affinity extended to three.
-5. **haven: freeze `apps` for Tuesday evening** — the lever and its blast radius are documented
+Items 1-4 of the previous list are DONE: the per-league cookie source, the 73131979 config,
+the derived-vs-pinned seat assertion, and the haven cockpit manifests (PR open, not merged).
+
+1. **Merge both PRs.** audible `feat/onboard-green-hope-dog-walkers` and haven
+   `feat/audible-cockpit-green-hope`. haven squash-merges; audible merge-commits. Nothing
+   reaches the cluster until the haven one lands.
+2. **Validate whether ESPN's ETag advances as picks land. THE LARGEST REMAINING RISK to
+   Tuesday.** The endpoint, the conditional request and `EspnSync.poll` are each fine -- 160
+   real picks come back through the 304 path on the completed Danger Zone draft. But a server
+   returning a STABLE ETag over a CHANGING body produces the observed "clean 304s all night"
+   symptom exactly, and a post-draft probe cannot see it. Mitigation is cheap and known: drop
+   the conditional request for the draft view and eat a full body every 5s. **Decide this
+   before Tuesday**, not during.
+3. **Order of operations on Tuesday, and it is not the obvious one.** Deploy the cockpit
+   FIRST, then `refresh-data espn_green_hope`, then restart the CONTAINER in place to reach
+   `origin: disk`, and only THEN pull the Flux freeze. Refreshing before the last deploy is
+   wasted -- a pod roll wipes the `emptyDir` and returns origin to `mixed`. Freezing first
+   would block the deploy.
+4. **A pre-flight session Tuesday afternoon** that enumerates every external input the cockpit
+   needs and asserts each resolves, exiting non-zero on any UNRESOLVED. `verify-scoring
+   espn_green_hope` is most of it and exits 0 today.
+5. **haven: freeze `apps` for Tuesday evening.** The lever and its blast radius are documented
    in `kubernetes/flux/config/apps.yaml`, which names 2026-09-08 by date. Pull it AFTER the
-   cockpit is deployed and refreshed, not before. Restoring the Renovate freeze on
-   `ghcr.io/eyanric/**` is the narrower belt-and-braces version.
-6. **ESPN live-draft sync: the ambiguity is now HALF resolved, and the risk is smaller than it
-   looked.** See the measurement below. What is still untested is narrow and specific.
-7. **A pre-flight session Tuesday afternoon** that enumerates every external input the cockpit
-   needs and asserts each resolves, exiting non-zero on any UNRESOLVED.
-8. **Correct League A's config**: 7 IDP weights and `draft_rounds` 19 → 20. Only matters in-season
-   now, but the guard will keep shouting until it is done.
-9. **haven: point `mcp-audible` at a Service that exists.** The public MCP surface is down.
-10. **`survival()` goes quiet at back-to-back turns** — seat 1 of 8 is the worst case. Fix or
-    delete it.
-11. **`recommend` has no notion of roster balance** — read all five rows until there is a fix.
-12. **`SPECIALIST_GAP` says "~15 pts/season" where the measured error is 0.000000.** Reword.
-13. **`median_match` vs live `league_average_match: 0`** — decide and either correct or delete the
-    field. Touches one CLI print line and no number.
+   cockpit is deployed and refreshed. Restoring the Renovate freeze on `ghcr.io/eyanric/**` is
+   the narrower belt-and-braces version -- PR #344 deleted it and the live rule is
+   `automerge: true, minimumReleaseAge: '0 days'`, so a digest bump merges itself and rolls the
+   pods unattended.
+6. **Correct `espn_danger_zone.toml`: `draft_slot` 5 -> 6, and drop `--slot 6` from
+   `deployment-danger-zone.yaml`.** `verify-scoring espn_danger_zone` is RED until this is
+   done -- correctly, and for the first time. A seat pinned in two places will disagree again.
+7. **Correct League A's config**: 7 IDP weights and `draft_rounds` 19 -> 20. In-season only
+   now, but the guard keeps shouting.
+8. **`survival()` goes quiet at back-to-back turns, and seat 1 of 8 is its worst case.**
+   73131979 picks in PAIRS -- 1, 16/17, 32/33, 48/49 -- so `opponent_picks_until_horizon` is 0
+   at every turn after the first and `survival()` returns 1.0 for everyone at exactly the
+   moment two picks are on the clock. `draft/urgency.py` bypasses it with visible ADP
+   subtraction, so nothing on Tuesday depends on it. **Fix or delete it** -- separate work,
+   deliberately not touched here.
+9. **`recommend` has no notion of roster balance, and seat 1 of 8 hits that too.** It returns
+   five rows; read all five. When you already hold three startable bodies at a position, take
+   the best row that is not that position. Deliberately not patched -- the right fix is
+   marginal value against my own roster, which changes what the board recommends.
+10. **Read past K and DEF for about 3-4 rounds in 73131979.** Measured, mild, and specific to
+    this league; see the read-past table above. Not a code change.
+11. **haven: point `mcp-audible` at a Service that exists.** It proxies to
+    `audible.audible.svc.cluster.local:80` and no Service named `audible` exists -- only the
+    three per-league ones. This is why the `audible-mcp` connector 502s, and it still did on
+    2026-09-06.
+12. **`SPECIALIST_GAP` says "~15 pts/season" where the measured board error is 0.000000.**
+    Reword. It prints on every `verify-scoring` run, including the green ones.
+13. **`median_match` vs live `league_average_match: 0`** -- decide and either correct or delete
+    the field. Touches one CLI print line and no number.
