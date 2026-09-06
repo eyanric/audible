@@ -7,17 +7,19 @@ Three separately-reported bugs were that one dead key: a second linebacker named
 IDP_FLEX full, a dry run drafting 10 WR and 2 RB, and a back recommended onto the same bye
 as both backs already rostered.
 
-Signals now COMPOSE into one scalar instead of queueing behind a unique key:
+Signals COMPOSE into one scalar instead of queueing behind a unique key:
 
     effective = base_value * marginal_start_factor(...) - bye_conflict_penalty(...)
 
-...except that the bye term is NOT WIRED IN, and that is a reported blocker rather than an
-omission. `tests/test_byes.py` enforces, as an explicit merged hard stop -- "Hard stop 2,
-made checkable. Every number must be untouched by the join" -- that joining byes changes no
-served value. Letting bye collisions reach the ordering is precisely a value changing
-because byes were joined, so the two cannot both hold. The computation below is built and
-tested and ready; turning it on is a decision to relax that hard stop, and the brief says to
-stop and report before doing that rather than to do it quietly.
+BOTH TERMS ARE NOW LIVE, AND THE SCALAR REACHES BOTH SURFACES. The bye term was blocked by
+`tests/test_byes.py`'s hard stop 2, which read "every number must be untouched by the join".
+That invariant existed to stop bye data contaminating PROJECTIONS AND VALUE, and in that
+form it is correct and still enforced -- narrowed to say so explicitly, and widened in
+precision rather than in permission: the value engine still may not import the bye accessor,
+byes are still not a field on any player model, and every projection, rank and value number
+on a served row is still asserted byte-identical with and without the join. What may now
+move is the SERVING-BOUNDARY ordering -- `effective_score` and The Call -- which is the one
+thing byes were always supposed to inform.
 
 WHERE THE LINE SITS. Making need and byes reach the sort is a CORRECTNESS fix: the tool did
 not understand the situation. Tuning the weights to beat the market is an EDGE claim and
@@ -204,6 +206,35 @@ def bye_conflict_penalty(
     :func:`bye_conflict_cost`.
     """
     return bye_conflict_cost(entries, config, byes) * slot_week_points
+
+
+def marginal_bye_cost(
+    entries: Sequence[Any],
+    candidate: Any,
+    config: LeagueConfig,
+    byes: Mapping[str, int],
+    *,
+    base: float | None = None,
+) -> float:
+    """What ADDING *candidate* to this roster costs, in :func:`bye_conflict_cost` units.
+
+    The roster-level cost is not itself an ordering signal -- it is the same number for every
+    candidate, so subtracting it from all of them changes nothing. What discriminates is the
+    DIFFERENCE one player makes, which is what this returns.
+
+    NOT CLAMPED AT ZERO, DELIBERATELY. Clamping would assert that a player can never improve
+    a roster's bye shape, and that is a claim rather than an observation. Measured instead:
+    sweeping every position against all 18 weeks on the sim standard roster produces no
+    negative marginal, so the clamp would be inert here anyway -- and if a covering player
+    ever does score below zero, a small bonus for filling the roster's worst week is the
+    behaviour this term exists to produce.
+
+    ``base`` is the caller's cached roster-only cost. Passing it halves the work, and the
+    caller has it because it is constant across every row on a poll.
+    """
+    if base is None:
+        base = bye_conflict_cost(entries, config, byes)
+    return bye_conflict_cost([*entries, candidate], config, byes) - base
 
 
 def effective_score(

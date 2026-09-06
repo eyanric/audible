@@ -211,18 +211,37 @@ def service(tmp_path: Path, sleeper_config: LeagueConfig) -> CockpitService:
     return svc
 
 
-def test_the_row_gains_exactly_one_field(service):
+def test_the_row_gains_exactly_one_fact_under_two_names(service):
+    """The bye join adds ONE FACT. It is published under two names, and they must agree.
+
+    This used to assert "exactly one field", which was true while `bye` came from the
+    schedule and `bye_week` came from the usage table -- two derivations of one fact, sitting
+    next to each other on the same row. `_player`'s own comment called that a bug waiting for
+    the day an ordering read one of them, and that day arrived: the ordering prices bye
+    collisions now. `build_state` reconciles the two sources before either name is served, so
+    both fields move together and the test asserts the stronger property -- they can never
+    disagree -- instead of the weaker one it could assert before.
+
+    Both names stay because both are published: `bye` to the cockpit page, `bye_week` to the
+    MCP surface. Renaming a served field breaks somebody's client for no gain.
+    """
     from audible.draft.live import Candidate
 
     cand = Candidate(entry=_entry(1, "BUF"), survival=0.5, grab_now=False, fills_need=False)
     without = _player(cand, gaps={}, byes={})
     with_bye = _player(cand, gaps={}, byes={"BUF": 7})
-    assert set(with_bye) - set(without) == set(), "the key exists either way"
-    assert without["bye"] is None
+
+    assert set(with_bye) - set(without) == set(), "the keys exist either way"
+    assert without["bye"] is None and without["bye_week"] is None
     assert with_bye["bye"] == 7
-    assert {k: v for k, v in without.items() if k != "bye"} == {
-        k: v for k, v in with_bye.items() if k != "bye"
-    }
+    assert with_bye["bye_week"] == with_bye["bye"], (
+        "the two names for the bye must be the same number, always"
+    )
+
+    names = {"bye", "bye_week"}
+    without_rest = {k: v for k, v in without.items() if k not in names}
+    with_rest = {k: v for k, v in with_bye.items() if k not in names}
+    assert without_rest == with_rest, "nothing but the bye may change because a bye joined"
 
 
 def test_an_unknown_team_yields_none_not_a_guess(service):
@@ -243,8 +262,48 @@ def _strip_byes(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def test_the_board_is_byte_identical_with_and_without_the_bye_join(service, monkeypatch):
-    """Hard stop 2, made checkable. Every number must be untouched by the join."""
+# Hard stop 2, NARROWED -- and narrowed in precision, not in permission.
+#
+# It used to read "every number must be untouched by the join", enforced by comparing whole
+# rows minus `bye`. The INTENT was and remains that bye data may not contaminate PROJECTIONS
+# AND VALUE: the board must rank the same players the same way whether or not a schedule
+# happened to load. That intent is correct and is enforced below, by name, on every field
+# the value engine produced.
+#
+# What the old wording ALSO forbade, accidentally, was byes reaching the serving-boundary
+# ORDERING -- which is the only thing byes were ever collected for. Two sessions read it as
+# a merged decision and stopped, correctly, rather than relaxing it quietly. So it is
+# relaxed here, explicitly, in one direction only: `effective_score` and The Call may move,
+# because pricing a bye collision into a recommendation is their whole job.
+#
+# THE OTHER THREE GUARDS ARE UNTOUCHED AND STILL DO THE REAL WORK: `value/`, `scoring/` and
+# `providers/` still may not import or name the bye accessor; `bye` is still not a field on
+# any player model; and the derivation still may not read a ranking field. Byes cannot reach
+# a projection because they cannot reach the code that computes one -- not because a
+# serving-layer equality check happened to cover it.
+
+# Everything the value engine computed. NONE of these may move because a schedule loaded.
+VALUE_AND_PROJECTION_FIELDS = frozenset({
+    "consensus_rank", "vorp_rank", "vorp", "opp_rank", "survival", "adp", "adp_rank",
+    "adp_known", "value", "points", "grab_now", "fills_need", "deviation", "espn_rank",
+    "vs_espn", "vs_espn_confident", "flags", "id", "name", "position", "team",
+})
+
+# Fields that exist to CONSUME the bye. Moving is what they are for; anything moving that is
+# NOT in here is a contamination and fails.
+BYE_CONSUMING_FIELDS = frozenset({
+    "bye", "bye_week", "bye_conflict_penalty", "effective_score",
+})
+
+
+def test_no_projection_or_value_number_moves_when_byes_join(service, monkeypatch):
+    """Hard stop 2, narrowed and made checkable BY NAME.
+
+    Naming the protected fields rather than comparing whole rows is what makes the contract
+    readable. A whole-row comparison says "nothing may change" and cannot express which
+    changes were the point -- which is how the one signal byes exist for ended up forbidden
+    by the invariant that was meant to keep them honest.
+    """
     _patch_schedule(monkeypatch, _schedule(_even_byes()))
     with_byes = build_state(service)
 
@@ -256,16 +315,97 @@ def test_the_board_is_byte_identical_with_and_without_the_bye_join(service, monk
         assert len(with_byes[key]) == len(without[key])
         for a, b in zip(with_byes[key], without[key], strict=True):
             assert a["bye"] is not None or b["bye"] is None
-            assert {k: v for k, v in a.items() if k != "bye"} == \
-                   {k: v for k, v in b.items() if k != "bye"}, \
-                   "a value changed because byes were joined"
+            for field in VALUE_AND_PROJECTION_FIELDS:
+                assert a.get(field) == b.get(field), (
+                    f"{field} moved on {a['name']} because byes were joined: "
+                    f"{a.get(field)!r} vs {b.get(field)!r}"
+                )
+            moved = {k for k in set(a) | set(b) if a.get(k) != b.get(k)}
+            assert moved <= BYE_CONSUMING_FIELDS, (
+                f"{sorted(moved - BYE_CONSUMING_FIELDS)} moved on {a['name']}, and only "
+                f"the bye-consuming fields are allowed to"
+            )
 
-    # And every non-row section of the payload is untouched.
-    skip = {"grab_now", "best_available", "bye_collisions", "sync", "data"}
+    # And every non-row section of the payload is untouched. `the_call` joins the skip list
+    # for one reason only: it ORDERS BY `effective_score`, which now prices bye collisions.
+    # That is the narrowing, and the test below pins exactly what it is allowed to change so
+    # the skip cannot quietly widen into "The Call is exempt".
+    skip = {"grab_now", "best_available", "bye_collisions", "sync", "data", "the_call"}
     for key in set(with_byes) | set(without):
         if key in skip:
             continue
         assert with_byes.get(key) == without.get(key), f"{key} moved"
+
+
+def test_the_call_may_move_only_in_its_bye_consuming_fields(service, monkeypatch):
+    """The other half of the narrowing: `the_call` is SKIPPED above, not exempt.
+
+    Without this, adding `the_call` to the skip list would license any future change to it,
+    including one that reordered the board. What is licensed is precisely the fields that
+    price a bye.
+    """
+    _patch_schedule(monkeypatch, _schedule(_even_byes()))
+    with_byes = build_state(service)["the_call"]
+
+    state_mod._bye_cache = None
+    monkeypatch.setattr(state_mod, "bye_weeks", lambda season: {})
+    without = build_state(service)["the_call"]
+
+    for field in ("why_now", "what_it_costs", "considered", "seat_resolved",
+                  "roster_need", "skipped_as_likely_to_last"):
+        assert with_byes.get(field) == without.get(field), f"the_call.{field} moved"
+
+    for slot in ("pick", "runner_up"):
+        a, b = with_byes.get(slot) or {}, without.get(slot) or {}
+        moved = {k for k in set(a) | set(b) if a.get(k) != b.get(k)}
+        assert moved <= BYE_CONSUMING_FIELDS, (
+            f"the_call.{slot} moved in {sorted(moved - BYE_CONSUMING_FIELDS)}"
+        )
+
+
+def test_the_bye_term_actually_fires_and_still_moves_no_value_number(service, monkeypatch):
+    """G6 WITH THE TERM LIVE. The two halves of the narrowed contract, on one payload.
+
+    The other bye tests run against a service holding NO picks, so `_score_rows` prices
+    every candidate's bye marginal at zero and the contract is satisfied vacuously. Here the
+    roster is real, the penalty is non-zero, and BOTH halves have to hold at once: the
+    ordering moved because byes joined, and not one projection or value number did.
+
+    Two backs on one bye is the shape docs/STATE.md measured: dedicated RB slots mean the
+    week has no legal lineup, and it is exactly the case the term exists to price.
+    """
+    service.session.picks = [
+        Pick(pick_no=1, round=1, draft_slot=4, player_id="p001"),   # RB, BUF
+        Pick(pick_no=2, round=1, draft_slot=4, player_id="p005"),   # RB, BUF
+        Pick(pick_no=3, round=1, draft_slot=4, player_id="p002"),   # WR, KC
+    ]
+    _patch_schedule(monkeypatch, _schedule(_even_byes()))
+    with_byes = build_state(service)
+
+    penalties = [r["bye_conflict_penalty"] for r in with_byes["best_available"]]
+    assert any(pen > 0 for pen in penalties), (
+        f"the bye term is wired but priced nothing on any row: {sorted(set(penalties))}"
+    )
+
+    state_mod._bye_cache = None
+    monkeypatch.setattr(state_mod, "bye_weeks", lambda season: {})
+    without = build_state(service)
+
+    assert all(r["bye_conflict_penalty"] == 0 for r in without["best_available"]), (
+        "with no schedule there is nothing to collide with, so nothing may be charged"
+    )
+    moved_scores = sum(
+        1 for a, b in zip(with_byes["best_available"], without["best_available"], strict=True)
+        if a["effective_score"] != b["effective_score"]
+    )
+    assert moved_scores > 0, "the narrowing is pointless if the ordering does not move"
+
+    for a, b in zip(with_byes["best_available"], without["best_available"], strict=True):
+        for field in VALUE_AND_PROJECTION_FIELDS:
+            assert a.get(field) == b.get(field), (
+                f"{field} moved on {a['name']} while the bye term was live: "
+                f"{a.get(field)!r} vs {b.get(field)!r}"
+            )
 
 
 def test_no_ranking_field_is_reachable_from_the_bye_path():

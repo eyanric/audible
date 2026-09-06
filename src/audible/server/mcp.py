@@ -300,8 +300,21 @@ def build_mcp(service: CockpitService, *, auth_token: str | None = None) -> Fast
         entries = getattr(service.board, "entries", []) if service.board else []
         taken = service.session.taken_ids()
         available = [e for e in entries if e.player_id not in taken]
+        # The same composed scalar this tool just sorted by. `_slim` is the trimmed player
+        # payload and does not carry it, so it is grafted on here -- both surfaces must
+        # order by one number or they will disagree about the same board, which is exactly
+        # what happened: this tool demoted an unstartable surplus player and The Call, on
+        # the page beside it, still named him.
         call = the_call(
-            [_slim(p, next_pick=nxt) | {"vorp_rank": p["vorp_rank"]} for p in pool],
+            [
+                _slim(p, next_pick=nxt) | {
+                    "vorp_rank": p["vorp_rank"],
+                    "effective_score": p.get("effective_score"),
+                    "marginal_start_factor": p.get("marginal_start_factor"),
+                    "bye_conflict_penalty": p.get("bye_conflict_penalty"),
+                }
+                for p in pool
+            ],
             next_pick=nxt, needs=needs, available_entries=available,
         )
 

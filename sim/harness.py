@@ -182,6 +182,22 @@ def slot_on_clock(pick_no: int, teams: int) -> int:
     return idx + 1 if rnd % 2 == 1 else teams - idx
 
 
+def current_pick_after(n_picks: int, teams: int, *, my_slot: int = MY_SLOT) -> int:
+    """The pick number at which I am on the clock having ALREADY made *n_picks*.
+
+    A GATE THAT GETS THIS WRONG SILENTLY BUILDS A DIFFERENT SCENARIO. `picks_up_to` hands my
+    ids out only at picks my seat owns, so passing more ids than the seat owns by
+    `current_pick` drops the surplus on the floor -- and because those ids are still on the
+    board, the extra players read as AVAILABLE. A roster meant to be full of receivers is
+    then a roster with two receivers and two suspiciously good ones still on the board, and
+    every assertion about surplus is measuring nothing. Seen twice while building G-CALL.
+    """
+    mine = [n for n in range(1, teams * 64) if slot_on_clock(n, teams) == my_slot]
+    if n_picks >= len(mine):
+        raise ValueError(f"seat {my_slot} of {teams} does not make {n_picks + 1} picks")
+    return mine[n_picks]
+
+
 def picks_up_to(
     current_pick: int,
     teams: int,
