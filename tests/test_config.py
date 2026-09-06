@@ -31,7 +31,11 @@ def test_the_two_espn_leagues_do_not_share_scoring() -> None:
     assert danger.scoring_for("RB")["rec"] == 1.0
     assert danger.scoring_for("WR")["rec"] == 1.0
     assert danger.num_teams == 10 and ddaffl.num_teams == 8
-    assert danger.draft_slot == 5
+    # Seat 6, not the 5 this asserted until 2026-09-06. The 5 was wrong: the seat derived from
+    # the SWID against `teams[].owners` is 6, `verify-scoring espn_danger_zone` had been
+    # exiting 1 on the disagreement, and haven carried a hand-added `--slot 6` that was
+    # silently correcting it at runtime. Still an exact pin, pointed at the derived value.
+    assert danger.draft_slot == 6
 
 
 def test_sleeper_config_matches_hand_won_spec(sleeper_config: LeagueConfig) -> None:

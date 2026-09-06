@@ -20,6 +20,7 @@ import logging
 import random
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,20 @@ POLL_INTERVAL_S = 5.0
 STALE_AFTER_S = 10.0
 FAILING_AFTER_S = 30.0
 
+# How long the FEED may go without delivering a pick while the draft is running before the
+# cockpit says so. Every number above measures the age of the last successful POLL, which is
+# a different question and the reason 2026-09-05 was invisible: ESPN answers a conditional
+# request with 304, the adapter replays the body it already had, nothing raises, and
+# `last_success` advances. A whole draft can run that way with `sync_status: "live"` and
+# `picks: 0`.
+#
+# 180s is two full ninety-second pick clocks. One clock cannot trip it -- a manager using
+# every second of their turn is normal, and an indicator that cries during normal play is one
+# nobody reads by round three. Two consecutive clocks with nothing arriving is not something a
+# healthy eight-team draft does.
+PICK_CLOCK_S = 90.0
+PICK_SILENCE_S = 2 * PICK_CLOCK_S
+
 # Retry with jitter on a failed poll. A draft is 180 picks over a couple of hours; a transient
 # 5xx must cost a beat, never the session.
 RETRY_BASE_S = 1.0
@@ -50,11 +65,41 @@ class SyncHealth:
     last_error: str | None = None
     poll_count: int = 0
     fail_streak: int = 0
+    # The SECOND clock. `last_success` answers "did the last request work"; these answer "is
+    # the feed actually delivering". A 304 satisfies the first and says nothing about the
+    # second, which is the whole defect.
+    #
+    # `last_pick_change` moves only when the SYNCED pick slate actually changes. A pick typed
+    # in by hand deliberately does not touch it: hand-entry keeps the BOARD current, it is not
+    # evidence the feed recovered, and letting it reset the clock would silence the warning
+    # exactly when someone is working around a dead feed.
+    last_pick_change: float | None = None
+    # When the draft was first seen in progress. Without it a draft that opens and never
+    # delivers a single pick has no anchor to measure silence from, and that is the precise
+    # shape of the 2026-09-05 failure.
+    drafting_since: float | None = None
 
     def age_s(self, now: float | None = None) -> float | None:
         if self.last_success is None:
             return None
         return max(0.0, (now if now is not None else time.time()) - self.last_success)
+
+    def pick_silence_s(self, now: float | None = None) -> float | None:
+        """Seconds since the feed last delivered a pick, or None when the draft is not live.
+
+        None is the pre-draft answer and it is load-bearing. Before the draft opens a feed
+        that has delivered nothing is CORRECT, and an age-only check cannot tell that apart
+        from a draft in progress delivering nothing. Returning None means the caller cannot
+        accidentally render a permanent false alarm on a quiet Tuesday afternoon.
+        """
+        if self.drafting_since is None:
+            return None
+        anchors = [t for t in (self.last_pick_change, self.drafting_since) if t is not None]
+        return max(0.0, (now if now is not None else time.time()) - max(anchors))
+
+    def picks_stale(self, now: float | None = None) -> bool:
+        silence = self.pick_silence_s(now)
+        return silence is not None and silence >= PICK_SILENCE_S
 
     def status(self, now: float | None = None) -> str:
         age = self.age_s(now)
@@ -65,6 +110,24 @@ class SyncHealth:
         if age >= FAILING_AFTER_S:
             return "failing"
         return "stale" if age >= STALE_AFTER_S else "live"
+
+
+# The one status value that means "the clock is running". The vocabulary is Sleeper's for
+# both platforms -- `sync.espn_draft_status` translates ESPN's two booleans into it.
+DRAFTING_STATUS = "drafting"
+
+
+def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
+    """Cheap identity for a pick slate: how many, how far, and who was last.
+
+    Compared rather than hashed in full because this runs under the service lock on every
+    tick. The last pick's number AND player are both included: a re-numbered slate of the
+    same length, or a corrected player at the same number, are both real changes.
+    """
+    if not picks:
+        return (0, 0, "")
+    last = picks[-1]
+    return (len(picks), last.pick_no, last.player_id)
 
 
 def _pick_json(p: Pick) -> dict[str, Any]:
@@ -269,6 +332,22 @@ class CockpitService:
             session.roster_id = update.identity.roster_id
             session.slot = update.identity.slot
             session.slot_source = update.identity.source
+        # The staleness clock, stamped BEFORE the assignment because it needs both sides.
+        # `update.picks` is rebuilt from the payload every tick, so it is never the same list
+        # object as `session.picks` -- but on a 304 the adapter replays the identical body, so
+        # the two compare EQUAL. That equality is exactly the signal: a poll that succeeded
+        # and moved nothing.
+        now = time.time()
+        if _pick_fingerprint(update.picks) != _pick_fingerprint(session.picks):
+            self.health.last_pick_change = now
+        if session.draft_status == DRAFTING_STATUS:
+            if self.health.drafting_since is None:
+                self.health.drafting_since = now
+        else:
+            # Reset on the way out as well as the way in, so a re-opened draft measures from
+            # when it re-opened rather than from hours ago.
+            self.health.drafting_since = None
+
         session.picks = update.picks
         # Sync is authoritative: drop any hand-entered pick it now covers, and renumber the
         # rest to follow it. Without this, regaining sync after mirroring by hand

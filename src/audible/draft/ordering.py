@@ -47,21 +47,31 @@ SEASON_WEEKS = 18
 # Per-week probability that a drafted starter is unavailable, measured rather than assumed.
 #
 # Derived from the pinned 2025 data: every player in `ffc_adp_standard_8_2025.json` (a
-# PRESEASON list, so selection cannot depend on who stayed healthy) joined by name to
+# PRESEASON list, so selection cannot depend on who stayed healthy) resolved to
 # `nflverse/player_stats_2025.parquet`, counting distinct regular-season weeks with a row
 # against a 17-game season. Drafted-but-never-appeared counts as a missed season.
 #
-#   QB 3.00 games missed   RB 3.34   WR 3.80   TE 2.72   K 2.24
+# THE JOIN VARIANT IS PART OF THE MEASUREMENT, because the numbers move with it. These are
+# the two-stage resolver in `sim/adp_join.py` -- FFC name -> `ff_playerids` -> gsis_id, with
+# a six-entry nickname alias table and position breaking same-name ties (n=201, 2025):
+#
+#   QB 3.00 games missed   RB 3.34   WR 3.45   TE 2.72   K 2.24   mean 3.19
+#
+# A naive exact-name join instead gives WR 3.88 and leaves the other four unchanged; the
+# whole difference is two receivers FFC lists under nicknames (Hollywood Brown, Joshua
+# Palmer) who read as never having played. An earlier revision of this comment recorded
+# WR 3.80, which reproduces under neither variant and could not be sourced.
 #
 # ONE RATE, NOT ONE PER POSITION, AND THAT IS A FINDING. The brief asserted "RBs miss
-# materially more than WRs". At every draft-depth cutoff tested (ADP <= 60, 100, 150, all)
-# the 2025 data says the opposite or says nothing: RB 1.87 vs WR 3.31 at ADP <= 60, RB 2.58
-# vs WR 3.29 at 100, RB 3.49 vs WR 3.74 at 150. One season is a small sample and "games
-# missed" also captures benchings, so this is not evidence that WRs are frailer either --
-# it is evidence that a position-differentiated term is not supported by what is pinned.
-# Differentiating anyway would be a coefficient asserting something the data does not.
+# materially more than WRs". The 2025 data will not support a position term in either
+# direction: RB 1.87 vs WR 3.31 at ADP <= 60, RB 2.58 vs WR 3.27 at 100, RB 3.49 vs WR 3.32
+# at 150. The sign FLIPS with draft depth, which is what no stable effect looks like. One
+# season is a small sample and "games missed" also captures benchings, so this is not
+# evidence that WRs are frailer either -- it is evidence that a position-differentiated term
+# is not supported by what is pinned. Differentiating anyway would be a coefficient
+# asserting something the data does not.
 #
-# 3.2 games / 17 = 0.19. Used only to price DEPTH, never to move a starter.
+# 3.19 games / 17 = 0.188. Used only to price DEPTH, never to move a starter.
 WEEKLY_ABSENCE_RATE = 0.19
 
 # What a player who cannot start in any week is worth. Not zero -- he is still a body who

@@ -69,6 +69,7 @@ rec_yd = 0.1
 rec_td = 6
 rec_2pt = 2
 fum_lost = -2
+fum_rec_td = 6     # statId 63; see docs/STATE.md -- formerly the whole residual
 # Kicker (ESPN tiered makes; distance-based)
 fgm_0_19 = 3
 fgm_20_29 = 3
@@ -99,9 +100,27 @@ pts_allow_35p = -4
 # earlier handoff flagged it as a possible commissioner slip and it is not one.
 #
 # Verified against the live API the same day: statId 53 (REC) carries points 0.0 with
-# pointsOverrides {QB: 0.5, WR: 0.5, TE: 0.5}, RB absent. Recomputing 2025 actual stat lines
-# under this model matched ESPN's own reported season totals to the decimal for 18 of 18
-# players spanning QB/RB/WR/TE/K/D-ST.
+# pointsOverrides {QB: 0.5, WR: 0.5, TE: 0.5}, RB absent. That read is the 2026 table and it
+# still stands.
+#
+# THE RECONCILIATION CLAIM THAT USED TO SIT HERE DID NOT. It said 2025 actual stat lines
+# matched ESPN's own season totals "for 18 of 18 players spanning QB/RB/WR/TE/K/D-ST", and
+# it was wrong twice. Re-measured 2026-09-06 against the pinned corpus
+# `data/cache/espn_stat_lines_6012_2025.json` (1,091 players), sampling exactly as
+# `verify-actuals` does -- top 3 by applied points per position, plus two backs with >= 50
+# receptions:
+#
+#   * The SPAN is impossible. The sample is 18 rows, but 6 of them are K and D/ST, which
+#     nothing here can score: STAT_ID_TO_KEY carries no kicker or defensive stat ids and
+#     `verify-actuals` prints SKIP for both. At most 12 players were ever checkable.
+#   * The MODEL is the wrong season. Under this file's 0.5 the 12 scoreable players
+#     reconcile 5/12, worst +64.50 on Puka Nacua -- which is his receptions times a half
+#     point. Under rec = 0.0 at every position they reconcile 12/12, exact to the cent.
+#
+# So league 6012 paid ZERO per reception in 2025 and moved to 0.5 for 2026. ESPN's
+# `appliedTotal` for a past season is scored under THAT season's rules, and this file
+# describes 2026. The half-point above is correct going forward and must not be "corrected"
+# back; it simply cannot be used to reproduce a 2025 total.
 #
 # Worth ~30 points a season on a pass-catching back, which is enough to reorder RB vs WR.
 [scoring_by_position]

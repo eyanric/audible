@@ -14,7 +14,7 @@ from typing import Any
 
 from ..draft import ordering
 from ..draft.live import Candidate, LiveView, my_slot_on_clock
-from ..draft.service import CockpitService
+from ..draft.service import PICK_SILENCE_S, CockpitService
 from ..draft.usage import UsageTable
 
 log = logging.getLogger(__name__)
@@ -564,6 +564,25 @@ def build_state(service: CockpitService) -> dict[str, Any]:
                 if health.last_success else None
             ),
             "poll_count": health.poll_count,
+            # The SECOND clock, and the one 2026-09-05 needed. Everything above answers
+            # "did the last request work"; a 304 answers that yes while delivering nothing.
+            #
+            # It lives INSIDE `sync` deliberately. scripts/qa-desktop.py's PatchBus merges
+            # its synthetic payload into the top-level `sync` object and nothing else, so a
+            # field published as a sibling of `sync` would be invisible to the QA harness
+            # that has to be able to drive it.
+            #
+            # `picks_silent_s` is None whenever the draft is not in progress, which is what
+            # keeps a quiet Tuesday afternoon from rendering as a failure.
+            "picks_silent_s": (
+                round(silence, 1) if (silence := health.pick_silence_s(now)) is not None
+                else None
+            ),
+            "picks_stale": health.picks_stale(now),
+            # Served rather than hardcoded in the page, because the two thresholds the client
+            # already duplicates (10s / 30s) are a standing bug: they can drift from the
+            # server's and nothing would notice.
+            "pick_silence_limit_s": PICK_SILENCE_S,
         },
     }
 

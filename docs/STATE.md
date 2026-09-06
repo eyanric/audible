@@ -382,7 +382,13 @@ over-broad and is corrected.** It generalised from one league. Measured 2026-09-
 | `espn_danger_zone` | projections | 0/12 | 1 |
 
 The split is **actuals vs projections**, and the mechanism is `statId 63` -- an offensive
-fumble recovered for a touchdown, paid 6.0, unmapped in our vocabulary and deliberately so.
+fumble recovered for a touchdown, paid 6.0. It was unmapped in our vocabulary, deliberately.
+
+**As of 2026-09-06 it is mapped and paid, and this residual is closed.** `STAT_ID_TO_KEY`
+carries `63: ("fum_rec_td", 1.0)` and each ESPN league config carries `fum_rec_td = 6`. The
+key was not new vocabulary -- League A already scored it. The same event is nflverse's
+`fumble_recovery_tds`, which `sim/roundtrip.py` pays at 6.0 to reproduce ESPN season totals
+to the cent; that is what identified it. The numbers below are what it WAS.
 
 * **Projections** carry it as a FRACTIONAL expected value on nearly every line, so every
   recomputable player is a little light. Danger Zone did not exist in 2025 and so has no
@@ -593,6 +599,20 @@ this post-draft probe cannot see it. That is a much narrower thing to validate t
 instrument may be fundamentally broken", and it has an obvious mitigation if it proves true:
 drop the conditional request for the draft view and eat a full body every 5s.
 
+**Still unsettled 2026-09-06, and now mitigated anyway.** Nothing in this repo has ever
+recorded a live ESPN ETag, and the only committed draft fixture is a pre-draft snapshot with
+no HTTP headers, so the question cannot be answered offline. What WAS settled offline is the
+consequence, and it is worse than "stale picks": `_draft_etag` and `_draft_last` are written
+only on a 200, so a frozen tag freezes the adapter on the FIRST body it ever saw. A cockpit
+started before kickoff would serve the pre-draft placeholder slate -- `picks: 0`,
+`draft_status: pre_draft`, `sync_status: live` -- for the whole draft.
+
+`get_draft_detail` now skips its conditional request every 6th poll (~30s at a 5s tick), so a
+non-advancing ETag can cost at most a third of a pick clock instead of an entire draft. The
+conditional request is kept the rest of the time: it is measured, it works, and dropping it
+outright invites a 429. Separately, the cockpit now measures pick silence directly, so this
+failure mode is visible whatever its cause -- see `SyncHealth.pick_silence_s`.
+
 ### Danger Zone's `draft_slot` is wrong in the TOML, and the guard now SAYS so
 
 Same probe, no override: the seat derived from the account-1 SWID against `teams[].owners` is
@@ -601,14 +621,28 @@ Same probe, no override: the seat derived from the account-1 SWID against `teams
 the stale one.**
 
 As of 2026-09-06 this is no longer merely recorded: `verify-scoring espn_danger_zone` exits 1
-with `draft_slot config=5 live=6`. Correcting the TOML and dropping the `--slot` argument is
-Eric's -- both were out of bounds this session.
+with `draft_slot config=5 live=6`.
 
-### Reconciliation residual
+**Fixed 2026-09-06.** `leagues/espn_danger_zone.toml` now pins `draft_slot = 6`, and haven's
+`deployment-danger-zone.yaml` drops the hand-added `--slot 6` in the same change, so the seat
+lives in one place again. The two must land in that order: removing the override while the
+TOML still said 5 would have silently moved the cockpit to seat 5.
 
-`statId 63` (offensive fumble recovered for a TD, paid 6.0) is unmapped; the config is not
-changing. It is the **entire** difference between our recomputation and ESPN's `appliedTotal`.
-See the `verify-actuals` section above for the per-position numbers.
+### Reconciliation residual -- CLOSED 2026-09-06
+
+`statId 63` (offensive fumble recovered for a TD, paid 6.0) was the **entire** difference
+between our recomputation and ESPN's `appliedTotal`. It is now mapped to `fum_rec_td` and
+weighted 6 in every ESPN league config, so the recomputation is exact rather than
+"exact apart from one known stat".
+
+Why it was worth closing a residual that was only 0.06% of a QB season: a tolerance with a
+known thing in it has room for an UNKNOWN thing to hide. `verify-actuals` could not
+distinguish "the documented statId 63 gap" from "statId 63 plus something new", because both
+present as a small negative number. With 63 paid, any residual at all is now a new finding.
+
+Measured after the change, offline against the pinned corpora: league 6012's 2025 sample
+reconciles 12/12 exact under the reception model that season actually used, and the single
+`statId 63` carrier in 73131979's corpus (Woody Marks) moves from -6.00 to 0.00.
 
 ### Fallback populations (6012's 1,026-player pool)
 
