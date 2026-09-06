@@ -325,16 +325,16 @@ Suite: **492 passed, 1 xfailed**, no skips. ruff clean, pyright 0 errors.
 
 ---
 
-## The seat pin, and the one case still open
+## The seat pin, and the case it found -- now closed
 
-The assertion exists now -- see "What shipped 2026-09-06" above. What remains is the case it
-found and was not allowed to fix:
+The assertion exists now -- see "What shipped 2026-09-06" above. It found this, and it has
+since been fixed:
 
-**`leagues/espn_danger_zone.toml` says `draft_slot = 5`; the SWID-derived seat is 6; and
-`deployment-danger-zone.yaml` carries a hand-added `--slot 6`.** The argument is right and the
-config is stale. `verify-scoring espn_danger_zone` exits 1 on it today. Fixing the TOML and
-dropping the `--slot` argument belongs to Eric -- a seat pinned in two places will disagree
-again.
+**`leagues/espn_danger_zone.toml` said `draft_slot = 5`; the SWID-derived seat is 6; and
+`deployment-danger-zone.yaml` carried a hand-added `--slot 6`.** The argument was right and
+the config was stale, so `verify-scoring espn_danger_zone` exited 1 on it. **Closed
+2026-09-06**: the TOML pins 6 and eyanric/haven#376 drops the override, in that order --
+dropping it first would have moved the cockpit silently to seat 5.
 
 Seat 1 of 8, which is what `espn_green_hope` pins, is where a wrong pin is **least** visible:
 it never has an opponent pick before its own turn to contradict it. That is exactly why the
@@ -610,8 +610,20 @@ started before kickoff would serve the pre-draft placeholder slate -- `picks: 0`
 `get_draft_detail` now skips its conditional request every 6th poll (~30s at a 5s tick), so a
 non-advancing ETag can cost at most a third of a pick clock instead of an entire draft. The
 conditional request is kept the rest of the time: it is measured, it works, and dropping it
-outright invites a 429. Separately, the cockpit now measures pick silence directly, so this
-failure mode is visible whatever its cause -- see `SyncHealth.pick_silence_s`.
+outright invites a 429.
+
+The cockpit also measures pick silence directly (`SyncHealth.pick_silence_s`). **The two
+COMPOSE; they are not independent safety nets, and an earlier draft of this section wrongly
+said the silence check catches this "whatever its cause".** It does not. The silence clock is
+armed by `draft_status == "drafting"`, and for ESPN that status rides the SAME conditional
+response as the picks -- so a body frozen while it still says `pre_draft` freezes the arming
+condition too, and the detector stays quiet. Measured: 200 successful polls replaying a
+pre-draft body leave `picks_stale` False after two simulated hours.
+
+What closes that case is the forced full body above, which stops the status being held at
+`pre_draft` for more than ~30s. The silence clock then covers everything after the draft
+opens. The limitation is pinned by a test rather than left to be rediscovered:
+`test_a_feed_frozen_BEFORE_the_draft_opens_is_not_caught_here`.
 
 ### Danger Zone's `draft_slot` is wrong in the TOML, and the guard now SAYS so
 
@@ -905,9 +917,10 @@ the derived-vs-pinned seat assertion, and the haven cockpit manifests (PR open, 
    the narrower belt-and-braces version -- PR #344 deleted it and the live rule is
    `automerge: true, minimumReleaseAge: '0 days'`, so a digest bump merges itself and rolls the
    pods unattended.
-6. **Correct `espn_danger_zone.toml`: `draft_slot` 5 -> 6, and drop `--slot 6` from
-   `deployment-danger-zone.yaml`.** `verify-scoring espn_danger_zone` is RED until this is
-   done -- correctly, and for the first time. A seat pinned in two places will disagree again.
+6. ~~**Correct `espn_danger_zone.toml`: `draft_slot` 5 -> 6, and drop `--slot 6` from
+   `deployment-danger-zone.yaml`.**~~ DONE 2026-09-06. The TOML pins 6 and
+   eyanric/haven#376 drops the override. `verify-scoring espn_danger_zone` still needs one
+   live run to confirm green -- it cannot be run without ESPN cookies.
 7. **Correct League A's config**: 7 IDP weights and `draft_rounds` 19 -> 20. In-season only
    now, but the guard keeps shouting.
 8. **`survival()` goes quiet at back-to-back turns, and seat 1 of 8 is its worst case.**

@@ -57,10 +57,18 @@ SEASON_WEEKS = 18
 #
 #   QB 3.00 games missed   RB 3.34   WR 3.45   TE 2.72   K 2.24   mean 3.19
 #
-# A naive exact-name join instead gives WR 3.88 and leaves the other four unchanged; the
-# whole difference is two receivers FFC lists under nicknames (Hollywood Brown, Joshua
-# Palmer) who read as never having played. An earlier revision of this comment recorded
-# WR 3.80, which reproduces under neither variant and could not be sourced.
+# The SAME resolver with its alias table emptied gives WR 3.6463 and leaves the other four
+# untouched. The whole difference is ONE receiver: FFC lists Marquise Brown as "Hollywood
+# Brown", so without the alias he resolves to nobody and reads as a missed season. (Joshua
+# Palmer is in the table too but resolves either way on this board; he is not part of this
+# difference.) The mean moves 3.19 -> 3.27, so 0.19 survives that variant as well.
+#
+# An earlier revision recorded WR 3.80, which reproduces under no variant and could not be
+# sourced. A revision after that recorded 3.88, which was no better -- it came from an ad-hoc
+# join written for the correction rather than from this resolver, and an adversarial re-run
+# could not reproduce it either. Both are why the variant is now named and why the number is
+# quoted to four places: an unsourceable constant in this file is what let "RBs miss more
+# than WRs" survive as long as it did.
 #
 # ONE RATE, NOT ONE PER POSITION, AND THAT IS A FINDING. The brief asserted "RBs miss
 # materially more than WRs". The 2025 data will not support a position term in either

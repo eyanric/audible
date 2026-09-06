@@ -24,6 +24,7 @@ idiom tests/test_ui_desktop.py already uses.
 from __future__ import annotations
 
 import argparse
+import shutil
 import socket
 import subprocess
 import sys
@@ -31,6 +32,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
@@ -108,7 +110,9 @@ def _wait(port: int, timeout: float = 45.0) -> None:
     raise SystemExit(f"cockpit on {port} never came up")
 
 
-def shoot(name: str, status: str, picks: int, silence_s: float | None, out: Path) -> Path:
+def shoot(
+    name: str, status: str, picks: int, silence_s: float | None, out: Path
+) -> tuple[dict[str, Any], Path]:
     from playwright.sync_api import sync_playwright
 
     port = _free_port()
@@ -145,13 +149,14 @@ def shoot(name: str, status: str, picks: int, silence_s: float | None, out: Path
     finally:
         proc.terminate()
         proc.wait(timeout=15)
+        shutil.rmtree(state, ignore_errors=True)
 
     print(f"{name}:")
     print(f"  chip class : {observed['chip_class']!r}")
     print(f"  chip text  : {observed['chip_text']!r}")
     print(f"  alert      : {'hidden' if observed['alert_hidden'] else observed['alert_text']}")
     print(f"  -> {path}")
-    return path
+    return observed, path
 
 
 def main() -> int:
@@ -161,9 +166,33 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
 
     # G2 first: the state that must produce NOTHING.
-    shoot("g2-pre-draft", status="pre_draft", picks=0, silence_s=None, out=args.out)
+    g2, _ = shoot("g2-pre-draft", status="pre_draft", picks=0, silence_s=None, out=args.out)
     # G1: in progress, and not one pick has ever arrived.
-    shoot("g1-silent", status="drafting", picks=0, silence_s=412.0, out=args.out)
+    g1, _ = shoot("g1-silent", status="drafting", picks=0, silence_s=412.0, out=args.out)
+
+    # ASSERT, so this can go red. A screenshot script that only ever exits 0 documents the
+    # states rather than gating them, and would have written a green-looking g1-silent.png
+    # just as happily if the indicator had never fired.
+    problems: list[str] = []
+    if "dead" not in g1["chip_class"].split():
+        problems.append(f"G1: chip should be `dead`, got {g1['chip_class']!r}")
+    if "NO PICKS" not in g1["chip_text"].upper():
+        problems.append(f"G1: chip text should name it, got {g1['chip_text']!r}")
+    if g1["alert_hidden"] or "NO PICKS ARRIVING" not in g1["alert_text"].upper():
+        problems.append("G1: the alert strip should be up and say so")
+    if "dead" in g2["chip_class"].split():
+        problems.append(f"G2: chip must NOT be `dead` pre-draft, got {g2['chip_class']!r}")
+    if "NO PICKS" in g2["chip_text"].upper():
+        problems.append(f"G2: false alarm in the chip: {g2['chip_text']!r}")
+    if "NO PICKS ARRIVING" in g2["alert_text"].upper():
+        problems.append("G2: false alarm in the alert strip")
+
+    print("")
+    for problem in problems:
+        print(f"FAIL {problem}")
+    if problems:
+        return 1
+    print("both states render as specified")
     return 0
 
 

@@ -316,7 +316,12 @@ def test_the_draft_poll_periodically_forgoes_its_conditional_request(
 
 
 def _woody_marks() -> dict[str, Any] | None:
-    path = Path("data/cache/espn_stat_lines_73131979_2025.json")
+    # From __file__, NOT the cwd. Relative to the cwd this skipped silently whenever pytest
+    # was invoked from anywhere else -- and a skip exits 0, which is the worst way for the
+    # only test pinning Task 4 to fail.
+    path = Path(__file__).resolve().parents[1] / "data" / "cache" / (
+        "espn_stat_lines_73131979_2025.json"
+    )
     if not path.exists():
         return None
     for row in json.loads(path.read_text(encoding="utf-8")).values():
@@ -353,3 +358,106 @@ def test_injection_unmapping_stat_id_63_restores_the_documented_residual() -> No
     assert abs((without - applied) + 6.0) < 0.005, (
         f"unmapping 63 must restore exactly the documented -6.00: {without - applied:+.2f}"
     )
+
+
+# --- what the adversarial review found, pinned so it cannot come back -----------------
+
+
+def test_a_status_blip_does_not_erase_accumulated_silence(service: CockpitService) -> None:
+    """One odd poll must not wipe out how long the feed has been quiet.
+
+    The first version cleared `drafting_since` on ANY non-drafting status and re-armed it to
+    `now` on the way back in. Measured against that: an hour of a completely frozen slate,
+    with a single non-drafting poll a minute, never published more than 50 seconds of
+    silence and never once warned.
+    """
+    service._apply(_update([_pick(1)], "drafting"))
+    service.health.drafting_since = time.time() - 600
+    service.health.last_pick_change = time.time() - 600
+    assert service.health.picks_stale() is True
+
+    service._apply(_update([_pick(1)], "weird_unknown_status"))
+    service._apply(_update([_pick(1)], "drafting"))
+
+    assert service.health.picks_stale() is True, "a blip discarded ten minutes of silence"
+    assert service.health.pick_silence_s() >= 600
+
+
+def test_an_emptied_slate_is_not_a_pick_delivery(service: CockpitService) -> None:
+    """A slate that SHRANK is the feed breaking, not a pick arriving.
+
+    An all-placeholder ESPN response parses to zero picks, and Sleeper's 304 path hands back
+    an empty list for a draft id it has not seen. Either would otherwise stamp the clock and
+    clear the warning at the exact moment the feed died.
+    """
+    service._apply(_update([_pick(n) for n in (1, 2, 3)], "drafting"))
+    service.health.drafting_since = time.time() - 600
+    service.health.last_pick_change = time.time() - 600
+    assert service.health.picks_stale() is True
+
+    service._apply(_update([], "drafting"))
+    assert service.health.picks_stale() is True, "an empty slate cleared the warning"
+
+
+def test_a_pause_is_quiet_on_purpose_and_is_not_called_a_failure(
+    service: CockpitService,
+) -> None:
+    """Silence is still measured through a pause -- it is just not an alarm."""
+    service._apply(_update([_pick(1)], "drafting"))
+    service.health.drafting_since = time.time() - 600
+    service.health.last_pick_change = time.time() - 600
+    assert service.health.picks_stale() is True
+
+    service._apply(_update([_pick(1)], "paused"))
+    assert service.health.paused is True
+    assert service.health.picks_stale() is False, "a pause is not a failure"
+    assert service.health.pick_silence_s() >= 600, "but the silence is still counted"
+
+    service._apply(_update([_pick(1)], "drafting"))
+    assert service.health.picks_stale() is True, "and it returns when play resumes"
+
+
+def test_a_restart_carries_the_silence_forward(
+    tmp_path: Path, sleeper_config: LeagueConfig
+) -> None:
+    """A cockpit restarted mid-draft must not forget a feed that is already dead.
+
+    SyncHealth is not part of DraftSession, so the two silence clocks are persisted
+    alongside it. Without that, a crash-restart every two minutes against a totally dead
+    feed never published more than 115s of silence and never warned at all.
+    """
+    first = CockpitService(sleeper_config, state_dir=tmp_path, slot_override=4)
+    first._apply(_update([_pick(1)], "drafting"))
+    dead_since = time.time() - 1200
+    first.health.drafting_since = dead_since
+    first.health.last_pick_change = dead_since
+    first.save()
+    assert first.health.picks_stale() is True
+
+    second = CockpitService(sleeper_config, state_dir=tmp_path, slot_override=4)
+    assert second.restore() is True
+    assert second.health.drafting_since == pytest.approx(dead_since)
+    assert second.health.picks_stale() is True, "the restart re-armed a fresh blind window"
+
+
+def test_a_feed_frozen_BEFORE_the_draft_opens_is_not_caught_here(
+    service: CockpitService,
+) -> None:
+    """The honest limit of this detector, pinned rather than papered over.
+
+    If the ESPN body freezes while it still says `pre_draft`, the status the anchor keys off
+    is frozen too -- it rides the same response as the picks. So this layer cannot see that
+    case, and drafting_since is never armed.
+
+    That case is covered by the OTHER half of this change: `get_draft_detail` forces a full
+    body every sixth poll, so a stuck ETag cannot hold the status at pre_draft for more than
+    about thirty seconds. The two halves COMPOSE; they are not independent safety nets, and
+    any claim that this one catches a frozen feed "whatever the cause" is wrong.
+    """
+    for _ in range(200):
+        service._apply(_update([], "pre_draft"))
+
+    later = time.time() + 7200
+    assert service.health.drafting_since is None
+    assert service.health.pick_silence_s(now=later) is None
+    assert service.health.picks_stale(now=later) is False

@@ -1783,8 +1783,8 @@ function renderAlert() {
     kind = "bad"; head = "No picks arriving";
     body = "The feed is answering but has delivered no pick for "
          + fmtDuration(silent)
-         + " while the draft is running. A pick is 90 seconds, so this is at least two "
-         + "clocks. Check the draft room — if picks are being made, enter them by hand "
+         + " while the draft is running — longer than two pick clocks in any of these "
+         + "leagues. Check the draft room; if picks are being made, enter them by hand "
          + "with Mark taken; the board stays correct, this warning stays up.";
   } else if (panelOwns) {
     head = "";
