@@ -28,6 +28,16 @@ dev = [
     "pyright>=1.1",
     "playwright>=1.62.0",
 ]
+# The defect-reproduction gates in sim/. A SEPARATE group, not part of `dev`, so
+# `uv sync --no-dev` -- what the Dockerfile runs -- installs none of it and the runtime
+# image carries no simulation dependencies.
+#
+# It is only pytest today because the gates are hand-built and offline: they import
+# `audible` and nothing else. A season replay would add its dependencies HERE, which is
+# the point of declaring the seam before there is anything to put in it.
+sim = [
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -44,8 +54,17 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
+# `testpaths` already keeps sim/ out of a bare `uv run pytest` -- it is not under tests/.
+# `-m "not slow"` is the second, independent guard, so a future conftest or a rootdir
+# change cannot quietly pull the gates into the run that has to stay fast for draft day.
+#
+# The gates are therefore run EXPLICITLY, and the later -m wins over this one:
+#     uv run pytest sim -m slow
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not slow'"
+markers = [
+    "slow: defect-reproduction gates in sim/. Excluded from the default run.",
+]
 
 [tool.pyright]
 include = ["src"]

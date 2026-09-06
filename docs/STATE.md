@@ -645,7 +645,10 @@ because `RB` slots take only `RB` and the roster held exactly two.
 
 `recommend` answers "who is best **among those who will not survive to my next turn?**" using
 `survives_by = ADP − next_pick`, shown as that subtraction. It does **not** call
-`live.survival()`, which divides by `opponent_picks_until_horizon`.
+`live.survival()`, which SHORT-CIRCUITS on `opponent_picks_until_horizon` -- its first
+statement is `if not opponent_picks: return 1.0`. It does not divide by that number (the
+divisor is `slope = 1.0 + 0.3 * opponent_picks`, never zero), so there is no exception and
+nothing that looks broken from outside.
 
 **`survival()` goes quiet at back-to-back turns and 73131979 is the worst case for it.** Seat 1 of
 8 picks in PAIRS — **1, 16/17, 32/33, 48/49** — so `opponent_picks` is 0 at every turn after the

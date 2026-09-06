@@ -11,7 +11,10 @@ D'Andre Swift (#43, 48.7) and Josh Jacobs (#46, 27.1). Swift went at 58 -- the v
 next pick -- and Montgomery at 63. Both were gone long before 72. That is what a pick
 costs when availability is invisible.
 
-WHY NOT `survival()`. `live.survival()` divides by `opponent_picks_until_horizon`. Seat 8
+WHY NOT `survival()`. `live.survival()` SHORT-CIRCUITS on `opponent_picks_until_horizon`:
+its first statement is `if not opponent_picks: return 1.0`. It does not divide by that
+number -- the divisor is `slope = 1.0 + 0.3 * opponent_picks`, which is never zero -- so
+there is no exception to catch and nothing that looks broken from the outside. Seat 8
 of 8 in a snake drafts in back-to-back PAIRS -- 8/9, 24/25, 40/41, 56/57 -- so at the
 first pick of every pair `opponent_picks = 0` and survival returns 1.0 for everyone. It
 goes quiet at exactly the moment two picks are on the clock. This module does not fix it

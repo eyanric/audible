@@ -85,6 +85,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+sim = [
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -105,6 +108,7 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
 ]
+sim = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "authlib"
