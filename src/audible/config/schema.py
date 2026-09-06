@@ -91,6 +91,25 @@ class LeagueConfig(BaseModel):
     # D/ST -- so it inflates D/ST and K relative to every position that actually gets hoarded.
     replacement_bench_slots: int = Field(default=0, ge=0)
 
+    # Which environment keys carry THIS league's ESPN cookies.
+    #
+    # ESPN auth is a browser session, and a session belongs to one account. Two of these
+    # leagues live on one ESPN account and a third lives on another, so "the ESPN cookies"
+    # is not a single pair -- it is a pair per account, and the league is what says which.
+    #
+    # Until now `adapters/espn.py` read the fixed names ESPN_SWID / ESPN_S2 from the process
+    # environment, so serving a second account meant exporting different values into the
+    # shell before launching -- one process, one account, and every other league 401s for as
+    # long as that shell lives. Naming the keys here lets both accounts sit in `.env`
+    # permanently and lets one process serve leagues on either.
+    #
+    # The defaults are the historical names, so a league that says nothing behaves exactly as
+    # it did. In Kubernetes each pod gets its own Secret via secretKeyRef and the variables
+    # inside the container are always ESPN_SWID / ESPN_S2, so a containerised league leaves
+    # these alone too -- this is for the developer machine, where one process sees one `.env`.
+    espn_swid_env: str = "ESPN_SWID"
+    espn_s2_env: str = "ESPN_S2"
+
     # Adapter drift guards.
     expected_reception_points: float | None = None
     notes: str | None = None

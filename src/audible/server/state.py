@@ -360,7 +360,7 @@ def _espn_gaps(service: CockpitService) -> dict[str, int]:
 
         with SleeperAdapter() as sleeper:
             catalog = sleeper.get_players_catalog()
-        with EspnAdapter() as espn:
+        with EspnAdapter.for_league(service.config) as espn:
             pool = espn.get_player_pool(service.config)
         by_espn = {
             str(entry["espn_id"]): str(pid)

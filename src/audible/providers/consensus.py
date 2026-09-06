@@ -49,5 +49,5 @@ def build_consensus_provider(config: LeagueConfig) -> ConsensusProvider:
     if config.platform is Platform.ESPN:
         from ..adapters.espn import EspnAdapter
 
-        return ConsensusProvider(EspnAdapter())
+        return ConsensusProvider(EspnAdapter.for_league(config))
     raise ValueError(f"no consensus provider for platform {config.platform!r}")

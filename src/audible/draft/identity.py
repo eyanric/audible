@@ -32,10 +32,29 @@ class Identity:
     roster_id: int | None
     slot: int | None
     source: str
+    # What the PLATFORM derived, whether or not a pin is in force.
+    #
+    # `slot` is what the cockpit acts on, so a pin overwrites it -- that is the pin's whole
+    # job. But overwriting it also erased the only other opinion in the system, which made
+    # "the pin disagrees with the draft room" unrepresentable rather than merely unreported.
+    # Keeping the derivation beside the decision is what lets anything downstream compare
+    # them. None means the platform could not say (no SWID match, no pick order yet), which
+    # is NOT a disagreement -- silence never contradicts a pin.
+    derived_slot: int | None = None
 
     @property
     def resolved(self) -> bool:
         return self.slot is not None
+
+    @property
+    def seat_conflict(self) -> bool:
+        """The pin and the platform both answered, and they disagree."""
+        return (
+            self.source == SOURCE_OVERRIDE
+            and self.derived_slot is not None
+            and self.slot is not None
+            and self.derived_slot != self.slot
+        )
 
 
 def roster_id_for_user(rosters: list[dict[str, Any]], user_id: str) -> int | None:
@@ -74,13 +93,17 @@ def resolve_slot(
     """
     roster_id = roster_id_for_user(rosters, user_id) if user_id else None
 
-    if override is not None:
-        return Identity(user_id, roster_id, override, SOURCE_OVERRIDE)
-
+    # Derived FIRST, and unconditionally. It used to be computed only when no override was
+    # set, which made a pin that disagrees with the draft room impossible to observe -- the
+    # one state the pin exists to protect against.
     order = draft.get("draft_order") or {}
-    if user_id and (slot := order.get(user_id)) is not None:
-        return Identity(user_id, roster_id, int(slot), SOURCE_DRAFT_ORDER)
+    raw = order.get(user_id) if user_id else None
+    derived = int(raw) if raw is not None else None
 
+    if override is not None:
+        return Identity(user_id, roster_id, override, SOURCE_OVERRIDE, derived_slot=derived)
+    if derived is not None:
+        return Identity(user_id, roster_id, derived, SOURCE_DRAFT_ORDER, derived_slot=derived)
     return Identity(user_id, roster_id, None, SOURCE_UNRESOLVED)
 
 

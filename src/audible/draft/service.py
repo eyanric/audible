@@ -254,13 +254,16 @@ class CockpitService:
         if update.identity is not None:
             # A pinned seat overrides the platform, so a disagreement would otherwise be
             # invisible -- exactly the failure the pin exists to prevent, inverted.
-            live = update.identity.slot
-            if (self._slot_override is not None and live is not None
-                    and live != self._slot_override):
+            #
+            # This reads `derived_slot`, NOT `slot`. `slot` IS the override whenever one is
+            # set, so comparing it against the override compared a value with itself and the
+            # branch was unreachable on every league that pins a seat. `derived_slot` is what
+            # the platform said independently, so the two can now actually differ.
+            if update.identity.seat_conflict:
                 log.error(
                     "SEAT DRIFT: pinned slot %s but the platform says %s. The pin is winning; "
                     "verify the draft room before trusting any timing number.",
-                    self._slot_override, live,
+                    update.identity.slot, update.identity.derived_slot,
                 )
             session.user_id = update.identity.user_id
             session.roster_id = update.identity.roster_id

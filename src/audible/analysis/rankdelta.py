@@ -227,5 +227,5 @@ def load_espn_projections(config: LeagueConfig) -> list[Any]:
     """This league's universe, scored by its own rules, straight from the ESPN adapter."""
     from ..adapters.espn import EspnAdapter
 
-    with EspnAdapter() as adapter:
+    with EspnAdapter.for_league(config) as adapter:
         return adapter.player_projections(config)

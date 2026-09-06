@@ -50,7 +50,7 @@ def main() -> int:
     with SleeperAdapter() as sleeper:
         catalog = sleeper.get_players_catalog()
         lines = {ln.player_id: ln for ln in sleeper.raw_player_lines(cfg, season=2026)}
-    with EspnAdapter() as espn:
+    with EspnAdapter.for_league(cfg) as espn:
         pool = espn.get_player_pool(cfg)
 
     by_espn = {

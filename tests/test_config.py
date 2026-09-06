@@ -9,7 +9,12 @@ from audible.config.schema import Platform
 
 def test_every_league_loads_and_validates() -> None:
     leagues = load_all_leagues()
-    assert set(leagues) == {"sleeper_boyfun", "espn_davis_drive", "espn_danger_zone"}
+    assert set(leagues) == {
+        "sleeper_boyfun",
+        "espn_davis_drive",
+        "espn_danger_zone",
+        "espn_green_hope",
+    }
 
 
 def test_the_two_espn_leagues_do_not_share_scoring() -> None:
