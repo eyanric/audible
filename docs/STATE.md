@@ -311,6 +311,40 @@ field will be wrong.
   pinning this at one. `verify_structure` costs two (mSettings + the draft bundle) and is not on
   the poll path.
 
+### The live-draft sync populates. Measured 2026-09-05, post-draft.
+
+The standing worry was that `mDraftDetail` "never delivers a pick" — clean 304s through a whole
+live draft, DDAFFL entered by hand — and that **a 304 cannot distinguish "nothing changed" from
+"this never populates."** Half of that is now answered. Against the completed `espn_danger_zone`
+draft:
+
+```
+call 1: etag_cached=True real_picks=160 drafted=True
+call 2: etag_cached=True real_picks=160 drafted=True     <- served from the 304 path
+call 3: etag_cached=True real_picks=160 drafted=True
+poll 1: picks=160 status=complete rounds=16 seat=6
+poll 2: picks=160 status=complete rounds=16 seat=6
+```
+
+So: **the endpoint populates** (160 real picks, not placeholders), **the 304 path preserves the
+payload** rather than returning an empty draft, and **`EspnSync.poll` delivers all 160 through
+the normal cockpit path**. None of those three is the fault.
+
+**What is NOT tested, and is the whole remaining question:** whether ESPN's ETag actually
+*changes* as picks land mid-draft. A server that returns a stable ETag while the body changes
+would produce exactly the observed symptom — endless 304s over a draft that is filling up — and
+this post-draft probe cannot see it. That is a much narrower thing to validate than "the
+instrument may be fundamentally broken", and it has an obvious mitigation if it proves true:
+drop the conditional request for the draft view and eat a full body every 5s.
+
+### Danger Zone's `draft_slot` is wrong in the TOML, and the derivation says so
+
+Same probe, no override: the seat derived from the account-1 SWID against `teams[].owners` is
+**6**. `leagues/espn_danger_zone.toml` says **5**, and `deployment-danger-zone.yaml` carries
+`--slot 6` — added by hand during the draft window. **The argument was right and the config is
+the stale one.** Recorded, not corrected (TOMLs were out of bounds for that session). This is a
+live, already-present case for the derived-vs-pinned assertion above to catch.
+
 ### Reconciliation residual
 
 `statId 63` (offensive fumble recovered for a TD, paid 6.0) is unmapped; the config is not
@@ -530,10 +564,8 @@ if 73131979 is ever served past ~rank 250.**
    in `kubernetes/flux/config/apps.yaml`, which names 2026-09-08 by date. Pull it AFTER the
    cockpit is deployed and refreshed, not before. Restoring the Renovate freeze on
    `ghcr.io/eyanric/**` is the narrower belt-and-braces version.
-6. **ESPN live-draft sync has never delivered a pick.** `mDraftDetail` returned clean 304s through
-   an entire live draft on 2026-09-05; DDAFFL was entered by hand. **A 304 cannot distinguish
-   "nothing changed" from "this never populates."** The instrument has to be validated before it
-   can be trusted — this is the single largest risk to Tuesday and it is its own piece of work.
+6. **ESPN live-draft sync: the ambiguity is now HALF resolved, and the risk is smaller than it
+   looked.** See the measurement below. What is still untested is narrow and specific.
 7. **A pre-flight session Tuesday afternoon** that enumerates every external input the cockpit
    needs and asserts each resolves, exiting non-zero on any UNRESOLVED.
 8. **Correct League A's config**: 7 IDP weights and `draft_rounds` 19 → 20. Only matters in-season
