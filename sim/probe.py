@@ -15,14 +15,27 @@ Run it:
 Read-only. It touches the nflverse disk cache and the repo, and makes no network calls --
 every row below is answered from what is already pinned, which is itself the finding for
 several of them.
+
+Since B0 it also answers the rows that decide whether a BOOTSTRAP is possible, because those
+are the ones that change: whether weekly actuals are pinned per season (`weekly_actuals`),
+whether each season's weeks are complete (`weekly_weeks`), and whether that season's ADP
+board reaches those rows (`adp_join`). Those rows are computed from the files, so the probe's
+output is the evidence for gates G1-G3 rather than a summary written alongside them.
+
+The cache root is now stated on the first line and checked. It used to be derived silently
+from this file's location, which meant a probe run from a git worktree -- where `data/` does
+not exist at all -- printed thirty `absent` rows and exited 0. "Nothing is pinned" and "I was
+looking in the wrong place" are different findings and must not print the same.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 CACHE = REPO / "data" / "cache"
@@ -64,8 +77,121 @@ def _line(source: str, season: int, available: bool, note: str = "") -> str:
     return f"{source}: {season}: {state}{tail}"
 
 
+def _pinned_frame(season: int) -> Any | None:
+    """A pinned player_stats frame, or None. Never raises, never touches the network."""
+    path = CACHE / "nflverse" / f"player_stats_{season}.parquet"
+    if not path.exists():
+        return None
+    try:
+        import polars as pl
+    except ImportError:
+        return None
+    try:
+        return pl.read_parquet(path)
+    except Exception:  # noqa: BLE001 -- an unreadable pin is reported, not raised
+        return None
+
+
+def _weekly_lines() -> list[str]:
+    """G1 (coverage) and G2 (week completeness), read off the pinned parquet files."""
+    from .backfill import inspect_frame
+
+    out: list[str] = []
+    have_polars = True
+    try:
+        import polars  # noqa: F401
+    except ImportError:
+        have_polars = False
+
+    for season in SEASONS:
+        path = CACHE / "nflverse" / f"player_stats_{season}.parquet"
+        if not path.exists():
+            out.append(_line("weekly_actuals", season, False))
+            continue
+        if not have_polars:
+            out.append(
+                _line("weekly_actuals", season, True, "pinned; polars absent, not inspected")
+            )
+            continue
+        frame = _pinned_frame(season)
+        if frame is None:
+            out.append(_line("weekly_actuals", season, True, "pinned but UNREADABLE"))
+            continue
+        rep = inspect_frame(frame, season)
+        out.append(
+            _line(
+                "weekly_actuals", season, True,
+                f"player_stats_{season}.parquet rows={rep.rows}",
+            )
+        )
+        state = "complete" if rep.ok else "INCOMPLETE"
+        detail = (
+            f"reg_weeks={rep.week_span()} reg_games={rep.reg_games} "
+            f"teams={rep.teams} reg_rows={rep.reg_rows}"
+        )
+        out.append(f"weekly_weeks: {season}: {state}  {detail}")
+        for problem in rep.problems:
+            out.append(f"weekly_weeks: {season}: PROBLEM  {problem}")
+    return out
+
+
+def _adp_join_lines() -> list[str]:
+    """G3 -- does each season's ADP board reach those weekly rows?
+
+    Skipped rather than guessed at when the crosswalk is not pinned: resolving it would mean
+    a network call, and this report has never made one.
+    """
+    from .adp_join import join_season
+
+    crosswalk = CACHE / "nflverse" / "ff_playerids.parquet"
+    if not crosswalk.exists():
+        return [
+            "adp_join: all: unavailable  ff_playerids is not pinned; "
+            "run `python -m sim.adp_join` to pin it"
+        ]
+    try:
+        import polars as pl
+    except ImportError:
+        return ["adp_join: all: unavailable  polars absent (uv sync --extra nflverse)"]
+
+    id_map_rows = pl.read_parquet(crosswalk).to_dicts()
+    out: list[str] = []
+    for season in SEASONS:
+        try:
+            rep = join_season(season, CACHE, id_map_rows)
+        except FileNotFoundError:
+            out.append(_line("adp_join", season, False, "no weekly rows pinned to join to"))
+            continue
+        except Exception as exc:  # noqa: BLE001 -- a failed join is a finding, not a crash
+            out.append(_line("adp_join", season, False, f"{type(exc).__name__}: {exc}"))
+            continue
+        out.append(
+            _line(
+                "adp_join", season, True,
+                f"miss={rep.miss_rate * 100:.1f}% "
+                f"({rep.pool - rep.with_rows}/{rep.pool} excl DEF) "
+                f"incl_def={rep.miss_rate_incl_def * 100:.1f}% "
+                f"({rep.total - rep.with_rows}/{rep.total}) "
+                f"unscoreable_dst={rep.unscoreable_def} "
+                f"stage1={len(rep.stage1_misses)} stage2={len(rep.stage2_misses)} "
+                f"ambiguous={len(rep.ambiguous)}",
+            )
+        )
+    return out
+
+
 def report() -> list[str]:
     out: list[str] = []
+
+    # Where we looked, and whether it was there. Without this row every finding below is
+    # unreadable -- thirty `absent` lines mean one thing from an empty cache and another
+    # entirely from a path that does not exist.
+    out.append(f"cache_root: all: {CACHE}  {'exists' if CACHE.exists() else 'MISSING'}")
+    if not CACHE.exists():
+        out.append(
+            "cache_root: all: WARNING  every row below reads absent because the cache "
+            "root is missing, not because nothing is pinned"
+        )
 
     # a. weekly actual stats -- what audible has PINNED, not what nflverse could serve.
     stat_lines = _by_season(r"espn_stat_lines_(?P<league>\d+)_(?P<season>\d{4})\.json")
@@ -75,10 +201,19 @@ def report() -> list[str]:
         note = ", ".join(f"{p.name} rows={_rows(p)}" for p in hits)
         out.append(_line("season_totals_espn", season, bool(hits), note))
     nflverse_dir = CACHE / "nflverse"
-    pinned = sorted(p.name for p in nflverse_dir.iterdir()) if nflverse_dir.exists() else []
-    out.append(f"nflverse_pinned: all: {len(pinned)} file(s)")
+    # Pinned FRAMES, not directory entries. Counting every file made manifest.json a
+    # sixteenth "pinned source" next to the fifteen it describes.
+    pinned = (
+        sorted(p.name for p in nflverse_dir.glob("*.parquet")) if nflverse_dir.exists() else []
+    )
+    out.append(f"nflverse_pinned: all: {len(pinned)} frame(s)")
     for name in pinned:
         out.append(f"nflverse_pinned: file: {name}")
+
+    # a2. THE B0 ROWS. Weekly actuals are what a bootstrap resamples, and what weekly
+    # optimal lineups are computed from; season totals can do neither.
+    out.extend(_weekly_lines())
+    out.extend(_adp_join_lines())
 
     # b. THE DECIDING ROW. Preseason consensus AS OF that season's draft.
     proj = _by_season(r"sleeper_projections_(?P<season>\d{4})(?P<pos>_[A-Z]+)?\.json")
@@ -130,7 +265,21 @@ def report() -> list[str]:
     return out
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    global CACHE
+
+    parser = argparse.ArgumentParser(
+        prog="sim.probe",
+        description="Replay data inventory. Reports what exists; builds nothing.",
+    )
+    parser.add_argument(
+        "--cache", type=Path, default=None,
+        help="cache root to inspect (default: <repo>/data/cache)",
+    )
+    args = parser.parse_args(argv)
+    if args.cache is not None:
+        CACHE = args.cache
+
     for line in report():
         print(line)
     return 0
