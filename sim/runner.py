@@ -56,8 +56,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import LIVE_CACHE, SIM_CACHE, artifact, room, seat, weekly
-from .adp_join import normalize
+# `boards` is aliased because `execute` already binds that name to the room's per-season ADP
+# boards, and two different things called `boards` inside one function is how a wrong one gets
+# passed to a chooser -- which is exactly the B2 defect that cost a session.
+from . import LIVE_CACHE, SIM_CACHE, accuracy, artifact, room, seat, weekly
+from . import boards as b4boards
 
 REPO = Path(__file__).resolve().parents[1]
 RUNS_DIR = REPO / "sim" / "runs"
@@ -485,12 +488,30 @@ def execute(
     priors = {s: _prior_for(s, room.SEASONS, boards, weeks) for s in every}
     log.info("priors fitted leave-one-out over %s", list(room.SEASONS))
 
+    # B4'S BOARDS, built ONCE PER SEASON. Building one means projecting a season from its
+    # predecessors and running the value engine over 685 to 935 players, and costs 1.4 to 2.3
+    # seconds. Hoisted, the four seasons cost about seven seconds; inside the unit loop the
+    # 4,800-unit sweep would pay it 4,800 times. They are pure functions of the season and the
+    # league, so hoisting them changes no number.
+    season_boards: dict[int, Any] = {}
+    if any(a in seat.BOARD_ARMS for a in config.arms):
+        for season in every:
+            season_boards[season] = b4boards.build(season, league)
+            built = season_boards[season]
+            log.info(
+                "boards %d: fit=%s role=%s matched=%d rookies=%d unmatched=%d digest=%s",
+                season, list(built.fit_seasons), list(built.role_seasons),
+                built.matched, built.rookies, built.unmatched, built.projected_digest,
+            )
+
     pending = list(iter_units(config, done))
     for index, (split, arm, season, seed) in enumerate(pending, start=1):
+        built = season_boards.get(season)
         result = seat.run_arm(
             arm, season, seed,
             season_board=boards[season], fit=fit_for[split], week_table=weeks[season],
             config=league, state_dir=state_dir, seat=config.seat, prior=priors[season],
+            orders=built.orders if built else None,
         )
         structural = artifact.structural_for(
             result.picks, config.seat, weeks[season].byes, boards[season]
@@ -514,6 +535,7 @@ def execute(
             "wasted_roster_slots": structural.wasted_roster_slots,
             "positional_surplus": structural.positional_surplus,
             "illegal_lineups": structural.illegal_lineups,
+            "positions": _count_positions(result.picks, config.seat),
         }
         checkpoint.append(payload)
         done[(split, arm, season, seed)] = payload
@@ -525,7 +547,16 @@ def execute(
             )
 
     wall = time.perf_counter() - started
-    return build_payload(config, pins, fit_for["main"], done, wall)
+    return build_payload(config, pins, fit_for["main"], done, wall, season_boards, league)
+
+
+def _count_positions(picks: Sequence[Any], seat_id: int) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for pick in picks:
+        if pick.seat != seat_id:
+            continue
+        out[pick.position] = out.get(pick.position, 0) + 1
+    return out
 
 
 def _prior_for(
@@ -545,15 +576,12 @@ def _prior_for(
             continue
         board = boards.get(season) or room.load_board(season)
         table = weeks.get(season) or weekly.weekly_points(season)
-        ranks = seat.positional_ranks(board)
-        roster: list[tuple[str, int]] = []
-        for row in board.rows:
-            key = f"ffc{row.rank:04d}"
-            for candidate in table.by_name.get(normalize(row.name), []):
-                if table.position.get(candidate) == row.position:
-                    roster.append((candidate, ranks[key]))
-                    break
-        others[season] = (table, roster)
+        # ONE RESOLVER, shared with the scoring side. These were two copies of the same join
+        # written in two key spaces, and they disagreed: the fit resolved board rows to gsis
+        # ids before pooling while `weekly.prior_points` looked them up by `ffc####`, so every
+        # lookup at scoring time missed and the prior was uniformly 0.0. Calling the same
+        # function is what stops that recurring.
+        others[season] = (table, sorted(seat.positional_ranks(board, table).items()))
     return weekly.prior_table(others)
 
 
@@ -569,6 +597,8 @@ def build_payload(
     fit: room.Fit,
     done: dict[tuple[str, str, int, int], dict[str, Any]],
     wall: float,
+    season_boards: dict[int, Any] | None = None,
+    league: Any = None,
 ) -> dict[str, Any]:
     all_rows = [done[u] for u in config.units()]
     rows = [r for r in all_rows if r.get("split", "main") == "main"]
@@ -620,6 +650,13 @@ def build_payload(
             # tight-end result hid for a whole session because nothing broke the advantage
             # down by slot; that is not going to be possible again.
             "slot_points": _slot_mean(mine),
+            # WHAT EACH ARM ACTUALLY DRAFTS, which is the mechanism behind every comparison
+            # above and was not on the page. `transform - points_greedy` reads +100-odd, and
+            # this row is where that comes from: `points_greedy` ranks on raw points in a
+            # one-QB league, so it takes quarterbacks until the room's cap stops it. Without
+            # this the reader cannot tell "the transform values players better" from "the
+            # transform does not draft three unstartable quarterbacks".
+            "positions_drafted": _positions_drafted(mine),
         }
 
     shuffle_rows = [r for r in rows if r["arm"] == "shuffle"]
@@ -746,11 +783,124 @@ def build_payload(
         arms, _paired_difference(rows, "real", "shuffle")[0]
     )
     payload["board_vs_adp"] = board_vs_adp(config)
+    if season_boards:
+        payload["projection"] = _projection_block(season_boards, league)
+        payload["ceiling"] = _ceiling_block(payload)
     return payload
 
 
-# Every paired comparison the artifact reports, in reading order. `real - adp` is first
-# because it is the only one that says whether anything here is an achievement.
+def _projection_block(season_boards: dict[int, Any], league: Any) -> dict[str, Any]:
+    """G1, G2, G3 and G4 in one block, written into every artifact that runs a board arm.
+
+    G4 IS SATISFIED BY CONSTRUCTION AND ASSERTED ANYWAY. `points_greedy` and
+    `audible_transform` are two orderings read off ONE `DraftBoard` built from ONE list of
+    lines, so there is a single digest and not two to compare. The digest is written out so a
+    later run that changed the projection cannot pass itself off as comparable to this one.
+    """
+    seasons: dict[str, Any] = {}
+    for season in sorted(season_boards):
+        built = season_boards[season]
+        seasons[str(season)] = {
+            "fit_seasons": list(built.fit_seasons),
+            "role_seasons": list(built.role_seasons),
+            "projected_digest": built.projected_digest,
+            "hindsight_digest": built.hindsight_digest,
+            "arm_digest": dict(built.arm_digest),
+            "matched": built.matched,
+            "rookies": built.rookies,
+            "unmatched": built.unmatched,
+            "pool": built.pool,
+            "provenance": list(built.provenance),
+            "replacement_level": dict(built.replacement),
+            "vs_adp": dict(built.vs_adp),
+        }
+    out: dict[str, Any] = {
+        "pre_registration": (
+            "weighted per-game rates over S-1/S-2/S-3 at 0.6/0.3/0.1, times weighted games; "
+            "every lookback season for which ff_opportunity exists regressed half way toward "
+            "its expected production; a draft-capital rookie prior fitted on prior seasons "
+            "only, looked up by name. The method was fixed before any arm ran and its "
+            "parameters are pinned by test_g0_the_pre_registered_constants_are_pinned. Two "
+            "defect fixes landed after the first run and are named in sim/projection.py: the "
+            "undraftable tail, and the rookie capital lookup."
+        ),
+        "usable_seasons": list(b4boards.projection.USABLE),
+        "leak_arms": sorted(b4boards.LEAK_ARMS),
+        "seasons": seasons,
+    }
+    if league is not None:
+        # OVER `projection.USABLE`, not over the run's seasons. A run configured for two
+        # seasons still gets the four-season accuracy table, because the projection's quality
+        # is a property of the projection rather than of which seasons an arm happened to
+        # draft, and truncating it would let a two-season run report a flattering subset.
+        out["accuracy"] = accuracy.report(league)
+    return out
+
+
+def _ceiling_block(payload: dict[str, Any]) -> dict[str, Any]:
+    """TASK 3. Each headline comparison as a FRACTION of what perfect foresight was worth.
+
+    Two of the three ARE distances from ADP; `transform_minus_points` is not, and is expressed
+    against the same denominator anyway so the three are on one scale.
+
+    THE SAME NULL MEANS OPPOSITE THINGS AT DIFFERENT CEILINGS, which is the whole reason this
+    block exists and why no earlier session could read its own result. If a board built from
+    the season's realised totals beats ADP by 40 points, a real projection capturing 12 is
+    doing most of what was available. If perfect foresight is worth 400 and the transform
+    captures 5, it is a coat of paint. Both look like "+12" and "+5" without a scale.
+
+    Reported under all three lineup policies, because B3 found the sign of a headline flipping
+    between them and a fraction computed on one policy would inherit that.
+    """
+    out: dict[str, Any] = {}
+    for suffix in ("", "_oracle", "_hindsight"):
+        ceiling = payload.get(f"ceiling_minus_adp{suffix}")
+        if not ceiling or isinstance(ceiling.get("mean"), str):
+            continue
+        base = ceiling["mean"]
+        policy = {"": "prior", "_oracle": "oracle", "_hindsight": "hindsight"}[suffix]
+        block: dict[str, Any] = {"ceiling": round(base, 3)}
+        if abs(base) < 1e-9:
+            block["share_undefined_because"] = (
+                "perfect foresight was worth 0.0 against ADP on this run, so a share of it "
+                "is a division by zero and is not reported"
+            )
+        else:
+            for name in ("transform_minus_adp", "points_minus_adp", "transform_minus_points"):
+                got = payload.get(f"{name}{suffix}")
+                if got and not isinstance(got.get("mean"), str):
+                    block[name] = round(100.0 * got["mean"] / base, 1)
+        out[policy] = block
+    return out
+
+
+# Every paired comparison the artifact reports. `real - adp` was first when it was the only
+# comparison that said whether anything here was an achievement; B4's board comparisons print
+# above it now (`artifact.summary_block`), because on a run with a real board the transform's
+# distance from the market is the question and `real - adp` is the overlay's, carried forward.
+# B4's two headline comparisons and the ceiling they are read against. `transform_minus_points`
+# is the whole question -- same projection, same seat, same room, replacement level on or off.
+_B4_COMPARISONS: tuple[tuple[str, str, str], ...] = (
+    ("audible_transform", "points_greedy", "transform_minus_points"),
+    ("audible_transform", "adp", "transform_minus_adp"),
+    ("audible_transform", "adp_board", "transform_minus_adp_board"),
+    ("audible_transform", "scarcity_only", "transform_minus_scarcity"),
+    ("hindsight_board", "adp", "ceiling_minus_adp"),
+    ("hindsight_board", "audible_transform", "ceiling_minus_transform"),
+    ("points_greedy", "adp", "points_minus_adp"),
+    # THE TRANSFORM WITH THE PROJECTION ERROR REMOVED. Both arms draft the season's realised
+    # lines; the only thing between them is still replacement level. If the transform is worth
+    # nothing HERE it is worth nothing anywhere, and if it is worth something here while
+    # `transform_minus_points` is null, the projection is what is failing rather than the
+    # transform. No other comparison separates those two.
+    ("hindsight_board", "hindsight_points", "transform_under_perfect_foresight"),
+    # THE HARNESS'S OWN INDIFFERENCE TO DURABILITY, priced. Both arms order the same realised
+    # lines; one on per-game rate, one on season total. `bootstrap_weeks` replays a player's
+    # observed weeks to a full season, so the per-game reading is the one that matches the
+    # scorer and the gap is what a season-total ceiling was understating itself by.
+    ("hindsight_board", "hindsight_total", "per_game_minus_total_ceiling"),
+)
+
 _COMPARISONS: tuple[tuple[str, str, str], ...] = (
     ("real", "adp", "real_minus_adp"),
     ("real", "legacy", "real_minus_legacy"),
@@ -759,6 +909,7 @@ _COMPARISONS: tuple[tuple[str, str, str], ...] = (
     ("legacy", "legacy_recommend", "surface_gap"),
     ("real", "shuffle", "real_minus_shuffle"),
     ("shuffle", "bot", "shuffle_minus_bot"),
+    *_B4_COMPARISONS,
 )
 
 
@@ -850,6 +1001,15 @@ def _secondary(
         "points_for": {"mean": round(pf, 3), "lo": round(pf_lo, 3), "hi": round(pf_hi, 3)},
         "advantage": {"mean": round(ad, 3), "lo": round(ad_lo, 3), "hi": round(ad_hi, 3)},
     }
+
+
+def _positions_drafted(rows: Sequence[dict[str, Any]]) -> dict[str, float]:
+    """Mean count of each position the seat drafted, over the arm's units."""
+    totals: dict[str, float] = {}
+    for row in rows:
+        for position, count in (row.get("positions") or {}).items():
+            totals[position] = totals.get(position, 0.0) + float(count)
+    return {p: round(v / max(1, len(rows)), 4) for p, v in sorted(totals.items())}
 
 
 def _slot_mean(rows: Sequence[dict[str, Any]]) -> dict[str, float]:
@@ -1004,6 +1164,33 @@ def _arm_definition(arm: str) -> str:
         "no_urgency": "real, with next_pick=None so survives_by and the tier are neutralised",
         "no_slice": "real, with the_call's TOP_N shortlist cap effectively removed",
         "leaky-shuffle": "INJECTION ONLY: shuffle arm reading the real board",
+        # B4. Every one of these drafts best-available on its own board order, with the room's
+        # roster caps and the same feasibility deadline. Only the ORDER differs.
+        "points_greedy": (
+            "B4: rank by RAW PROJECTED POINTS. No replacement level, no VORP, no scarcity"
+        ),
+        "audible_transform": (
+            "B4: the SAME projected lines through build_board_from_lines, ordered on "
+            "vorp_rank. Differs from points_greedy by one replacement constant per position"
+        ),
+        "adp_board": "B4: the market's ordering through the same machinery",
+        "scarcity_only": (
+            "B4 COUNTERFACTUAL: ordered on scarcity_rank. No league config selects this; "
+            "value_metric is 'vorp' in both, so scarcity never orders a live board"
+        ),
+        "hindsight_board": (
+            "B4 CEILING and a LABELLED LEAK: the same pipeline over the season's REALISED "
+            "stat lines. What perfect foresight was worth, never a result"
+        ),
+        "hindsight_total": (
+            "B4 DIAGNOSTIC and a LABELLED LEAK: the realised lines ordered on SEASON TOTALS "
+            "instead of per-game rate. Against hindsight_board it prices the harness's own "
+            "indifference to games played"
+        ),
+        "hindsight_points": (
+            "B4 LABELLED LEAK: the realised lines ranked by RAW POINTS. Against "
+            "hindsight_board it prices the transform with the projection error removed"
+        ),
     }[arm]
 
 
@@ -1020,22 +1207,53 @@ def leak_ceiling_failures(payload: dict[str, Any]) -> list[str]:
     +92 to +428, because the leak helps whichever arm has the better shortlist. Every gate
     passed while the real arm sat at +479.8.
 
-    What a leak cannot hide is its SIZE. The board's values are a monotone transform of ADP
-    rank, so there is no better ordering of it to find; audible's contribution is its overlay
-    and the overlay is worth tens of points. An arm hundreds of points past the ADP baseline
-    is reading something that is not on the board.
+    What a leak cannot hide is its SIZE. On the ADP-ORDERED board the `real` arm runs on, the
+    values are a monotone transform of ADP rank, so there is no better ordering of it to find;
+    audible's contribution is its overlay and the overlay is worth tens of points. An arm
+    hundreds of points past the ADP baseline is reading something that is not on the board.
+
+    THAT ARGUMENT DOES NOT REACH B4'S BOARDS AND THE CONSTANT MUST NOT BE APPLIED TO THEM.
+    A board built from a projection has a real ordering to find, and this run measures exactly
+    how much: `ceiling_minus_adp`, the labelled-leak board built from the season's realised
+    lines, beats ADP by hundreds. Applying a ceiling of 150 to those arms would fail an honest
+    arm for succeeding. So the board arms get their own bound, below, and it is MEASURED
+    rather than constant: perfect foresight is the most any projection can be worth, so an
+    honest arm that beats ADP by more than the hindsight board did is reading the outcome.
+    Neither bound is relaxed by the other; this adds coverage where there was none.
+
+    IT BOUNDS TWO ARMS, not every board arm. `audible_transform` and `points_greedy` are the
+    two whose numbers the report leads with; `adp_board` is bounded by being bit-identical to
+    the `adp` baseline it is compared against, and `scarcity_only` is a counterfactual nobody
+    reads as a result. The leak arms are exempt by construction -- they ARE the ceiling.
     """
+    out: list[str] = []
     baseline = payload.get("real_minus_adp")
-    if baseline is None:
-        return []
-    if float(baseline["mean"]) > seat.LEAK_CEILING:
-        return [
+    if baseline is not None and float(baseline["mean"]) > seat.LEAK_CEILING:
+        out.append(
             f"G6d leak-ceiling: the real arm beats the ADP baseline by "
             f"{baseline['mean']:+.1f}, past the {seat.LEAK_CEILING:+.0f} ceiling. The board "
             f"is a monotone transform of ADP rank and contains no ordering worth that much, "
             f"so the arm is reading something that is not on it."
-        ]
-    return []
+        )
+
+    ceiling = payload.get("ceiling_minus_adp")
+    if ceiling is not None and not isinstance(ceiling.get("mean"), str):
+        limit = float(ceiling["mean"])
+        for name, label in (
+            ("transform_minus_adp", "audible_transform"),
+            ("points_minus_adp", "points_greedy"),
+        ):
+            block = payload.get(name)
+            if block is None or isinstance(block.get("mean"), str):
+                continue
+            if float(block["mean"]) > limit:
+                out.append(
+                    f"G6e foresight-ceiling: {label} beats the ADP baseline by "
+                    f"{block['mean']:+.1f}, past the {limit:+.1f} a board built from the "
+                    f"season's REALISED lines managed. No projection can be worth more than "
+                    f"perfect foresight, so this arm is reading the outcome."
+                )
+    return out
 
 
 def gate_failures(payload: dict[str, Any]) -> list[str]:

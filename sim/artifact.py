@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import room
+from . import room, seat
 
 SCHEMA_VERSION: int = 1
 
@@ -323,13 +323,27 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
     board = payload.get("board_vs_adp") or {}
     if board:
         out.append("")
-        out.append("HOW MUCH ORDERING IS THERE TO FIND HERE? none:")
+        # SCOPED TO THE ARMS THAT RUN ON IT. This block describes `seat.board_from_season`,
+        # which is what `real`, `shuffle`, `legacy`, `legacy_recommend`, `leaky-shuffle` and
+        # the four ablations draft off -- every arm routed through `build_seat`. B4's board
+        # arms build their own board from a projection and are compared to ADP separately,
+        # below; saying "none" over the whole artifact would now be false.
+        out.append("HOW MUCH ORDERING IS THERE ON THE ADP-ORDERED BOARD")
+        out.append("that real/shuffle/legacy/the ablations draft off? none:")
         for season, row in sorted((board.get("harness") or {}).items()):
             out.append(
                 f"  {season}: {row['exact_of_128']}/128 exact, "
                 f"{row['disagree_over_one_round']} disagree >1rd, r={row['pearson']}"
             )
         out.extend(wrap60(str(board.get("note", ""))))
+        if payload.get("projection"):
+            out.extend(
+                wrap60(
+                    "B4's board arms are NOT on that board and their own "
+                    "agreement with ADP is reported below. Nothing in "
+                    "this paragraph applies to them."
+                )
+            )
         for key, row in sorted((board.get("production") or {}).items()):
             out.append(f"  production {key}:")
             out.append(
@@ -351,9 +365,18 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
         out.append(f"  {name:<11s} {_interval(arms[name]['advantage'])}")
 
     out.append("")
+    if payload.get("projection"):
+        out.extend(_b4_block(payload))
+
     out.append("paired comparisons. PRIOR is primary; the lines")
     out.append("under each say what an oracle lineup would have paid:")
     for label, key in (
+        ("transform - points", "transform_minus_points"),
+        ("transform - adp", "transform_minus_adp"),
+        ("transform - scarcity", "transform_minus_scarcity"),
+        ("points - adp", "points_minus_adp"),
+        ("CEILING - adp", "ceiling_minus_adp"),
+        ("CEILING - transform", "ceiling_minus_transform"),
         ("real - adp", "real_minus_adp"),
         ("real - legacy", "real_minus_legacy"),
         ("legacy - adp", "legacy_minus_adp"),
@@ -391,6 +414,15 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
         )
         out.append(f"  {name:<17s} {parts}")
 
+    if any(block.get("positions_drafted") for block in arms.values()):
+        out.append("")
+        out.append("WHAT EACH ARM DRAFTS, mean of 16 picks. This is the")
+        out.append("mechanism behind every board comparison above:")
+        for name in sorted(arms):
+            counts = arms[name].get("positions_drafted") or {}
+            parts = " ".join(f"{p}:{v:.2f}" for p, v in sorted(counts.items()) if v)
+            out.append(f"  {name:<18s} {parts}")
+
     if payload.get("walk_forward"):
         out.append("")
         out.append("WALK-FORWARD, fit and test shown side by side:")
@@ -408,9 +440,11 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
                     wrap60(
                         f"{label} has {len(seasons)} season-clusters, so "
                         f"{max(0, len(seasons) - 1)} degrees of freedom and a t "
-                        "quantile of 12.7. Those intervals are too wide to "
-                        "resolve anything and are printed as a limit, not as "
-                        "a result. Five seasons cannot be split any better.",
+                        f"quantile of {seat._t95(len(seasons) - 1):.3g}. Those "
+                        "intervals are too wide to resolve anything and are "
+                        "printed as a limit, not as a result. "
+                        f"{len(payload.get('seasons') or ())} seasons cannot "
+                        "be split any better.",
                         indent="    ",
                     )
                 )
@@ -508,6 +542,91 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
             "samples. Five ADP vintages remain five."
         )
     )
+    return out
+
+
+def _b4_block(payload: Mapping[str, Any]) -> list[str]:
+    """B4's own header: the projection, its accuracy, its boards, and the ceiling.
+
+    PRINTED BEFORE THE COMPARISONS, deliberately. A reader who sees the arm numbers first will
+    read them against zero; the only scale that makes them mean anything is what a board built
+    from the season's realised lines was worth, and how good the projection feeding the honest
+    arms actually is.
+    """
+    block = payload.get("projection") or {}
+    out: list[str] = [""]
+    out.append("THE PROJECTION, pre-registered before any arm ran:")
+    out.extend(wrap60(str(block.get("pre_registration", "?"))))
+    usable = block.get("usable_seasons") or []
+    out.append(f"  usable target seasons: {', '.join(str(x) for x in usable)}")
+
+    report = block.get("accuracy") or {}
+    excluded = report.get("excluded_seasons") or []
+    if excluded:
+        out.append(f"  NOT usable: {', '.join(str(x) for x in excluded)}")
+        out.extend(wrap60(str(report.get("excluded_because", "")), indent="    "))
+    out.append("  accuracy against realised season points, and the")
+    out.append("  same players ordered by ADP rank:")
+    for season, got in sorted((report.get("seasons") or {}).items()):
+        summary = got.get("summary") or {}
+        out.append(
+            f"    {season}  n={summary.get('n', 0):.0f}"
+            f"  r={summary.get('corr', 0):+.2f}"
+            f"  rho={summary.get('spearman', 0):+.2f}"
+            f"  ADP rho={summary.get('adp_spearman', 0):+.2f}"
+            f"  MAE={summary.get('mae', 0):.0f}"
+        )
+        for position, row in (got.get("by_position") or {}).items():
+            out.append(
+                f"      {position:<3s} n={row.get('n', 0):3d}"
+                f"  r={row.get('corr', 0):+.2f}"
+                f"  ADP rho={row.get('adp_spearman', 0):+.2f}"
+                f"  MAE={row.get('mae', 0):5.1f}"
+            )
+
+    out.append("")
+    out.append("THE BOARDS ARE NOT THE ADP LIST, which is G2 and is the")
+    out.append("gate on this whole session. Of the drafted top 128:")
+    for season, got in sorted((block.get("seasons") or {}).items()):
+        rows = got.get("vs_adp") or {}
+        for arm in ("audible_transform", "points_greedy", "hindsight_board"):
+            row = rows.get(arm)
+            if not row:
+                continue
+            out.append(
+                f"  {season} {arm:<18s} {row['exact_of_128']:3d} exact"
+                f"  {row['disagree_over_one_round']:3d} >1rd"
+                f"  r={row['pearson']:+.3f}"
+            )
+    out.append("  replacement level, the whole of what separates")
+    out.append("  audible_transform from points_greedy:")
+    for season, got in sorted((block.get("seasons") or {}).items()):
+        levels = got.get("replacement_level") or {}
+        parts = " ".join(f"{k}:{v:.0f}" for k, v in sorted(levels.items()) if v)
+        out.append(f"    {season}  {parts}")
+
+    ceiling = payload.get("ceiling") or {}
+    if ceiling:
+        out.append("")
+        out.append("READ EVERY ARM AGAINST THE CEILING, NOT AGAINST ZERO.")
+        out.extend(
+            wrap60(
+                "A board built from the season's REALISED lines is what "
+                "perfect foresight was worth over the market. The same "
+                "null means opposite things at a ceiling of 40 and a "
+                "ceiling of 400."
+            )
+        )
+        for policy in ("prior", "oracle", "hindsight"):
+            got = ceiling.get(policy)
+            if not got:
+                continue
+            out.append(f"  {policy}: ceiling {got.get('ceiling', 0):+.1f} over adp")
+            for name in ("transform_minus_adp", "points_minus_adp", "transform_minus_points"):
+                if name in got:
+                    out.append(f"    {name:<22s} {got[name]:+7.1f}% of it")
+            if "share_undefined_because" in got:
+                out.extend(wrap60(str(got["share_undefined_because"]), indent="    "))
     return out
 
 

@@ -149,7 +149,7 @@ def test_g1_ex_ante_scores_below_realised_and_the_gap_is_the_artifact(
     """
     room, _runner, seat_mod, weekly, _artifact = mods
     board, fit, week = one_season
-    ranks = seat_mod.positional_ranks(board)
+    ranks = seat_mod.positional_ranks(board, week)
 
     totals = {"prior": 0.0, "season-mean": 0.0, "realised": 0.0}
     draws = 8
@@ -235,7 +235,7 @@ def test_i4_reverting_to_the_realised_lineup_restores_the_te_artifact(mods, tmp_
     for season in seasons:
         board, week = boards[season], weeks[season]
         prior = runner._prior_for(season, seasons, boards, weeks)
-        ranks = seat_mod.positional_ranks(board)
+        ranks = seat_mod.positional_ranks(board, week)
         for seed in range(4):
             picks = seat_mod.run_arm(
                 "real", season, seed, season_board=board, fit=fit, week_table=week,

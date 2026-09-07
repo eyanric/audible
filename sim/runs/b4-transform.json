@@ -1,0 +1,2878 @@
+# run: b4-transform
+# seasons: 2022, 2023, 2024, 2025
+# seeds: 60  seat: 6
+# units: 5280  wall: 132.9s
+#
+# OUTCOME MEASURE:
+#   points-for under a PRIOR lineup: the season lineup is
+#   chosen on a (position, positional rank) table fitted
+#   leave-one-season-out, so no information about the season
+#   being scored reaches it
+#   TWO UPPER BOUNDS are printed beside every comparison. An
+#   `oracle` lineup chosen on each player's own season mean
+#   is worth +43 to +121 points a season over the prior; a
+#   `hindsight` lineup chosen weekly is worth +333 to +508.
+#   Any effect smaller than that spread is inside the
+#   harness's own uncertainty about what a manager could
+#   have known, and is not a result.
+#
+# THE BASELINE, and read this before anything else:
+#   audible against a ten-line ADP-greedy seat with no
+#   audible in it at all, paired: +14.6 [-34.7, +64.0].
+#   audible does NOT beat the obvious alternative.
+#
+# HOW MUCH ORDERING IS THERE ON THE ADP-ORDERED BOARD
+# that real/shuffle/legacy/the ablations draft off? none:
+#   2022: 128/128 exact, 0 disagree >1rd, r=1.0
+#   2023: 128/128 exact, 0 disagree >1rd, r=1.0
+#   2024: 128/128 exact, 0 disagree >1rd, r=1.0
+#   2025: 128/128 exact, 0 disagree >1rd, r=1.0
+#   the harness board is a monotone transform of ADP rank,
+#   so its ordering IS the market's. real - adp therefore
+#   measures the OVERLAY alone, never the board.
+#   B4's board arms are NOT on that board and their own
+#   agreement with ADP is reported below. Nothing in this
+#   paragraph applies to them.
+#   production espn_davis_drive:
+#     6/128 exact, 72 disagree >1rd, r=0.8925
+#   production espn_green_hope:
+#     3/128 exact, 100 disagree >1rd, r=0.7167
+#   the production board disagrees with ADP across most of
+#   the top 128. That disagreement is where audible's value
+#   would live and this harness cannot exercise it.
+#
+# advantage over the field, paired, clustered on season:
+#   adp         +129.4 [+125.7, +133.1]
+#   adp_board   +129.4 [+125.7, +133.1]
+#   audible_transform -30.2 [-162.8, +102.5]
+#   bot         -4.0 [-42.3, +34.3]
+#   hindsight_board +462.8 [+313.0, +612.6]
+#   hindsight_points +347.1 [+314.8, +379.4]
+#   hindsight_total +426.1 [+313.9, +538.4]
+#   points_greedy -146.2 [-349.4, +56.9]
+#   real        +144.1 [+94.0, +194.1]
+#   scarcity_only -138.1 [-234.1, -42.1]
+#   shuffle     +55.2 [+8.5, +101.9]
+#
+#
+# THE PROJECTION, pre-registered before any arm ran:
+#   weighted per-game rates over S-1/S-2/S-3 at 0.6/0.3/0.1,
+#   times weighted games; every lookback season for which
+#   ff_opportunity exists regressed half way toward its
+#   expected production; a draft-capital rookie prior fitted
+#   on prior seasons only, looked up by name. The method was
+#   fixed before any arm ran and its parameters are pinned
+#   by test_g0_the_pre_registered_constants_are_pinned. Two
+#   defect fixes landed after the first run and are named in
+#   sim/projection.py: the undraftable tail, and the rookie
+#   capital lookup.
+#   usable target seasons: 2022, 2023, 2024, 2025
+#   NOT usable: 2021
+#     no prior season inside the pinned window;
+#     player_stats_2020 exists in neither cache root and
+#     this session does not substitute a nearby season
+#   accuracy against realised season points, and the
+#   same players ordered by ADP rank:
+#     2022  n=169  r=+0.66  rho=+0.61  ADP rho=+0.50  MAE=52
+#       QB  n= 22  r=+0.64  ADP rho=+0.46  MAE= 71.9
+#       RB  n= 63  r=+0.34  ADP rho=+0.57  MAE= 64.9
+#       TE  n= 20  r=+0.67  ADP rho=+0.45  MAE= 30.4
+#       WR  n= 64  r=+0.61  ADP rho=+0.59  MAE= 39.1
+#     2023  n=166  r=+0.55  rho=+0.51  ADP rho=+0.38  MAE=50
+#       QB  n= 23  r=+0.18  ADP rho=+0.24  MAE= 88.4
+#       RB  n= 59  r=+0.36  ADP rho=+0.47  MAE= 57.9
+#       TE  n= 21  r=+0.37  ADP rho=+0.20  MAE= 32.0
+#       WR  n= 63  r=+0.62  ADP rho=+0.57  MAE= 35.9
+#     2024  n=161  r=+0.56  rho=+0.50  ADP rho=+0.39  MAE=56
+#       QB  n= 22  r=+0.34  ADP rho=+0.37  MAE= 86.5
+#       RB  n= 57  r=+0.45  ADP rho=+0.53  MAE= 61.4
+#       TE  n= 18  r=+0.21  ADP rho=+0.46  MAE= 39.1
+#       WR  n= 64  r=+0.27  ADP rho=+0.42  MAE= 46.1
+#     2025  n=180  r=+0.63  rho=+0.59  ADP rho=+0.35  MAE=48
+#       QB  n= 28  r=+0.25  ADP rho=+0.11  MAE= 70.4
+#       RB  n= 55  r=+0.58  ADP rho=+0.66  MAE= 51.9
+#       TE  n= 18  r=+0.18  ADP rho=-0.09  MAE= 34.0
+#       WR  n= 79  r=+0.38  ADP rho=+0.46  MAE= 41.7
+#
+# THE BOARDS ARE NOT THE ADP LIST, which is G2 and is the
+# gate on this whole session. Of the drafted top 128:
+#   2022 audible_transform    0 exact  100 >1rd  r=+0.779
+#   2022 points_greedy        1 exact  109 >1rd  r=+0.498
+#   2022 hindsight_board      2 exact  108 >1rd  r=+0.717
+#   2023 audible_transform    3 exact   96 >1rd  r=+0.823
+#   2023 points_greedy        1 exact  102 >1rd  r=+0.558
+#   2023 hindsight_board      1 exact  111 >1rd  r=+0.660
+#   2024 audible_transform    2 exact  101 >1rd  r=+0.682
+#   2024 points_greedy        0 exact  101 >1rd  r=+0.458
+#   2024 hindsight_board      4 exact  106 >1rd  r=+0.469
+#   2025 audible_transform    2 exact  100 >1rd  r=+0.745
+#   2025 points_greedy        0 exact  108 >1rd  r=+0.378
+#   2025 hindsight_board      1 exact  104 >1rd  r=+0.613
+#   replacement level, the whole of what separates
+#   audible_transform from points_greedy:
+#     2022  QB:306 RB:116 TE:108 WR:108
+#     2023  QB:261 RB:113 TE:103 WR:107
+#     2024  QB:262 RB:113 TE:100 WR:110
+#     2025  QB:285 RB:108 TE:98 WR:123
+#
+# READ EVERY ARM AGAINST THE CEILING, NOT AGAINST ZERO.
+#   A board built from the season's REALISED lines is what
+#   perfect foresight was worth over the market. The same
+#   null means opposite things at a ceiling of 40 and a
+#   ceiling of 400.
+#   prior: ceiling +333.4 over adp
+#     transform_minus_adp      -47.9% of it
+#     points_minus_adp         -82.7% of it
+#     transform_minus_points   +34.8% of it
+#   oracle: ceiling +288.6 over adp
+#     transform_minus_adp      -66.9% of it
+#     points_minus_adp         -92.7% of it
+#     transform_minus_points   +25.8% of it
+#   hindsight: ceiling +427.8 over adp
+#     transform_minus_adp      -50.6% of it
+#     points_minus_adp         -71.5% of it
+#     transform_minus_points   +20.8% of it
+# paired comparisons. PRIOR is primary; the lines
+# under each say what an oracle lineup would have paid:
+#   transform - points: +116.1 [-122.3, +354.4]
+#     oracle: +74.3 [-137.5, +286.2]
+#     hindsight: +89.1 [-83.1, +261.3]
+#   transform - adp: -159.6 [-293.4, -25.9]
+#     oracle: -193.1 [-324.2, -62.0]
+#     hindsight: -216.6 [-399.6, -33.7]
+#   transform - scarcity: +107.9 [-94.0, +309.9]
+#     oracle: +81.5 [-119.5, +282.5]
+#     hindsight: +109.0 [-134.9, +352.8]
+#   points - adp: -275.7 [-478.5, -72.8]
+#     oracle: -267.4 [-475.0, -59.9]
+#     hindsight: -305.7 [-600.5, -10.9]
+#   CEILING - adp: +333.4 [+185.3, +481.5]
+#     oracle: +288.6 [+213.2, +364.1]
+#     hindsight: +427.8 [+310.9, +544.6]
+#   CEILING - transform: +493.0 [+372.3, +613.6]
+#     oracle: +481.7 [+401.5, +562.0]
+#     hindsight: +644.4 [+571.4, +717.4]
+#   real - adp: +14.6 [-34.7, +64.0]
+#     oracle: -4.6 [-52.9, +43.8]
+#     hindsight: -14.8 [-67.0, +37.4]
+#   real - shuffle: +88.8 [+51.3, +126.4]
+#     oracle: +71.9 [+10.4, +133.4]
+#     hindsight: +96.2 [+12.7, +179.6]
+#   shuffle - bot: +59.2 [-3.8, +122.2]
+#     oracle: +70.9 [+23.8, +117.9]
+#     hindsight: +38.9 [-35.5, +113.3]
+#
+# points by POSITION, seat only, prior lineup. Read this
+# and not a by-slot table: RB and WR each name TWO
+# starting slots, and a surplus TE started at FLEX lands
+# in the FLEX bucket, so by-slot cannot see hoarding.
+#   adp               DEF:0% K:0% QB:23% RB:46% TE:8% WR:22%
+#   adp_board         DEF:0% K:0% QB:23% RB:46% TE:8% WR:22%
+#   audible_transform DEF:0% K:0% QB:23% RB:32% TE:9% WR:36%
+#   bot               DEF:0% K:0% QB:22% RB:39% TE:9% WR:31%
+#   hindsight_board   DEF:0% K:0% QB:19% RB:40% TE:9% WR:32%
+#   hindsight_points  DEF:0% K:0% QB:24% RB:37% TE:9% WR:30%
+#   hindsight_total   DEF:0% K:0% QB:20% RB:39% TE:9% WR:32%
+#   points_greedy     DEF:0% K:0% QB:29% RB:27% TE:9% WR:35%
+#   real              DEF:0% K:0% QB:24% RB:42% TE:10% WR:25%
+#   scarcity_only     DEF:0% K:0% QB:31% RB:33% TE:13% WR:23%
+#   shuffle           DEF:0% K:0% QB:24% RB:40% TE:10% WR:27%
+#
+# WHAT EACH ARM DRAFTS, mean of 16 picks. This is the
+# mechanism behind every board comparison above:
+#   adp                DEF:1.00 K:1.00 QB:2.75 RB:6.40 TE:1.51 WR:3.35
+#   adp_board          DEF:1.00 K:1.00 QB:2.75 RB:6.40 TE:1.51 WR:3.35
+#   audible_transform  DEF:1.00 K:1.00 QB:1.26 RB:4.21 TE:1.71 WR:6.82
+#   bot                DEF:1.04 K:1.00 QB:1.72 RB:4.92 TE:1.43 WR:5.89
+#   hindsight_board    DEF:1.00 K:1.00 QB:1.18 RB:5.48 TE:1.93 WR:5.40
+#   hindsight_points   DEF:1.00 K:1.00 QB:3.00 RB:4.12 TE:1.18 WR:5.71
+#   hindsight_total    DEF:1.00 K:1.00 QB:1.04 RB:5.19 TE:1.55 WR:6.22
+#   points_greedy      DEF:1.00 K:1.00 QB:3.00 RB:3.36 TE:1.20 WR:6.44
+#   real               DEF:1.01 K:1.00 QB:1.04 RB:5.14 TE:2.79 WR:5.03
+#   scarcity_only      DEF:1.00 K:1.00 QB:3.00 RB:5.18 TE:3.00 WR:2.83
+#   shuffle            DEF:1.01 K:1.02 QB:1.05 RB:5.15 TE:2.67 WR:5.11
+#
+# WALK-FORWARD, fit and test shown side by side:
+#   wf-in (2022, 2023):
+#     real_minus_adp     +35.3 [-705.9, +776.5]
+#     real_minus_shuffle +123.7 [-380.9, +628.2]
+#     wf-in has 2 season-clusters, so 1 degrees of freedom
+#     and a t quantile of 12.7. Those intervals are too wide
+#     to resolve anything and are printed as a limit, not as
+#     a result. 4 seasons cannot be split any better.
+#   wf-out (2024, 2025):
+#     real_minus_adp     -18.2 [-360.8, +324.3]
+#     real_minus_shuffle +47.7 [-139.5, +234.8]
+#     wf-out has 2 season-clusters, so 1 degrees of freedom
+#     and a t quantile of 12.7. Those intervals are too wide
+#     to resolve anything and are printed as a limit, not as
+#     a result. 4 seasons cannot be split any better.
+#   an effect present in-sample and absent out-of-sample is
+#   the signature of overfitting. Both are printed so nobody
+#   has to remember to look.
+#
+# structural (lower is better):
+#   adp         bye 2.30  wasted 1.75  surplus 5.77
+#               illegal 0  deadline/16 0.00
+#   adp_board   bye 2.30  wasted 1.75  surplus 5.77
+#               illegal 0  deadline/16 0.00
+#   audible_transform bye 2.58  wasted 0.26  surplus 5.58
+#               illegal 0  deadline/16 0.00
+#   bot         bye 2.50  wasted 0.76  surplus 5.72
+#               illegal 0  deadline/16 0.00
+#   hindsight_board bye 2.44  wasted 0.18  surplus 5.33
+#               illegal 0  deadline/16 0.00
+#   hindsight_points bye 2.24  wasted 2.00  surplus 5.84
+#               illegal 0  deadline/16 0.00
+#   hindsight_total bye 2.48  wasted 0.04  surplus 5.50
+#               illegal 0  deadline/16 0.00
+#   points_greedy bye 2.52  wasted 2.00  surplus 6.12
+#               illegal 0  deadline/16 0.00
+#   real        bye 2.37  wasted 0.05  surplus 5.00
+#               illegal 0  deadline/16 0.42
+#   scarcity_only bye 2.52  wasted 2.00  surplus 5.69
+#               illegal 0  deadline/16 0.00
+#   shuffle     bye 2.40  wasted 0.07  surplus 5.00
+#               illegal 0  deadline/16 0.25
+#
+# where the advantage over the BOTS comes from:
+#   machinery (bot in seat): -4.0
+#   + structure:             +59.2
+#   + value ordering:        +88.8
+#   = real:                  +144.1
+#
+# shuffle control (the leak detector):
+#   at chance: NO
+#   advantage: +55.2 [+8.5, +101.9]
+#   SHUFFLE IS WINNING -- assume a leak until this is
+#   explained
+#   READ THE DECOMPOSITION ABOVE. The null control -- a bot
+#   in the same seat -- lands at chance, so the machinery is
+#   sound. The shuffle arm keeps audible's STRUCTURE and
+#   only loses its value ordering, so it is not a no-skill
+#   control and beating bots that draft a second unstartable
+#   QB is not a leak. The leak gates are the null control,
+#   real-beats-shuffle, and the G6d size ceiling.
+#
+# intervals are clustered on SEASON, not on seed:
+#   five markets, not three hundred draws. On this run it
+#   widens a comparison by 1.56x to 9.54x, depending on how
+#   much of that comparison's variance is between seasons
+#   rather than between seeds. There is no single ratio.
+#
+# limits that hold regardless:
+#   no vintage preseason projections exist for any season,
+#   so this measures ORDERING and never the projections.
+#   bots fitted to ADP are not people. They do not stack,
+#   reach for their own players, or panic.
+#   the bootstrap multiplies OUTCOME samples, not MARKET
+#   samples. Five ADP vintages remain five.
+{
+  "arms": {
+    "adp": {
+      "advantage": {
+        "hi": 133.141,
+        "lo": 125.712,
+        "mean": 129.426
+      },
+      "definition": "the SKILL BASELINE: best available by ADP rank, capped, no audible at all",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 163.821,
+          "lo": 114.696,
+          "mean": 139.258
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1702.837,
+          "lo": 1566.021,
+          "mean": 1634.429
+        }
+      },
+      "points_for": {
+        "hi": 1580.241,
+        "lo": 1466.016,
+        "mean": 1523.129
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 2.7458,
+        "RB": 6.3958,
+        "TE": 1.5083,
+        "WR": 3.35
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 183.815,
+          "lo": 118.046,
+          "mean": 150.93
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1958.009,
+          "lo": 1862.824,
+          "mean": 1910.416
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 215.03,
+        "K": 0.02,
+        "QB": 352.95,
+        "RB": 496.0,
+        "TE": 128.28,
+        "WR": 330.84,
+        "pos:DEF": 0.0,
+        "pos:K": 0.02,
+        "pos:QB": 352.95,
+        "pos:RB": 707.02,
+        "pos:TE": 128.28,
+        "pos:WR": 334.85
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.7708,
+        "unfillable_bye_weeks": 2.2958,
+        "unresolved_players": 1.3667,
+        "wasted_roster_slots": 1.7458
+      }
+    },
+    "adp_board": {
+      "advantage": {
+        "hi": 133.141,
+        "lo": 125.712,
+        "mean": 129.426
+      },
+      "definition": "B4: the market's ordering through the same machinery",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 163.821,
+          "lo": 114.696,
+          "mean": 139.258
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1702.837,
+          "lo": 1566.021,
+          "mean": 1634.429
+        }
+      },
+      "points_for": {
+        "hi": 1580.241,
+        "lo": 1466.016,
+        "mean": 1523.129
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 2.7458,
+        "RB": 6.3958,
+        "TE": 1.5083,
+        "WR": 3.35
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 183.815,
+          "lo": 118.046,
+          "mean": 150.93
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1958.009,
+          "lo": 1862.824,
+          "mean": 1910.416
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 215.03,
+        "K": 0.02,
+        "QB": 352.95,
+        "RB": 496.0,
+        "TE": 128.28,
+        "WR": 330.84,
+        "pos:DEF": 0.0,
+        "pos:K": 0.02,
+        "pos:QB": 352.95,
+        "pos:RB": 707.02,
+        "pos:TE": 128.28,
+        "pos:WR": 334.85
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.7708,
+        "unfillable_bye_weeks": 2.2958,
+        "unresolved_players": 1.3667,
+        "wasted_roster_slots": 1.7458
+      }
+    },
+    "audible_transform": {
+      "advantage": {
+        "hi": 102.461,
+        "lo": -162.826,
+        "mean": -30.182
+      },
+      "definition": "B4: the SAME projected lines through build_board_from_lines, ordered on vorp_rank. Differs from points_greedy by one replacement constant per position",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 64.333,
+          "lo": -172.012,
+          "mean": -53.839
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1594.637,
+          "lo": 1353.564,
+          "mean": 1474.1
+        }
+      },
+      "points_for": {
+        "hi": 1531.701,
+        "lo": 1251.294,
+        "mean": 1391.497
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 1.2625,
+        "RB": 4.2083,
+        "TE": 1.7125,
+        "WR": 6.8167
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 88.456,
+          "lo": -219.853,
+          "mean": -65.699
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1888.706,
+          "lo": 1568.145,
+          "mean": 1728.425
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 159.68,
+        "K": 0.04,
+        "QB": 326.25,
+        "RB": 396.56,
+        "TE": 125.19,
+        "WR": 383.77,
+        "pos:DEF": 0.0,
+        "pos:K": 0.04,
+        "pos:QB": 326.25,
+        "pos:RB": 438.91,
+        "pos:TE": 126.48,
+        "pos:WR": 499.81
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.575,
+        "unfillable_bye_weeks": 2.5792,
+        "unresolved_players": 1.6208,
+        "wasted_roster_slots": 0.2625
+      }
+    },
+    "bot": {
+      "advantage": {
+        "hi": 34.312,
+        "lo": -42.278,
+        "mean": -3.983
+      },
+      "definition": "the null control: seat played by the room's own bot logic, no overlay",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 19.188,
+          "lo": -35.282,
+          "mean": -8.047
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1573.843,
+          "lo": 1458.631,
+          "mean": 1516.237
+        }
+      },
+      "points_for": {
+        "hi": 1492.881,
+        "lo": 1345.52,
+        "mean": 1419.201
+      },
+      "positions_drafted": {
+        "DEF": 1.0375,
+        "K": 1.0042,
+        "QB": 1.7167,
+        "RB": 4.925,
+        "TE": 1.4292,
+        "WR": 5.8875
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 48.802,
+          "lo": -46.684,
+          "mean": 1.059
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1859.901,
+          "lo": 1722.039,
+          "mean": 1790.97
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 180.83,
+        "K": 0.02,
+        "QB": 313.07,
+        "RB": 441.82,
+        "TE": 120.35,
+        "WR": 363.12,
+        "pos:DEF": 0.0,
+        "pos:K": 0.02,
+        "pos:QB": 313.07,
+        "pos:RB": 548.82,
+        "pos:TE": 121.01,
+        "pos:WR": 436.28
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.725,
+        "unfillable_bye_weeks": 2.5042,
+        "unresolved_players": 1.4708,
+        "wasted_roster_slots": 0.7583
+      }
+    },
+    "hindsight_board": {
+      "advantage": {
+        "hi": 612.563,
+        "lo": 313.003,
+        "mean": 462.783
+      },
+      "definition": "B4 CEILING and a LABELLED LEAK: the same pipeline over the season's REALISED stat lines. What perfect foresight was worth, never a result",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 501.573,
+          "lo": 354.243,
+          "mean": 427.908
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1988.671,
+          "lo": 1795.981,
+          "mean": 1892.326
+        }
+      },
+      "points_for": {
+        "hi": 2008.365,
+        "lo": 1674.049,
+        "mean": 1841.207
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 1.1833,
+        "RB": 5.4833,
+        "TE": 1.9292,
+        "WR": 5.4042
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 668.558,
+          "lo": 488.804,
+          "mean": 578.681
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 2413.686,
+          "lo": 2203.154,
+          "mean": 2308.42
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 241.89,
+        "K": 0.05,
+        "QB": 346.45,
+        "RB": 591.42,
+        "TE": 167.2,
+        "WR": 494.2,
+        "pos:DEF": 0.0,
+        "pos:K": 0.05,
+        "pos:QB": 346.45,
+        "pos:RB": 731.3,
+        "pos:TE": 167.2,
+        "pos:WR": 596.21
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.3292,
+        "unfillable_bye_weeks": 2.4417,
+        "unresolved_players": 1.3625,
+        "wasted_roster_slots": 0.1833
+      }
+    },
+    "hindsight_points": {
+      "advantage": {
+        "hi": 379.421,
+        "lo": 314.833,
+        "mean": 347.127
+      },
+      "definition": "B4 LABELLED LEAK: the realised lines ranked by RAW POINTS. Against hindsight_board it prices the transform with the projection error removed",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 383.726,
+          "lo": 283.163,
+          "mean": 333.444
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1850.571,
+          "lo": 1765.821,
+          "mean": 1808.196
+        }
+      },
+      "points_for": {
+        "hi": 1799.409,
+        "lo": 1685.601,
+        "mean": 1742.505
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 3.0,
+        "RB": 4.1167,
+        "TE": 1.175,
+        "WR": 5.7083
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 577.153,
+          "lo": 440.088,
+          "mean": 508.621
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 2324.989,
+          "lo": 2176.855,
+          "mean": 2250.922
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 220.64,
+        "K": 0.02,
+        "QB": 419.89,
+        "RB": 507.7,
+        "TE": 158.52,
+        "WR": 435.73,
+        "pos:DEF": 0.0,
+        "pos:K": 0.02,
+        "pos:QB": 419.89,
+        "pos:RB": 642.68,
+        "pos:TE": 159.47,
+        "pos:WR": 520.45
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.8417,
+        "unfillable_bye_weeks": 2.2417,
+        "unresolved_players": 1.3292,
+        "wasted_roster_slots": 2.0
+      }
+    },
+    "hindsight_total": {
+      "advantage": {
+        "hi": 538.368,
+        "lo": 313.929,
+        "mean": 426.148
+      },
+      "definition": "B4 DIAGNOSTIC and a LABELLED LEAK: the realised lines ordered on SEASON TOTALS instead of per-game rate. Against hindsight_board it prices the harness's own indifference to games played",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 447.624,
+          "lo": 302.08,
+          "mean": 374.852
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1931.155,
+          "lo": 1771.843,
+          "mean": 1851.499
+        }
+      },
+      "points_for": {
+        "hi": 1914.859,
+        "lo": 1703.126,
+        "mean": 1808.993
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 1.0375,
+        "RB": 5.1917,
+        "TE": 1.5542,
+        "WR": 6.2167
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 555.979,
+          "lo": 435.323,
+          "mean": 495.651
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 2306.875,
+          "lo": 2167.678,
+          "mean": 2237.277
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 238.62,
+        "K": 0.04,
+        "QB": 359.25,
+        "RB": 574.2,
+        "TE": 165.69,
+        "WR": 471.2,
+        "pos:DEF": 0.0,
+        "pos:K": 0.04,
+        "pos:QB": 359.25,
+        "pos:RB": 704.27,
+        "pos:TE": 165.69,
+        "pos:WR": 579.75
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.5,
+        "unfillable_bye_weeks": 2.4792,
+        "unresolved_players": 1.3375,
+        "wasted_roster_slots": 0.0375
+      }
+    },
+    "points_greedy": {
+      "advantage": {
+        "hi": 56.947,
+        "lo": -349.42,
+        "mean": -146.236
+      },
+      "definition": "B4: rank by RAW PROJECTED POINTS. No replacement level, no VORP, no scarcity",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 66.919,
+          "lo": -323.275,
+          "mean": -128.178
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1594.822,
+          "lo": 1205.092,
+          "mean": 1399.957
+        }
+      },
+      "points_for": {
+        "hi": 1478.723,
+        "lo": 1079.871,
+        "mean": 1279.297
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 3.0,
+        "RB": 3.3625,
+        "TE": 1.2,
+        "WR": 6.4375
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 107.839,
+          "lo": -417.385,
+          "mean": -154.773
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1899.655,
+          "lo": 1387.732,
+          "mean": 1643.694
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 146.46,
+        "K": 0.03,
+        "QB": 375.28,
+        "RB": 310.32,
+        "TE": 112.09,
+        "WR": 335.11,
+        "pos:DEF": 0.0,
+        "pos:K": 0.03,
+        "pos:QB": 375.28,
+        "pos:RB": 347.19,
+        "pos:TE": 114.86,
+        "pos:WR": 441.94
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 6.125,
+        "unfillable_bye_weeks": 2.5167,
+        "unresolved_players": 1.6125,
+        "wasted_roster_slots": 2.0
+      }
+    },
+    "real": {
+      "advantage": {
+        "hi": 194.114,
+        "lo": 94.011,
+        "mean": 144.063
+      },
+      "definition": "audible's board, ordered by the cockpit's own the_call",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 194.968,
+          "lo": 74.443,
+          "mean": 134.705
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1719.335,
+          "lo": 1567.001,
+          "mean": 1643.168
+        }
+      },
+      "points_for": {
+        "hi": 1629.994,
+        "lo": 1469.563,
+        "mean": 1549.779
+      },
+      "positions_drafted": {
+        "DEF": 1.0083,
+        "K": 1.0,
+        "QB": 1.0417,
+        "RB": 5.1375,
+        "TE": 2.7875,
+        "WR": 5.025
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 210.689,
+          "lo": 61.593,
+          "mean": 136.141
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1995.465,
+          "lo": 1826.797,
+          "mean": 1911.131
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 173.57,
+        "K": 0.0,
+        "QB": 364.49,
+        "RB": 495.51,
+        "TE": 148.44,
+        "WR": 367.77,
+        "pos:DEF": 0.0,
+        "pos:K": 0.0,
+        "pos:QB": 364.49,
+        "pos:RB": 644.48,
+        "pos:TE": 148.44,
+        "pos:WR": 392.37
+      },
+      "structural": {
+        "deadline_picks": 0.4167,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0,
+        "unfillable_bye_weeks": 2.3708,
+        "unresolved_players": 1.4042,
+        "wasted_roster_slots": 0.05
+      }
+    },
+    "scarcity_only": {
+      "advantage": {
+        "hi": -42.097,
+        "lo": -234.124,
+        "mean": -138.111
+      },
+      "definition": "B4 COUNTERFACTUAL: ordered on scarcity_rank. No league config selects this; value_metric is 'vorp' in both, so scarcity never orders a live board",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": -39.291,
+          "lo": -231.32,
+          "mean": -135.305
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1467.254,
+          "lo": 1291.403,
+          "mean": 1379.328
+        }
+      },
+      "points_for": {
+        "hi": 1424.818,
+        "lo": 1130.885,
+        "mean": 1277.851
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 3.0,
+        "RB": 5.1792,
+        "TE": 2.9958,
+        "WR": 2.825
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": -59.346,
+          "lo": -289.959,
+          "mean": -174.653
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1727.022,
+          "lo": 1493.708,
+          "mean": 1610.365
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 161.48,
+        "K": 0.05,
+        "QB": 397.19,
+        "RB": 313.8,
+        "TE": 141.7,
+        "WR": 263.64,
+        "pos:DEF": 0.0,
+        "pos:K": 0.05,
+        "pos:QB": 397.19,
+        "pos:RB": 423.49,
+        "pos:TE": 167.76,
+        "pos:WR": 289.36
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.6917,
+        "unfillable_bye_weeks": 2.5167,
+        "unresolved_players": 1.6167,
+        "wasted_roster_slots": 2.0
+      }
+    },
+    "shuffle": {
+      "advantage": {
+        "hi": 101.941,
+        "lo": 8.542,
+        "mean": 55.241
+      },
+      "definition": "the same, with the board's value ordering permuted per seed",
+      "n": 240,
+      "oracle_secondary": {
+        "advantage": {
+          "hi": 97.071,
+          "lo": 28.542,
+          "mean": 62.806
+        },
+        "lineup": "oracle (season-mean) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1658.358,
+          "lo": 1504.081,
+          "mean": 1581.219
+        }
+      },
+      "points_for": {
+        "hi": 1547.305,
+        "lo": 1398.775,
+        "mean": 1473.04
+      },
+      "positions_drafted": {
+        "DEF": 1.0083,
+        "K": 1.0167,
+        "QB": 1.05,
+        "RB": 5.1458,
+        "TE": 2.6667,
+        "WR": 5.1125
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 89.268,
+          "lo": -9.302,
+          "mean": 39.983
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1906.835,
+          "lo": 1746.839,
+          "mean": 1826.837
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 149.52,
+        "K": 0.0,
+        "QB": 347.41,
+        "RB": 471.97,
+        "TE": 142.71,
+        "WR": 361.43,
+        "pos:DEF": 0.0,
+        "pos:K": 0.0,
+        "pos:QB": 347.41,
+        "pos:RB": 591.17,
+        "pos:TE": 142.71,
+        "pos:WR": 391.74
+      },
+      "structural": {
+        "deadline_picks": 0.2458,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0,
+        "unfillable_bye_weeks": 2.4042,
+        "unresolved_players": 1.5167,
+        "wasted_roster_slots": 0.075
+      }
+    }
+  },
+  "board_vs_adp": {
+    "harness": {
+      "2022": {
+        "disagree_over_one_round": 0,
+        "exact_of_128": 128,
+        "pearson": 1.0
+      },
+      "2023": {
+        "disagree_over_one_round": 0,
+        "exact_of_128": 128,
+        "pearson": 1.0
+      },
+      "2024": {
+        "disagree_over_one_round": 0,
+        "exact_of_128": 128,
+        "pearson": 1.0
+      },
+      "2025": {
+        "disagree_over_one_round": 0,
+        "exact_of_128": 128,
+        "pearson": 1.0
+      }
+    },
+    "note": "the harness board is a monotone transform of ADP rank, so its ordering IS the market's. real - adp therefore measures the OVERLAY alone, never the board.",
+    "production": {
+      "espn_davis_drive": {
+        "disagree_over_one_round": 72,
+        "entries": 3302,
+        "exact_of_128": 6,
+        "pearson": 0.8925
+      },
+      "espn_green_hope": {
+        "disagree_over_one_round": 100,
+        "entries": 3304,
+        "exact_of_128": 3,
+        "pearson": 0.7167
+      }
+    }
+  },
+  "ceiling": {
+    "hindsight": {
+      "ceiling": 427.751,
+      "points_minus_adp": -71.5,
+      "transform_minus_adp": -50.6,
+      "transform_minus_points": 20.8
+    },
+    "oracle": {
+      "ceiling": 288.65,
+      "points_minus_adp": -92.7,
+      "transform_minus_adp": -66.9,
+      "transform_minus_points": 25.8
+    },
+    "prior": {
+      "ceiling": 333.356,
+      "points_minus_adp": -82.7,
+      "transform_minus_adp": -47.9,
+      "transform_minus_points": 34.8
+    }
+  },
+  "ceiling_minus_adp": {
+    "flat_hi": 360.96,
+    "flat_lo": 305.752,
+    "hi": 481.451,
+    "lo": 185.262,
+    "mean": 333.356,
+    "n": 240
+  },
+  "ceiling_minus_adp_hindsight": {
+    "flat_hi": 453.966,
+    "flat_lo": 401.535,
+    "hi": 544.557,
+    "lo": 310.945,
+    "mean": 427.751,
+    "n": 240
+  },
+  "ceiling_minus_adp_oracle": {
+    "flat_hi": 313.502,
+    "flat_lo": 263.797,
+    "hi": 364.129,
+    "lo": 213.17,
+    "mean": 288.65,
+    "n": 240
+  },
+  "ceiling_minus_transform": {
+    "flat_hi": 519.685,
+    "flat_lo": 466.245,
+    "hi": 613.649,
+    "lo": 372.281,
+    "mean": 492.965,
+    "n": 240
+  },
+  "ceiling_minus_transform_hindsight": {
+    "flat_hi": 669.918,
+    "flat_lo": 618.841,
+    "hi": 717.351,
+    "lo": 571.408,
+    "mean": 644.379,
+    "n": 240
+  },
+  "ceiling_minus_transform_oracle": {
+    "flat_hi": 507.088,
+    "flat_lo": 456.407,
+    "hi": 562.026,
+    "lo": 401.469,
+    "mean": 481.747,
+    "n": 240
+  },
+  "code_sha": "bea6230988e59e09353bed5b418d89fb0310c2d8-dirty",
+  "config_hash": "090dcb852e650b390d02a764d9977e618123fcfe316ab77e89364a6003adbb9c",
+  "content_digest": "fdd53fca2efffdc43b1e7d346bdbfaeb1ed010c0ab695c6607873b6843393d66",
+  "fit": {
+    "cap_hist": {
+      "DEF": {
+        "1": 38,
+        "2": 2
+      },
+      "K": {
+        "1": 39,
+        "2": 1
+      },
+      "QB": {
+        "1": 16,
+        "2": 23,
+        "3": 1
+      },
+      "RB": {
+        "2": 1,
+        "3": 2,
+        "4": 8,
+        "5": 16,
+        "6": 11,
+        "7": 2
+      },
+      "TE": {
+        "1": 29,
+        "2": 10,
+        "3": 1
+      },
+      "WR": {
+        "4": 3,
+        "5": 9,
+        "6": 15,
+        "7": 11,
+        "8": 2
+      }
+    },
+    "caps": {
+      "DEF": 2,
+      "K": 2,
+      "QB": 3,
+      "RB": 7,
+      "TE": 3,
+      "WR": 8
+    },
+    "cell_n": {
+      "DEF": {
+        "r1-4": 0,
+        "r13-16": 23,
+        "r5-8": 1,
+        "r9-12": 14
+      },
+      "K": {
+        "r1-4": 0,
+        "r13-16": 21,
+        "r5-8": 0,
+        "r9-12": 13
+      },
+      "QB": {
+        "r1-4": 9,
+        "r13-16": 14,
+        "r5-8": 21,
+        "r9-12": 20
+      },
+      "RB": {
+        "r1-4": 76,
+        "r13-16": 20,
+        "r5-8": 51,
+        "r9-12": 50
+      },
+      "TE": {
+        "r1-4": 9,
+        "r13-16": 10,
+        "r5-8": 14,
+        "r9-12": 19
+      },
+      "WR": {
+        "r1-4": 76,
+        "r13-16": 35,
+        "r5-8": 69,
+        "r9-12": 57
+      }
+    },
+    "joined": 622,
+    "mu": {
+      "DEF": -44.684211,
+      "K": -54.382353,
+      "QB": 6.34375,
+      "RB": 0.766497,
+      "TE": -3.576923,
+      "WR": -4.565401
+    },
+    "offboard_cells": [
+      [
+        "r1-4",
+        "RB"
+      ],
+      [
+        "r9-12",
+        "RB"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "WR"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "WR"
+      ],
+      [
+        "r13-16",
+        "WR"
+      ],
+      [
+        "r13-16",
+        "QB"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "RB"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "K"
+      ]
+    ],
+    "offboard_per_draft": [
+      4,
+      2,
+      7,
+      4,
+      1
+    ],
+    "pick_mu": {
+      "DEF": 105.657895,
+      "K": 107.411765
+    },
+    "pick_sd": {
+      "DEF": 10.008618,
+      "K": 12.424164
+    },
+    "pooled": [
+      "TE/r1-4 n=9",
+      "TE/r13-16 n=10",
+      "QB/r1-4 n=9",
+      "K/r1-4 n=0",
+      "K/r5-8 n=0",
+      "DEF/r1-4 n=0",
+      "DEF/r5-8 n=1"
+    ],
+    "round_sigma": {
+      "r1-4": 7.064908,
+      "r13-16": 23.834147,
+      "r5-8": 13.523227,
+      "r9-12": 22.786994
+    },
+    "scheduled": [
+      "DEF",
+      "K"
+    ],
+    "season_sigma": {
+      "2021": 21.875689,
+      "2022": 16.909868,
+      "2023": 14.540207,
+      "2024": 17.537365,
+      "2025": 19.557514
+    },
+    "season_sigma_mean": 18.084129,
+    "season_sigma_tau": 0.121699,
+    "seasons": [
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "second_specialist_p": {
+      "DEF": 0.05,
+      "K": 0.025
+    },
+    "sigma": {
+      "DEF": {
+        "r1-4": 24.462759,
+        "r13-16": 17.300305,
+        "r5-8": 24.462759,
+        "r9-12": 13.849777
+      },
+      "K": {
+        "r1-4": 20.632662,
+        "r13-16": 23.06365,
+        "r5-8": 20.632662,
+        "r9-12": 10.673198
+      },
+      "QB": {
+        "r1-4": 14.500236,
+        "r13-16": 12.555184,
+        "r5-8": 11.101878,
+        "r9-12": 19.182023
+      },
+      "RB": {
+        "r1-4": 7.24496,
+        "r13-16": 32.905015,
+        "r5-8": 11.832679,
+        "r9-12": 21.801734
+      },
+      "TE": {
+        "r1-4": 17.824299,
+        "r13-16": 17.824299,
+        "r5-8": 14.723298,
+        "r9-12": 19.119684
+      },
+      "WR": {
+        "r1-4": 6.784933,
+        "r13-16": 24.625754,
+        "r5-8": 11.891549,
+        "r9-12": 18.485118
+      }
+    },
+    "supply_avail": {
+      "DEF": 11,
+      "QB": 83,
+      "RB": 228,
+      "TE": 60,
+      "WR": 258
+    },
+    "supply_drafted": {
+      "DEF": 42,
+      "K": 41,
+      "QB": 65,
+      "RB": 200,
+      "TE": 52,
+      "WR": 240
+    },
+    "supply_ratio": {
+      "DEF": 3.818182,
+      "K": "inf",
+      "QB": 0.783133,
+      "RB": 0.877193,
+      "TE": 0.866667,
+      "WR": 0.930233
+    },
+    "total": 640
+  },
+  "fit_seasons": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "generated_at": "2026-09-07T14:40:54",
+  "league": "espn_davis_drive",
+  "leak_decomposition": {
+    "machinery_bot_in_seat": -3.983,
+    "reading": "machinery at chance; the shuffle arm keeps audible's structure and only loses its value ordering. READ `real_minus_adp` BEFORE THIS: the terms below are audible against BOTS, and the bots reach by fitted amounts while the seat does not, so a noiseless seat of any kind collects what they pass. The baseline arm is what says whether any of it is audible's doing.",
+    "structure_shuffle_minus_bot": 59.224,
+    "total_real": 144.063,
+    "value_ordering_real_minus_shuffle": 88.821
+  },
+  "main_units": 2640,
+  "outcome_measure": "points-for under a PRIOR lineup: the season lineup is chosen on a (position, positional rank) table fitted leave-one-season-out, so no information about the season being scored reaches it",
+  "per_game_minus_total_ceiling": {
+    "flat_hi": 54.514,
+    "flat_lo": 18.755,
+    "hi": 118.526,
+    "lo": -45.257,
+    "mean": 36.634,
+    "n": 240
+  },
+  "per_game_minus_total_ceiling_hindsight": {
+    "flat_hi": 100.711,
+    "flat_lo": 65.348,
+    "hi": 127.813,
+    "lo": 38.246,
+    "mean": 83.03,
+    "n": 240
+  },
+  "per_game_minus_total_ceiling_oracle": {
+    "flat_hi": 70.262,
+    "flat_lo": 35.85,
+    "hi": 80.735,
+    "lo": 25.376,
+    "mean": 53.056,
+    "n": 240
+  },
+  "pins": {
+    "espn_draft_6012_2021.json": {
+      "bytes": "8595",
+      "root": "live",
+      "sha256": "6fbb4934590058196bfe9c873f34f83d261c66693ec348710b303475c5074323"
+    },
+    "espn_draft_6012_2022.json": {
+      "bytes": "8612",
+      "root": "live",
+      "sha256": "7299779c765128a6c3c4107f966a19bb2f62717c3c9b2e02d599122e551222cc"
+    },
+    "espn_draft_6012_2023.json": {
+      "bytes": "8619",
+      "root": "live",
+      "sha256": "530dbbaea3430d9ebb712c78541838812faf158211ef39e8ce9a4044535e2fce"
+    },
+    "espn_draft_6012_2024.json": {
+      "bytes": "8630",
+      "root": "live",
+      "sha256": "1aa7203cfc99c06e1f9fbbb7d3fdac79da0df8620541377b984dc666aa72bdc1"
+    },
+    "espn_draft_6012_2025.json": {
+      "bytes": "8633",
+      "root": "live",
+      "sha256": "92cc92355e230c6f468bfe272e78e8791010eeaf709eec32a3faa56ddca2a7a1"
+    },
+    "espn_ranks_6012_2023.json": {
+      "bytes": "101766",
+      "root": "live",
+      "sha256": "dfc2c7694f18f438d71b06698109e061ef3f09ed3b57083ab35cb036de0344f5"
+    },
+    "espn_ranks_6012_2024.json": {
+      "bytes": "96820",
+      "root": "live",
+      "sha256": "548844a48af1c910d1d835fbafd3770cc55aaa4bb842b40762f26f3acc57f14c"
+    },
+    "espn_ranks_6012_2025.json": {
+      "bytes": "94952",
+      "root": "live",
+      "sha256": "3c81dc346c53aee63e65b0a49f44977f0783fbed6d7a9061bb8890f85a38627b"
+    },
+    "ffc_adp_standard_8_2021.json": {
+      "bytes": "42520",
+      "root": "live",
+      "sha256": "bc4f223086af4ede30bb4201bbcd5b5625cac6e10f5dcc3a226ad06c5c35371e"
+    },
+    "ffc_adp_standard_8_2022.json": {
+      "bytes": "36974",
+      "root": "live",
+      "sha256": "41d83d28fddefc66e78b5d07b6b4f1c18f6057a870c962d35221b5c73919f0a0"
+    },
+    "ffc_adp_standard_8_2023.json": {
+      "bytes": "36300",
+      "root": "live",
+      "sha256": "373e6b9181782b4922052c6dba0a57de07155b85629e3c0a819ba1b5112dd051"
+    },
+    "ffc_adp_standard_8_2024.json": {
+      "bytes": "33895",
+      "root": "live",
+      "sha256": "40b484d6589e88cafb3eb5341e32599d0c05e6e250c68c70461ef54bf2853965"
+    },
+    "ffc_adp_standard_8_2025.json": {
+      "bytes": "41792",
+      "root": "live",
+      "sha256": "7f8def1f2723e2dbbb63af6134be4eb8806902d65fa56a806e874906fbce2235"
+    },
+    "leagues/espn_davis_drive.toml": {
+      "bytes": "5413",
+      "root": "repo",
+      "sha256": "3332d32290a5d38218bf7214165f3b6a3636edc4a0897aad6833d183753629b6"
+    },
+    "nflverse/ff_playerids.parquet": {
+      "bytes": "980435",
+      "root": "live",
+      "sha256": "cb6e3a53f4e645073fc382b08e767c1dc0bdd35829ffdeffcf7e7a9013d485a7"
+    },
+    "nflverse/player_stats_2022.parquet": {
+      "bytes": "653799",
+      "root": "sim",
+      "sha256": "b6a86865760bb11eb86bad0d3f51380a1d25287e74eaa2fae5c0ded99c21ba20"
+    },
+    "nflverse/player_stats_2023.parquet": {
+      "bytes": "653537",
+      "root": "sim",
+      "sha256": "dc712abfb4f650be151ae11d3cc3aeb896b9c4cc2c9cf74a236604930c96ba51"
+    },
+    "nflverse/player_stats_2024.parquet": {
+      "bytes": "655058",
+      "root": "sim",
+      "sha256": "9f828ff37574728e7c1815f9283d98401d436820e4c648cd985509149023b9c3"
+    },
+    "nflverse/player_stats_2025.parquet": {
+      "bytes": "659683",
+      "root": "sim",
+      "sha256": "782c689a762e93508b9b6e11f1f9002bc7cde12aa0bfb0a6058aa00896bb9ae9"
+    },
+    "nflverse/teams.parquet": {
+      "bytes": "12024",
+      "root": "live",
+      "sha256": "1d1d105ff0b0fca8806bfa047c96ef001d150c0bcbba481db5babbafa1f36636"
+    }
+  },
+  "points_minus_adp": {
+    "flat_hi": -246.054,
+    "flat_lo": -305.272,
+    "hi": -72.841,
+    "lo": -478.485,
+    "mean": -275.663,
+    "n": 240
+  },
+  "points_minus_adp_hindsight": {
+    "flat_hi": -274.793,
+    "flat_lo": -336.613,
+    "hi": -10.913,
+    "lo": -600.493,
+    "mean": -305.703,
+    "n": 240
+  },
+  "points_minus_adp_oracle": {
+    "flat_hi": -239.623,
+    "flat_lo": -295.25,
+    "hi": -59.906,
+    "lo": -474.967,
+    "mean": -267.437,
+    "n": 240
+  },
+  "projection": {
+    "accuracy": {
+      "excluded_because": "no prior season inside the pinned window; player_stats_2020 exists in neither cache root and this session does not substitute a nearby season",
+      "excluded_seasons": [
+        2021
+      ],
+      "seasons": {
+        "2022": {
+          "by_position": {
+            "QB": {
+              "adp_spearman": 0.4625,
+              "corr": 0.6396,
+              "mae": 71.91,
+              "n": 22,
+              "projected_mean": 255.17,
+              "realised_mean": 225.62,
+              "return_share": 0.0
+            },
+            "RB": {
+              "adp_spearman": 0.5737,
+              "corr": 0.3441,
+              "mae": 64.87,
+              "n": 63,
+              "projected_mean": 124.28,
+              "realised_mean": 120.42,
+              "return_share": 0.0144
+            },
+            "TE": {
+              "adp_spearman": 0.4511,
+              "corr": 0.666,
+              "mae": 30.37,
+              "n": 20,
+              "projected_mean": 95.02,
+              "realised_mean": 84.41,
+              "return_share": 0.0
+            },
+            "WR": {
+              "adp_spearman": 0.5943,
+              "corr": 0.6129,
+              "mae": 39.12,
+              "n": 64,
+              "projected_mean": 114.25,
+              "realised_mean": 108.63,
+              "return_share": 0.0027
+            }
+          },
+          "summary": {
+            "adp_spearman": 0.498,
+            "corr": 0.655,
+            "mae": 51.95,
+            "matched": 143.0,
+            "n": 169.0,
+            "rookies": 38.0,
+            "spearman": 0.6124,
+            "unmatched": 14.0
+          }
+        },
+        "2023": {
+          "by_position": {
+            "QB": {
+              "adp_spearman": 0.2362,
+              "corr": 0.18,
+              "mae": 88.41,
+              "n": 23,
+              "projected_mean": 231.6,
+              "realised_mean": 219.53,
+              "return_share": 0.0
+            },
+            "RB": {
+              "adp_spearman": 0.4658,
+              "corr": 0.358,
+              "mae": 57.88,
+              "n": 59,
+              "projected_mean": 125.17,
+              "realised_mean": 117.88,
+              "return_share": 0.0052
+            },
+            "TE": {
+              "adp_spearman": 0.1987,
+              "corr": 0.3704,
+              "mae": 31.98,
+              "n": 21,
+              "projected_mean": 87.91,
+              "realised_mean": 87.98,
+              "return_share": 0.0
+            },
+            "WR": {
+              "adp_spearman": 0.5705,
+              "corr": 0.6225,
+              "mae": 35.87,
+              "n": 63,
+              "projected_mean": 113.6,
+              "realised_mean": 116.49,
+              "return_share": 0.0018
+            }
+          },
+          "summary": {
+            "adp_spearman": 0.3843,
+            "corr": 0.5467,
+            "mae": 50.48,
+            "matched": 150.0,
+            "n": 166.0,
+            "rookies": 29.0,
+            "spearman": 0.5102,
+            "unmatched": 13.0
+          }
+        },
+        "2024": {
+          "by_position": {
+            "QB": {
+              "adp_spearman": 0.3676,
+              "corr": 0.3444,
+              "mae": 86.53,
+              "n": 22,
+              "projected_mean": 215.97,
+              "realised_mean": 250.3,
+              "return_share": 0.0
+            },
+            "RB": {
+              "adp_spearman": 0.529,
+              "corr": 0.4548,
+              "mae": 61.44,
+              "n": 57,
+              "projected_mean": 124.0,
+              "realised_mean": 130.67,
+              "return_share": 0.011
+            },
+            "TE": {
+              "adp_spearman": 0.4613,
+              "corr": 0.2056,
+              "mae": 39.07,
+              "n": 18,
+              "projected_mean": 91.74,
+              "realised_mean": 86.09,
+              "return_share": 0.0045
+            },
+            "WR": {
+              "adp_spearman": 0.4165,
+              "corr": 0.2697,
+              "mae": 46.12,
+              "n": 64,
+              "projected_mean": 120.18,
+              "realised_mean": 114.62,
+              "return_share": 0.0055
+            }
+          },
+          "summary": {
+            "adp_spearman": 0.3868,
+            "corr": 0.5593,
+            "mae": 56.28,
+            "matched": 141.0,
+            "n": 161.0,
+            "rookies": 31.0,
+            "spearman": 0.503,
+            "unmatched": 8.0
+          }
+        },
+        "2025": {
+          "by_position": {
+            "QB": {
+              "adp_spearman": 0.1144,
+              "corr": 0.2548,
+              "mae": 70.43,
+              "n": 28,
+              "projected_mean": 233.8,
+              "realised_mean": 227.02,
+              "return_share": 0.0
+            },
+            "RB": {
+              "adp_spearman": 0.6649,
+              "corr": 0.5803,
+              "mae": 51.92,
+              "n": 55,
+              "projected_mean": 132.67,
+              "realised_mean": 135.19,
+              "return_share": 0.0196
+            },
+            "TE": {
+              "adp_spearman": -0.0857,
+              "corr": 0.1805,
+              "mae": 33.95,
+              "n": 18,
+              "projected_mean": 90.44,
+              "realised_mean": 99.04,
+              "return_share": 0.0
+            },
+            "WR": {
+              "adp_spearman": 0.4585,
+              "corr": 0.3833,
+              "mae": 41.66,
+              "n": 79,
+              "projected_mean": 107.14,
+              "realised_mean": 97.35,
+              "return_share": 0.0165
+            }
+          },
+          "summary": {
+            "adp_spearman": 0.35,
+            "corr": 0.633,
+            "mae": 48.5,
+            "matched": 157.0,
+            "n": 180.0,
+            "rookies": 44.0,
+            "spearman": 0.5885,
+            "unmatched": 20.0
+          }
+        }
+      },
+      "usable_seasons": [
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    "leak_arms": [
+      "hindsight_board",
+      "hindsight_points",
+      "hindsight_total"
+    ],
+    "pre_registration": "weighted per-game rates over S-1/S-2/S-3 at 0.6/0.3/0.1, times weighted games; every lookback season for which ff_opportunity exists regressed half way toward its expected production; a draft-capital rookie prior fitted on prior seasons only, looked up by name. The method was fixed before any arm ran and its parameters are pinned by test_g0_the_pre_registered_constants_are_pinned. Two defect fixes landed after the first run and are named in sim/projection.py: the undraftable tail, and the rookie capital lookup.",
+    "seasons": {
+      "2022": {
+        "arm_digest": {
+          "adp_board": "caa54efa4d63a053",
+          "audible_transform": "caa54efa4d63a053",
+          "hindsight_board": "06f0ed0c0743300c",
+          "hindsight_points": "06f0ed0c0743300c",
+          "hindsight_total": "4f4f673190fbca66",
+          "points_greedy": "caa54efa4d63a053",
+          "scarcity_only": "caa54efa4d63a053"
+        },
+        "fit_seasons": [
+          2021
+        ],
+        "hindsight_digest": "06f0ed0c0743300c",
+        "matched": 143,
+        "pool": 490,
+        "projected_digest": "caa54efa4d63a053",
+        "provenance": [
+          "ffc_adp_standard_8_2022",
+          "player_stats_2021",
+          "ff_playerids"
+        ],
+        "replacement_level": {
+          "DEF": 0.0,
+          "K": 0.0,
+          "QB": 305.8,
+          "RB": 115.7,
+          "TE": 107.8,
+          "WR": 108.4
+        },
+        "role_seasons": [],
+        "rookies": 38,
+        "unmatched": 14,
+        "vs_adp": {
+          "adp_board": {
+            "disagree_over_one_round": 0,
+            "exact_of_128": 128,
+            "pearson": 1.0,
+            "top": [
+              "Jonathan Taylor",
+              "Derrick Henry",
+              "Christian McCaffrey",
+              "Dalvin Cook",
+              "Cooper Kupp"
+            ]
+          },
+          "audible_transform": {
+            "disagree_over_one_round": 100,
+            "exact_of_128": 0,
+            "pearson": 0.778556,
+            "top": [
+              "Cooper Kupp",
+              "Jonathan Taylor",
+              "Deebo Samuel Sr.",
+              "Davante Adams",
+              "Justin Jefferson"
+            ]
+          },
+          "hindsight_board": {
+            "disagree_over_one_round": 108,
+            "exact_of_128": 2,
+            "pearson": 0.717029,
+            "top": [
+              "Cooper Kupp",
+              "Justin Jefferson",
+              "Davante Adams",
+              "Ja'Marr Chase",
+              "Tyreek Hill"
+            ]
+          },
+          "hindsight_points": {
+            "disagree_over_one_round": 105,
+            "exact_of_128": 1,
+            "pearson": 0.398156,
+            "top": [
+              "Jalen Hurts",
+              "Patrick Mahomes",
+              "Josh Allen",
+              "Joe Burrow",
+              "Lamar Jackson"
+            ]
+          },
+          "hindsight_total": {
+            "disagree_over_one_round": 112,
+            "exact_of_128": 1,
+            "pearson": 0.678172,
+            "top": [
+              "Justin Jefferson",
+              "Davante Adams",
+              "Tyreek Hill",
+              "Josh Jacobs",
+              "Christian McCaffrey"
+            ]
+          },
+          "points_greedy": {
+            "disagree_over_one_round": 109,
+            "exact_of_128": 1,
+            "pearson": 0.49773,
+            "top": [
+              "Josh Allen",
+              "Justin Herbert",
+              "Cooper Kupp",
+              "Tom Brady",
+              "Patrick Mahomes"
+            ]
+          },
+          "scarcity_only": {
+            "disagree_over_one_round": 106,
+            "exact_of_128": 3,
+            "pearson": 0.309214,
+            "top": [
+              "Cooper Kupp",
+              "Jonathan Taylor",
+              "Mark Andrews",
+              "Patrick Mahomes",
+              "Deebo Samuel Sr."
+            ]
+          }
+        }
+      },
+      "2023": {
+        "arm_digest": {
+          "adp_board": "37b84abef7d175f4",
+          "audible_transform": "37b84abef7d175f4",
+          "hindsight_board": "84fb27a47750e072",
+          "hindsight_points": "84fb27a47750e072",
+          "hindsight_total": "bee500effb21072c",
+          "points_greedy": "37b84abef7d175f4",
+          "scarcity_only": "37b84abef7d175f4"
+        },
+        "fit_seasons": [
+          2021,
+          2022
+        ],
+        "hindsight_digest": "84fb27a47750e072",
+        "matched": 150,
+        "pool": 619,
+        "projected_digest": "37b84abef7d175f4",
+        "provenance": [
+          "ffc_adp_standard_8_2023",
+          "player_stats_2021",
+          "player_stats_2022",
+          "ff_opportunity_2022",
+          "ff_playerids"
+        ],
+        "replacement_level": {
+          "DEF": 0.0,
+          "K": 0.0,
+          "QB": 261.473,
+          "RB": 113.172,
+          "TE": 102.731,
+          "WR": 107.1
+        },
+        "role_seasons": [
+          2022
+        ],
+        "rookies": 29,
+        "unmatched": 13,
+        "vs_adp": {
+          "adp_board": {
+            "disagree_over_one_round": 0,
+            "exact_of_128": 128,
+            "pearson": 1.0,
+            "top": [
+              "Justin Jefferson",
+              "Christian McCaffrey",
+              "Nick Chubb",
+              "Austin Ekeler",
+              "Travis Kelce"
+            ]
+          },
+          "audible_transform": {
+            "disagree_over_one_round": 96,
+            "exact_of_128": 3,
+            "pearson": 0.822621,
+            "top": [
+              "Justin Jefferson",
+              "Davante Adams",
+              "Tyreek Hill",
+              "Austin Ekeler",
+              "Stefon Diggs"
+            ]
+          },
+          "hindsight_board": {
+            "disagree_over_one_round": 111,
+            "exact_of_128": 1,
+            "pearson": 0.659554,
+            "top": [
+              "Christian McCaffrey",
+              "Tyreek Hill",
+              "CeeDee Lamb",
+              "Keenan Allen",
+              "Amon-Ra St. Brown"
+            ]
+          },
+          "hindsight_points": {
+            "disagree_over_one_round": 111,
+            "exact_of_128": 1,
+            "pearson": 0.272832,
+            "top": [
+              "Josh Allen",
+              "Jalen Hurts",
+              "Lamar Jackson",
+              "Christian McCaffrey",
+              "Tyreek Hill"
+            ]
+          },
+          "hindsight_total": {
+            "disagree_over_one_round": 107,
+            "exact_of_128": 1,
+            "pearson": 0.611965,
+            "top": [
+              "CeeDee Lamb",
+              "Christian McCaffrey",
+              "Tyreek Hill",
+              "Amon-Ra St. Brown",
+              "Mike Evans"
+            ]
+          },
+          "points_greedy": {
+            "disagree_over_one_round": 102,
+            "exact_of_128": 1,
+            "pearson": 0.558374,
+            "top": [
+              "Patrick Mahomes",
+              "Josh Allen",
+              "Jalen Hurts",
+              "Justin Herbert",
+              "Joe Burrow"
+            ]
+          },
+          "scarcity_only": {
+            "disagree_over_one_round": 102,
+            "exact_of_128": 1,
+            "pearson": 0.301028,
+            "top": [
+              "Josh Allen",
+              "Patrick Mahomes",
+              "Travis Kelce",
+              "Jalen Hurts",
+              "Justin Herbert"
+            ]
+          }
+        }
+      },
+      "2024": {
+        "arm_digest": {
+          "adp_board": "729c6f16ac4c0ee7",
+          "audible_transform": "729c6f16ac4c0ee7",
+          "hindsight_board": "ae2bf9a683597aa5",
+          "hindsight_points": "ae2bf9a683597aa5",
+          "hindsight_total": "ce73f4d5cd594819",
+          "points_greedy": "729c6f16ac4c0ee7",
+          "scarcity_only": "729c6f16ac4c0ee7"
+        },
+        "fit_seasons": [
+          2021,
+          2022,
+          2023
+        ],
+        "hindsight_digest": "ae2bf9a683597aa5",
+        "matched": 141,
+        "pool": 747,
+        "projected_digest": "729c6f16ac4c0ee7",
+        "provenance": [
+          "ffc_adp_standard_8_2024",
+          "player_stats_2021",
+          "player_stats_2022",
+          "player_stats_2023",
+          "ff_opportunity_2022",
+          "ff_opportunity_2023",
+          "ff_playerids"
+        ],
+        "replacement_level": {
+          "DEF": 0.0,
+          "K": 0.0,
+          "QB": 262.429,
+          "RB": 112.6,
+          "TE": 100.5,
+          "WR": 110.481
+        },
+        "role_seasons": [
+          2022,
+          2023
+        ],
+        "rookies": 31,
+        "unmatched": 8,
+        "vs_adp": {
+          "adp_board": {
+            "disagree_over_one_round": 0,
+            "exact_of_128": 128,
+            "pearson": 1.0,
+            "top": [
+              "Christian McCaffrey",
+              "CeeDee Lamb",
+              "Bijan Robinson",
+              "Breece Hall",
+              "Tyreek Hill"
+            ]
+          },
+          "audible_transform": {
+            "disagree_over_one_round": 101,
+            "exact_of_128": 2,
+            "pearson": 0.681864,
+            "top": [
+              "Tyreek Hill",
+              "CeeDee Lamb",
+              "Christian McCaffrey",
+              "Davante Adams",
+              "Puka Nacua"
+            ]
+          },
+          "hindsight_board": {
+            "disagree_over_one_round": 106,
+            "exact_of_128": 4,
+            "pearson": 0.469183,
+            "top": [
+              "Saquon Barkley",
+              "Ja'Marr Chase",
+              "Derrick Henry",
+              "Jahmyr Gibbs",
+              "Bijan Robinson"
+            ]
+          },
+          "hindsight_points": {
+            "disagree_over_one_round": 112,
+            "exact_of_128": 1,
+            "pearson": 0.22813,
+            "top": [
+              "Lamar Jackson",
+              "Josh Allen",
+              "Joe Burrow",
+              "Jayden Daniels",
+              "Jalen Hurts"
+            ]
+          },
+          "hindsight_total": {
+            "disagree_over_one_round": 108,
+            "exact_of_128": 2,
+            "pearson": 0.581758,
+            "top": [
+              "Saquon Barkley",
+              "Derrick Henry",
+              "Jahmyr Gibbs",
+              "Ja'Marr Chase",
+              "Bijan Robinson"
+            ]
+          },
+          "points_greedy": {
+            "disagree_over_one_round": 101,
+            "exact_of_128": 0,
+            "pearson": 0.458244,
+            "top": [
+              "Josh Allen",
+              "Jalen Hurts",
+              "Patrick Mahomes",
+              "Dak Prescott",
+              "Lamar Jackson"
+            ]
+          },
+          "scarcity_only": {
+            "disagree_over_one_round": 116,
+            "exact_of_128": 0,
+            "pearson": 0.266592,
+            "top": [
+              "Josh Allen",
+              "Jalen Hurts",
+              "Christian McCaffrey",
+              "Patrick Mahomes",
+              "Travis Kelce"
+            ]
+          }
+        }
+      },
+      "2025": {
+        "arm_digest": {
+          "adp_board": "8f0f2d5f2ee850f7",
+          "audible_transform": "8f0f2d5f2ee850f7",
+          "hindsight_board": "398b5124e76167e9",
+          "hindsight_points": "398b5124e76167e9",
+          "hindsight_total": "3427c6801deaded0",
+          "points_greedy": "8f0f2d5f2ee850f7",
+          "scarcity_only": "8f0f2d5f2ee850f7"
+        },
+        "fit_seasons": [
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "hindsight_digest": "398b5124e76167e9",
+        "matched": 157,
+        "pool": 714,
+        "projected_digest": "8f0f2d5f2ee850f7",
+        "provenance": [
+          "ffc_adp_standard_8_2025",
+          "player_stats_2021",
+          "player_stats_2022",
+          "player_stats_2023",
+          "player_stats_2024",
+          "ff_opportunity_2022",
+          "ff_opportunity_2023",
+          "ff_opportunity_2024",
+          "ff_playerids"
+        ],
+        "replacement_level": {
+          "DEF": 0.0,
+          "K": 0.0,
+          "QB": 285.259,
+          "RB": 107.834,
+          "TE": 97.633,
+          "WR": 122.963
+        },
+        "role_seasons": [
+          2022,
+          2023,
+          2024
+        ],
+        "rookies": 44,
+        "unmatched": 20,
+        "vs_adp": {
+          "adp_board": {
+            "disagree_over_one_round": 0,
+            "exact_of_128": 128,
+            "pearson": 1.0,
+            "top": [
+              "Saquon Barkley",
+              "Bijan Robinson",
+              "Derrick Henry",
+              "Ja'Marr Chase",
+              "Jahmyr Gibbs"
+            ]
+          },
+          "audible_transform": {
+            "disagree_over_one_round": 100,
+            "exact_of_128": 2,
+            "pearson": 0.745329,
+            "top": [
+              "Derrick Henry",
+              "Jahmyr Gibbs",
+              "Saquon Barkley",
+              "Ja'Marr Chase",
+              "Bijan Robinson"
+            ]
+          },
+          "hindsight_board": {
+            "disagree_over_one_round": 104,
+            "exact_of_128": 1,
+            "pearson": 0.613367,
+            "top": [
+              "Jonathan Taylor",
+              "Christian McCaffrey",
+              "Puka Nacua",
+              "Bijan Robinson",
+              "Jahmyr Gibbs"
+            ]
+          },
+          "hindsight_points": {
+            "disagree_over_one_round": 110,
+            "exact_of_128": 1,
+            "pearson": 0.220416,
+            "top": [
+              "Josh Allen",
+              "Matthew Stafford",
+              "Drake Maye",
+              "Patrick Mahomes",
+              "Trevor Lawrence"
+            ]
+          },
+          "hindsight_total": {
+            "disagree_over_one_round": 102,
+            "exact_of_128": 2,
+            "pearson": 0.615007,
+            "top": [
+              "Jonathan Taylor",
+              "Christian McCaffrey",
+              "Puka Nacua",
+              "Bijan Robinson",
+              "Jahmyr Gibbs"
+            ]
+          },
+          "points_greedy": {
+            "disagree_over_one_round": 108,
+            "exact_of_128": 0,
+            "pearson": 0.378169,
+            "top": [
+              "Josh Allen",
+              "Jayden Daniels",
+              "Lamar Jackson",
+              "Jalen Hurts",
+              "Bo Nix"
+            ]
+          },
+          "scarcity_only": {
+            "disagree_over_one_round": 116,
+            "exact_of_128": 1,
+            "pearson": 0.133653,
+            "top": [
+              "Brock Bowers",
+              "Josh Allen",
+              "Baker Mayfield",
+              "Joe Burrow",
+              "Jayden Daniels"
+            ]
+          }
+        }
+      }
+    },
+    "usable_seasons": [
+      2022,
+      2023,
+      2024,
+      2025
+    ]
+  },
+  "real_minus_adp": {
+    "flat_hi": 36.932,
+    "flat_lo": -7.659,
+    "hi": 64.009,
+    "lo": -34.736,
+    "mean": 14.636,
+    "n": 240
+  },
+  "real_minus_adp_hindsight": {
+    "flat_hi": 6.045,
+    "flat_lo": -35.624,
+    "hi": 37.428,
+    "lo": -67.007,
+    "mean": -14.79,
+    "n": 240
+  },
+  "real_minus_adp_oracle": {
+    "flat_hi": 15.388,
+    "flat_lo": -24.494,
+    "hi": 43.843,
+    "lo": -52.949,
+    "mean": -4.553,
+    "n": 240
+  },
+  "real_minus_shuffle": {
+    "flat_hi": 112.916,
+    "flat_lo": 64.727,
+    "hi": 126.371,
+    "lo": 51.272,
+    "mean": 88.821,
+    "n": 240
+  },
+  "real_minus_shuffle_hindsight": {
+    "flat_hi": 122.191,
+    "flat_lo": 70.125,
+    "hi": 179.605,
+    "lo": 12.711,
+    "mean": 96.158,
+    "n": 240
+  },
+  "real_minus_shuffle_oracle": {
+    "flat_hi": 95.593,
+    "flat_lo": 48.206,
+    "hi": 133.412,
+    "lo": 10.386,
+    "mean": 71.899,
+    "n": 240
+  },
+  "require_shuffle_at_chance": false,
+  "run": "b4-transform",
+  "schema_version": 1,
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "seat": 6,
+  "secondary_measure": "two upper bounds beside every comparison -- _oracle chooses the lineup on each player's own season mean (a zero-error projection), _hindsight chooses each week knowing that week",
+  "seed_count": 60,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59
+  ],
+  "shuffle": {
+    "advantage": 55.24,
+    "at_chance": false,
+    "hi": 101.94,
+    "lo": 8.54,
+    "n": 240,
+    "reading": "SHUFFLE IS WINNING -- assume a leak until this is explained"
+  },
+  "shuffle_minus_bot": {
+    "flat_hi": 89.314,
+    "flat_lo": 29.134,
+    "hi": 122.242,
+    "lo": -3.794,
+    "mean": 59.224,
+    "n": 240
+  },
+  "shuffle_minus_bot_hindsight": {
+    "flat_hi": 69.52,
+    "flat_lo": 8.326,
+    "hi": 113.344,
+    "lo": -35.497,
+    "mean": 38.923,
+    "n": 240
+  },
+  "shuffle_minus_bot_oracle": {
+    "flat_hi": 99.867,
+    "flat_lo": 41.839,
+    "hi": 117.875,
+    "lo": 23.831,
+    "mean": 70.853,
+    "n": 240
+  },
+  "slots_scored": "7 of 9. DEF has no rows in player_stats at all; K has 542-545 regular-season rows a season and scores exactly zero because the scoring vocabulary carries no kicking columns. Both slots are filled and neither can displace a scoring player.",
+  "splits": [
+    {
+      "fit": [
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "label": "main",
+      "run": [
+        2022,
+        2023,
+        2024,
+        2025
+      ]
+    },
+    {
+      "fit": [
+        2022,
+        2023
+      ],
+      "label": "wf-in",
+      "run": [
+        2022,
+        2023
+      ]
+    },
+    {
+      "fit": [
+        2022,
+        2023
+      ],
+      "label": "wf-out",
+      "run": [
+        2024,
+        2025
+      ]
+    }
+  ],
+  "timing": {
+    "wall_s": 132.94
+  },
+  "transform_minus_adp": {
+    "flat_hi": -132.246,
+    "flat_lo": -186.971,
+    "hi": -25.864,
+    "lo": -293.354,
+    "mean": -159.609,
+    "n": 240
+  },
+  "transform_minus_adp_board": {
+    "flat_hi": -132.246,
+    "flat_lo": -186.971,
+    "hi": -25.864,
+    "lo": -293.354,
+    "mean": -159.609,
+    "n": 240
+  },
+  "transform_minus_adp_board_hindsight": {
+    "flat_hi": -188.413,
+    "flat_lo": -244.844,
+    "hi": -33.675,
+    "lo": -399.583,
+    "mean": -216.629,
+    "n": 240
+  },
+  "transform_minus_adp_board_oracle": {
+    "flat_hi": -167.138,
+    "flat_lo": -219.058,
+    "hi": -61.976,
+    "lo": -324.219,
+    "mean": -193.098,
+    "n": 240
+  },
+  "transform_minus_adp_hindsight": {
+    "flat_hi": -188.413,
+    "flat_lo": -244.844,
+    "hi": -33.675,
+    "lo": -399.583,
+    "mean": -216.629,
+    "n": 240
+  },
+  "transform_minus_adp_oracle": {
+    "flat_hi": -167.138,
+    "flat_lo": -219.058,
+    "hi": -61.976,
+    "lo": -324.219,
+    "mean": -193.098,
+    "n": 240
+  },
+  "transform_minus_points": {
+    "flat_hi": 142.776,
+    "flat_lo": 89.332,
+    "hi": 354.448,
+    "lo": -122.339,
+    "mean": 116.054,
+    "n": 240
+  },
+  "transform_minus_points_hindsight": {
+    "flat_hi": 111.219,
+    "flat_lo": 66.929,
+    "hi": 261.296,
+    "lo": -83.147,
+    "mean": 89.074,
+    "n": 240
+  },
+  "transform_minus_points_oracle": {
+    "flat_hi": 99.549,
+    "flat_lo": 49.129,
+    "hi": 286.155,
+    "lo": -137.477,
+    "mean": 74.339,
+    "n": 240
+  },
+  "transform_minus_scarcity": {
+    "flat_hi": 133.273,
+    "flat_lo": 82.584,
+    "hi": 309.872,
+    "lo": -94.016,
+    "mean": 107.928,
+    "n": 240
+  },
+  "transform_minus_scarcity_hindsight": {
+    "flat_hi": 135.045,
+    "flat_lo": 82.863,
+    "hi": 352.761,
+    "lo": -134.853,
+    "mean": 108.954,
+    "n": 240
+  },
+  "transform_minus_scarcity_oracle": {
+    "flat_hi": 106.248,
+    "flat_lo": 56.684,
+    "hi": 282.451,
+    "lo": -119.518,
+    "mean": 81.466,
+    "n": 240
+  },
+  "transform_under_perfect_foresight": {
+    "flat_hi": 139.035,
+    "flat_lo": 92.277,
+    "hi": 241.845,
+    "lo": -10.534,
+    "mean": 115.656,
+    "n": 240
+  },
+  "transform_under_perfect_foresight_hindsight": {
+    "flat_hi": 91.356,
+    "flat_lo": 48.764,
+    "hi": 145.897,
+    "lo": -5.776,
+    "mean": 70.06,
+    "n": 240
+  },
+  "transform_under_perfect_foresight_oracle": {
+    "flat_hi": 117.571,
+    "flat_lo": 71.356,
+    "hi": 195.274,
+    "lo": -6.347,
+    "mean": 94.463,
+    "n": 240
+  },
+  "units": 5280,
+  "walk_forward": {
+    "wf-in": {
+      "ceiling_minus_adp": {
+        "flat_hi": 285.621,
+        "flat_lo": 204.612,
+        "hi": 1226.121,
+        "lo": -735.888,
+        "mean": 245.117,
+        "n": 120
+      },
+      "ceiling_minus_transform": {
+        "flat_hi": 530.632,
+        "flat_lo": 443.574,
+        "hi": 1641.479,
+        "lo": -667.274,
+        "mean": 487.103,
+        "n": 120
+      },
+      "n": 1320,
+      "per_game_minus_total_ceiling": {
+        "flat_hi": 43.087,
+        "flat_lo": -22.142,
+        "hi": 957.39,
+        "lo": -936.445,
+        "mean": 10.473,
+        "n": 120
+      },
+      "points_minus_adp": {
+        "flat_hi": -196.789,
+        "flat_lo": -261.37,
+        "hi": -100.688,
+        "lo": -357.47,
+        "mean": -229.079,
+        "n": 120
+      },
+      "real_minus_adp": {
+        "flat_hi": 65.294,
+        "flat_lo": 5.28,
+        "hi": 776.484,
+        "lo": -705.91,
+        "mean": 35.287,
+        "n": 120
+      },
+      "real_minus_shuffle": {
+        "flat_hi": 160.687,
+        "flat_lo": 86.644,
+        "hi": 628.213,
+        "lo": -380.882,
+        "mean": 123.666,
+        "n": 120
+      },
+      "seasons": [
+        2022,
+        2023
+      ],
+      "shuffle_minus_bot": {
+        "flat_hi": 82.078,
+        "flat_lo": 6.602,
+        "hi": 110.258,
+        "lo": -21.578,
+        "mean": 44.34,
+        "n": 120
+      },
+      "transform_minus_adp": {
+        "flat_hi": -207.022,
+        "flat_lo": -276.95,
+        "hi": -68.614,
+        "lo": -415.358,
+        "mean": -241.986,
+        "n": 120
+      },
+      "transform_minus_adp_board": {
+        "flat_hi": -207.022,
+        "flat_lo": -276.95,
+        "hi": -68.614,
+        "lo": -415.358,
+        "mean": -241.986,
+        "n": 120
+      },
+      "transform_minus_points": {
+        "flat_hi": 14.994,
+        "flat_lo": -40.809,
+        "hi": 32.074,
+        "lo": -57.888,
+        "mean": -12.907,
+        "n": 120
+      },
+      "transform_minus_scarcity": {
+        "flat_hi": -4.729,
+        "flat_lo": -82.363,
+        "hi": 974.841,
+        "lo": -1061.934,
+        "mean": -43.546,
+        "n": 120
+      },
+      "transform_under_perfect_foresight": {
+        "flat_hi": 81.704,
+        "flat_lo": 20.028,
+        "hi": 814.778,
+        "lo": -713.046,
+        "mean": 50.866,
+        "n": 120
+      }
+    },
+    "wf-out": {
+      "ceiling_minus_adp": {
+        "flat_hi": 453.697,
+        "flat_lo": 360.241,
+        "hi": 1153.905,
+        "lo": -339.967,
+        "mean": 406.969,
+        "n": 120
+      },
+      "ceiling_minus_transform": {
+        "flat_hi": 537.406,
+        "flat_lo": 464.923,
+        "hi": 1257.343,
+        "lo": -255.013,
+        "mean": 501.165,
+        "n": 120
+      },
+      "n": 1320,
+      "per_game_minus_total_ceiling": {
+        "flat_hi": 55.355,
+        "flat_lo": 14.81,
+        "hi": 512.337,
+        "lo": -442.171,
+        "mean": 35.083,
+        "n": 120
+      },
+      "points_minus_adp": {
+        "flat_hi": -113.042,
+        "flat_lo": -199.749,
+        "hi": 1147.733,
+        "lo": -1460.524,
+        "mean": -156.395,
+        "n": 120
+      },
+      "real_minus_adp": {
+        "flat_hi": 14.474,
+        "flat_lo": -50.953,
+        "hi": 324.276,
+        "lo": -360.756,
+        "mean": -18.24,
+        "n": 120
+      },
+      "real_minus_shuffle": {
+        "flat_hi": 85.82,
+        "flat_lo": 9.49,
+        "hi": 234.849,
+        "lo": -139.539,
+        "mean": 47.655,
+        "n": 120
+      },
+      "seasons": [
+        2024,
+        2025
+      ],
+      "shuffle_minus_bot": {
+        "flat_hi": 95.681,
+        "flat_lo": -0.23,
+        "hi": 462.672,
+        "lo": -367.221,
+        "mean": 47.726,
+        "n": 120
+      },
+      "transform_minus_adp": {
+        "flat_hi": -52.362,
+        "flat_lo": -136.029,
+        "hi": -84.953,
+        "lo": -103.438,
+        "mean": -94.195,
+        "n": 120
+      },
+      "transform_minus_adp_board": {
+        "flat_hi": -52.362,
+        "flat_lo": -136.029,
+        "hi": -84.953,
+        "lo": -103.438,
+        "mean": -94.195,
+        "n": 120
+      },
+      "transform_minus_points": {
+        "flat_hi": 98.882,
+        "flat_lo": 25.517,
+        "hi": 1375.571,
+        "lo": -1251.171,
+        "mean": 62.2,
+        "n": 120
+      },
+      "transform_minus_scarcity": {
+        "flat_hi": 146.369,
+        "flat_lo": 88.554,
+        "hi": 228.03,
+        "lo": 6.894,
+        "mean": 117.462,
+        "n": 120
+      },
+      "transform_under_perfect_foresight": {
+        "flat_hi": 141.76,
+        "flat_lo": 72.389,
+        "hi": 609.423,
+        "lo": -395.274,
+        "mean": 107.075,
+        "n": 120
+      }
+    }
+  }
+}
