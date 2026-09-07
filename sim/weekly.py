@@ -495,11 +495,28 @@ def prior_points(
     A player whose (position, rank) cell is empty gets 0.0 and will not be started, which is
     the same treatment a player with no weeks gets. That is conservative in the direction
     that matters: the prior never invents value it has no evidence for.
+
+    THE RETURN IS CHECKED FOR BEING UNIFORMLY ZERO, because that is how this failed. *ranks*
+    was keyed `ffc####` while *roster* is keyed on gsis ids, so every lookup missed, every
+    value came back 0.0, and `optimal_week` -- an exact matching over a flat objective -- chose
+    a lineup by tie-break. Nothing raised, no gate moved, and three totally different prior
+    tables produced bit-identical season totals. A silent all-zero objective is indefensible
+    here in a way an all-zero one for a genuinely empty roster is not, so the two cases are
+    told apart: an empty roster is fine, a populated roster that resolves to nothing is not.
     """
-    return {
+    out = {
         key: float(table.get((position, ranks.get(key, 10_000)), 0.0))
         for key, position in roster
     }
+    if table and roster and not any(out.values()):
+        raise ValueError(
+            f"the prior resolved to 0.0 for all {len(roster)} players on this roster while "
+            f"holding a table of {len(table)} cells. The rank map and the roster are keyed in "
+            f"different spaces, so every lookup missed and the lineup would be chosen by "
+            f"tie-break. Rank keys look like {sorted(ranks)[:2]}; roster keys look like "
+            f"{[k for k, _p in roster][:2]}."
+        )
+    return out
 
 
 # The three lineup policies, from least to most information about the season being scored.

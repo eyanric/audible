@@ -76,7 +76,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import room, weekly
+from . import boards, room, weekly
 
 # Audible's seat. Green Hope's live seat is 6 of 8 (leagues/espn_green_hope.toml), and 6012's
 # is 8 of 8. Six is used because it is the seat that matters on Tuesday, and because a
@@ -477,11 +477,18 @@ def build_seat(
 # what any sweep would say.
 ABLATIONS: frozenset[str] = frozenset({"no_need", "no_bye", "no_urgency", "no_slice"})
 
+# B4's arms. Each is a BOARD, drafted greedily on its own ordering with the room's caps and
+# the same feasibility deadline every other arm gets -- see `sim/boards.py`. They differ from
+# `real`/`legacy`/the ablations in that the ORDER changes and the decision surface does not,
+# which is the opposite of what B3 varied and is what makes the transform attributable.
+BOARD_ARMS: frozenset[str] = frozenset(boards.ALL_BOARD_ARMS)
+
 ARMS: frozenset[str] = (
     frozenset(
         {"real", "shuffle", "bot", "adp", "legacy", "legacy_recommend", "leaky-shuffle"}
     )
     | ABLATIONS
+    | BOARD_ARMS
 )
 
 # How far past the ADP baseline an honest ordering could plausibly get, in points-for over a
@@ -492,8 +499,8 @@ ARMS: frozenset[str] = (
 # the baseline by roughly +330; the honest arm sits at -27 to -35.
 #
 # It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it:
-# the real arm's distance from the ADP baseline has read between -16 and +13 across every
-# lineup policy measured, against a ceiling of 150.
+# the real arm's distance from the ADP baseline has read between -16 and +24 across every
+# lineup policy of every run committed here, against a ceiling of 150.
 LEAK_CEILING: float = 150.0
 
 # Arms that must all be present for the report to mean anything. `real` is the thing under
@@ -607,6 +614,7 @@ def run_arm(
     state_dir: Path,
     seat: int = DEFAULT_SEAT,
     prior: Mapping[tuple[str, int], float] | None = None,
+    orders: Mapping[str, Sequence[int]] | None = None,
 ) -> ArmResult:
     """One draft with Audible in *seat*, then one bootstrapped season scored on it.
 
@@ -629,6 +637,24 @@ def run_arm(
     """
     if arm not in ARMS:
         raise ValueError(f"unknown arm {arm!r}; expected one of {sorted(ARMS)}")
+
+    if arm in BOARD_ARMS:
+        # B4. The board changes; nothing else does. The ordering arrives precomputed because
+        # building it means projecting a season and running the value engine, which costs
+        # seconds and would otherwise be paid once per UNIT rather than once per season.
+        if orders is None or arm not in orders:
+            raise ValueError(
+                f"{arm} is a board arm and needs its ordering passed in; got "
+                f"{sorted(orders or ())}. `sim/boards.build` produces them once per season."
+            )
+        picks = room.simulate_draft(
+            season_board, fit, seed,
+            chooser=boards.greedy(orders[arm], season_board, fit),
+            chooser_seat=seat,
+        )
+        return _score_draft(
+            arm, season, seed, seat, picks, season_board, week_table, room.ROUNDS, 0, prior
+        )
 
     if arm == "adp":
         # THE SKILL BASELINE, and the arm that decides whether any of this is evidence.
@@ -748,7 +774,7 @@ def _score_draft(
     for p in picks:
         rosters.setdefault(p.seat, []).append(p)
 
-    ranks = positional_ranks(season_board)
+    ranks = positional_ranks(season_board, week_table)
 
     def score(who: Sequence[room.SimPick], stream: int):
         """All three lineup policies off ONE bootstrap draw per seat.
@@ -800,19 +826,43 @@ def _score_draft(
     )
 
 
-def positional_ranks(season_board: room.SeasonBoard) -> dict[str, int]:
-    """gsis-less key -> its rank WITHIN its position on the board. The prior's key.
+def positional_ranks(
+    season_board: room.SeasonBoard, week_table: weekly.SeasonWeekly
+) -> dict[str, int]:
+    """GSIS ID -> that player's rank WITHIN his position on the board. The prior's key.
 
-    Keyed by the same `ffc####` id the rest of the harness speaks, then translated to gsis by
-    the caller through `resolve_roster`'s output order. Positional rather than overall rank
-    because that is the slot a manager is actually filling: RB7 means something across
-    seasons, overall pick 43 does not.
+    KEYED ON GSIS, AND THAT IS A CORRECTION. This returned `ffc####` keys, which is the space
+    the board speaks -- but the only consumer is `weekly.prior_points`, whose roster comes from
+    `weekly.resolve_roster` and is keyed on GSIS IDS. Every lookup therefore missed and every
+    player's prior value was the 0.0 default. `optimal_week` is an exact matching, so a
+    uniformly zero objective made every legal lineup tie and the assignment fell out of the
+    tie-break: the PRIMARY outcome measure was choosing lineups arbitrarily, in B3's committed
+    run as well as in B4's. Adversarial review found it by substituting three completely
+    different prior tables -- fitted, pure negative rank, and a constant -- and getting
+    bit-identical totals on 240 of 240 units.
+
+    Nothing about the FITTING side was wrong: `runner._prior_for` already resolved each board
+    row to a gsis id before pooling, which is why the table itself was correct and the defect
+    was invisible in every check that looked at the table. The two sides simply spoke different
+    languages, and only one of them said so.
+
+    The resolution is `_prior_for`'s, moved here so there is one of it: normalised name against
+    the season's own weekly rows, position-checked, ambiguity left unresolved rather than
+    guessed at. A board row that does not resolve contributes no key, so that player falls to
+    the same 0.0 the docstring below describes -- which is now a statement about a handful of
+    unmatched rows rather than about every row.
+
+    Positional rather than overall rank because that is the slot a manager is filling: RB7
+    means something across seasons, overall pick 43 does not.
     """
     seen: dict[str, int] = {}
     out: dict[str, int] = {}
     for row in season_board.rows:
         seen[row.position] = seen.get(row.position, 0) + 1
-        out[f"ffc{row.rank:04d}"] = seen[row.position]
+        candidates = week_table.by_name.get(weekly.normalize(row.name), [])
+        exact = [c for c in candidates if week_table.position.get(c) == row.position]
+        if len(exact) == 1:
+            out[exact[0]] = seen[row.position]
     return out
 
 
@@ -864,9 +914,11 @@ def mean_and_interval(
     `_compare` writes `flat_lo`/`flat_hi` beside `lo`/`hi` in every comparison the artifact
     reports, so this can be re-derived rather than believed, and so a gate can read both.
 
-    So the interval is over SEASON MEANS with a t quantile on (number of seasons - 1) degrees
-    of freedom. It is much wider and it is the honest width: the thing that limits this
-    measurement is five markets, not three hundred seeds, and no number of seeds fixes that.
+    So the interval is over SEASON MEANS with a t quantile on (number of season-clusters - 1)
+    degrees of freedom -- 4 df and 2.776 for a five-season run, 3 df and 3.182 for B4's four,
+    1 df and 12.706 for a two-season walk-forward split. It is much wider and it is the honest
+    width: the thing that limits this measurement is the number of markets, not the number of
+    seeds, and no number of seeds fixes that.
     """
     import statistics as st
 

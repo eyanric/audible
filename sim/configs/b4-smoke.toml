@@ -1,0 +1,80 @@
+# B4: does audible's SCORING earn its place, or is it a coat of paint over ADP?
+#
+# Not "does audible beat bots" -- B2 settled that any noiseless seat beats this room by over a
+# hundred points, because the bots reach and the seat does not. Not "do audible's projections
+# beat the market" -- no vintage preseason projection exists for any of these seasons and this
+# session did not find one, so that question is unanswerable here and is not asked.
+#
+# The answerable question is the TRANSFORM: scoring a stat line under the league's own rules,
+# deriving replacement level, and ordering on value over replacement. B1 through B3 never
+# touched it -- `seat.board_from_season` handed audible a board that was a monotone transform
+# of ADP rank, 128 of 128 exact, so every arm measured the overlay and never the board.
+#
+# FOUR SEASONS, NOT FIVE. A walk-forward projection for season S needs seasons before S, and
+# `player_stats_2020` exists in neither cache root. 2021 is therefore not a usable target and
+# is not substituted for. Four season-clusters means 3 degrees of freedom and a t quantile of
+# 3.182, so every interval here is wider than B2's and B3's.
+[run]
+name = "b4-smoke"
+seasons = [2022, 2023, 2024, 2025]
+seed_start = 0
+seed_count = 6
+
+# THE BOARD ARMS all draft the same way -- best available on their own ordering, the room's
+# roster caps, the same feasibility deadline every other arm gets. Only the ORDER differs, and
+# `points_greedy` and `audible_transform` read their two orders off ONE board built from ONE
+# set of projected stat lines. That is what makes their difference the transform and nothing
+# else.
+#
+#   points_greedy     -- rank by raw projected points. No replacement, no VORP, no scarcity.
+#   audible_transform -- the same lines through `build_board_from_lines`. Audible's own
+#                        pipeline. Its order is `vorp_rank`, so it differs from points_greedy
+#                        by exactly one constant per position: the replacement level.
+#   adp_board         -- the market's ordering through the same machinery, so the board can be
+#                        compared to the market without also changing the decision surface.
+#   scarcity_only     -- a COUNTERFACTUAL. Scarcity is computed on every board and never
+#                        orders one: `value_metric = "vorp"` in both leagues. This is what the
+#                        board would do if the other half drove it, and it is the only way to
+#                        price a term the live configuration never consults.
+#   hindsight_board   -- THE CEILING, and a deliberate labelled leak. The same pipeline over
+#                        the season's REALISED stat lines, PER GAME. It says what perfect
+#                        foresight was worth, which is the scale every other arm is read
+#                        against. Per game rather than per season because the outcome measure
+#                        replays a player's observed weeks to a full season, so a season-total
+#                        ordering demotes exactly the players the scorer restores. The gap is
+#                        reported as `per_game_minus_total_ceiling`.
+#   hindsight_total   -- the same realised lines ordered on SEASON TOTALS, kept as one arm so
+#                        the size of that effect stays on the page rather than in a footnote.
+#   hindsight_points  -- the ceiling board ranked by RAW POINTS. Against hindsight_board it
+#                        prices the transform with the projection error removed, which is the
+#                        only comparison that separates "the transform does not work" from
+#                        "the transform works on a projection too poor to carry it".
+#
+# THE ARMS CARRIED FORWARD from B2 and B3, none of them optional:
+#   adp     -- the skill baseline. Required. Without it no number here is an achievement.
+#   bot     -- the null control. Required. By symmetry it must land at chance.
+#   shuffle -- the leak detector. Required, permanently, on every run.
+#   real    -- the cockpit's own the_call path on the ADP-ordered board, so this run stays
+#              comparable to B2's and B3's headline and the overlay's null is still visible.
+arms = [
+    "points_greedy", "audible_transform", "adp_board", "scarcity_only",
+    "hindsight_board", "hindsight_points", "hindsight_total",
+    "adp", "bot", "shuffle", "real",
+]
+
+seat = 6
+league = "espn_davis_drive"
+fit_seasons = [2021, 2022, 2023, 2024, 2025]
+
+# WALK-FORWARD on the OPPONENT MODEL, carried over from B3 and reported beside the main split.
+# Two test seasons is one degree of freedom and a t quantile of 12.706, so it resolves nothing
+# and is printed as a limit rather than as a result.
+[walk_forward]
+fit = [2022, 2023]
+test = [2024, 2025]
+
+[gates]
+# The shuffle arm is not at chance and B2 established why: it keeps audible's STRUCTURE and
+# loses only its value ordering, so it beats bots that draft a second unstartable quarterback.
+# The leak gates are the null control, real-beats-shuffle, and the G6d size ceiling.
+require_shuffle_at_chance = false

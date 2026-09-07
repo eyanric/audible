@@ -1,7 +1,7 @@
 # run: b3-diagnose
 # seasons: 2021, 2022, 2023, 2024, 2025
 # seeds: 60  seat: 6
-# units: 6000  wall: 357.3s
+# units: 6000  wall: 360.4s
 #
 # OUTCOME MEASURE:
 #   points-for under a PRIOR lineup: the season lineup is
@@ -10,18 +10,19 @@
 #   being scored reaches it
 #   TWO UPPER BOUNDS are printed beside every comparison. An
 #   `oracle` lineup chosen on each player's own season mean
-#   is worth +95 to +116 points a season over the prior; a
-#   `hindsight` lineup chosen weekly is worth +359 to +401.
+#   is worth +90 to +107 points a season over the prior; a
+#   `hindsight` lineup chosen weekly is worth +353 to +392.
 #   Any effect smaller than that spread is inside the
 #   harness's own uncertainty about what a manager could
 #   have known, and is not a result.
 #
 # THE BASELINE, and read this before anything else:
 #   audible against a ten-line ADP-greedy seat with no
-#   audible in it at all, paired: +12.9 [-31.6, +57.4].
+#   audible in it at all, paired: +5.5 [-36.4, +47.4].
 #   audible does NOT beat the obvious alternative.
 #
-# HOW MUCH ORDERING IS THERE TO FIND HERE? none:
+# HOW MUCH ORDERING IS THERE ON THE ADP-ORDERED BOARD
+# that real/shuffle/legacy/the ablations draft off? none:
 #   2021: 128/128 exact, 0 disagree >1rd, r=1.0
 #   2022: 128/128 exact, 0 disagree >1rd, r=1.0
 #   2023: 128/128 exact, 0 disagree >1rd, r=1.0
@@ -39,53 +40,53 @@
 #   would live and this harness cannot exercise it.
 #
 # advantage over the field, paired, clustered on season:
-#   adp         +136.8 [+113.2, +160.3]
-#   bot         -7.4 [-34.6, +19.9]
-#   legacy      +153.8 [+118.3, +189.4]
-#   legacy_recommend +133.5 [+106.0, +161.0]
-#   no_bye      +144.5 [+110.3, +178.7]
-#   no_need     +158.9 [+130.1, +187.7]
-#   no_slice    +143.6 [+97.2, +190.1]
-#   no_urgency  +142.3 [+99.5, +185.1]
-#   real        +149.7 [+112.7, +186.7]
-#   shuffle     +57.3 [+30.6, +84.1]
+#   adp         +134.2 [+120.7, +147.8]
+#   bot         -9.6 [-39.7, +20.6]
+#   legacy      +154.6 [+95.1, +214.1]
+#   legacy_recommend +128.4 [+116.5, +140.3]
+#   no_bye      +138.9 [+92.0, +185.8]
+#   no_need     +156.9 [+132.0, +181.9]
+#   no_slice    +130.9 [+85.8, +175.9]
+#   no_urgency  +132.0 [+91.0, +173.0]
+#   real        +139.7 [+103.9, +175.6]
+#   shuffle     +47.8 [+10.2, +85.5]
 #
 # paired comparisons. PRIOR is primary; the lines
 # under each say what an oracle lineup would have paid:
-#   real - adp: +12.9 [-31.6, +57.4]
+#   real - adp: +5.5 [-36.4, +47.4]
 #     oracle: +2.1 [-35.4, +39.5]
 #     hindsight: -15.9 [-51.3, +19.5]
-#   real - legacy: -4.1 [-55.3, +47.1]
+#   real - legacy: -14.9 [-77.1, +47.3]
 #     oracle: -15.7 [-70.9, +39.6]
 #     hindsight: -27.1 [-71.2, +17.0]
-#   legacy - adp: +17.0 [-39.9, +74.0]
+#   legacy - adp: +20.4 [-51.2, +92.0]
 #     oracle: +17.7 [-27.3, +62.8]
 #     hindsight: +11.2 [-31.1, +53.5]
-#   real - legacy_rec: +16.2 [-28.4, +60.8]
+#   real - legacy_rec: +11.3 [-28.1, +50.8]
 #     oracle: +21.0 [-20.1, +62.2]
 #     hindsight: +20.8 [-5.4, +47.0]
-#   surface gap: +20.3 [-37.5, +78.1]
+#   surface gap: +26.2 [-40.4, +92.8]
 #     oracle: +36.7 [+3.7, +69.7]
 #     hindsight: +47.9 [+20.7, +75.1]
-#   real - shuffle: +92.4 [+62.9, +121.8]
+#   real - shuffle: +91.9 [+65.1, +118.7]
 #     oracle: +83.0 [+31.2, +134.8]
 #     hindsight: +103.1 [+43.5, +162.8]
-#   shuffle - bot: +64.7 [+29.2, +100.2]
+#   shuffle - bot: +57.4 [+14.5, +100.3]
 #     oracle: +63.6 [+26.0, +101.2]
 #     hindsight: +36.2 [-14.7, +87.1]
 #
 # ablations, each vs real (negative = removing it HURTS):
-#   no_bye      -5.2 [-44.1, +33.7]
+#   no_bye      -0.8 [-46.7, +45.0]
 #     UNMEASURABLE: the bootstrap resamples a player's own
 #     weeks, so bye weeks do not exist in the outcome. A
 #     null here says nothing about the bye term.
-#   no_need     +9.2 [-5.6, +24.0]
+#   no_need     +17.2 [-3.5, +37.8]
 #     no measurable change: removing this term is
 #     indistinguishable from keeping it
-#   no_slice    -6.1 [-16.6, +4.5]
+#   no_slice    -8.9 [-22.4, +4.7]
 #     no measurable change: removing this term is
 #     indistinguishable from keeping it
-#   no_urgency  -7.4 [-34.8, +20.0]
+#   no_urgency  -7.8 [-35.2, +19.7]
 #     no measurable change: removing this term is
 #     indistinguishable from keeping it
 #
@@ -93,26 +94,39 @@
 # and not a by-slot table: RB and WR each name TWO
 # starting slots, and a surplus TE started at FLEX lands
 # in the FLEX bucket, so by-slot cannot see hoarding.
-#   adp               DEF:0% K:0% QB:23% RB:46% TE:9% WR:22%
-#   bot               DEF:0% K:0% QB:22% RB:38% TE:9% WR:31%
-#   legacy            DEF:0% K:0% QB:24% RB:40% TE:11% WR:25%
-#   legacy_recommend  DEF:0% K:0% QB:23% RB:46% TE:9% WR:22%
-#   no_bye            DEF:0% K:0% QB:24% RB:40% TE:10% WR:26%
-#   no_need           DEF:0% K:0% QB:23% RB:40% TE:10% WR:26%
-#   no_slice          DEF:0% K:0% QB:24% RB:39% TE:10% WR:28%
-#   no_urgency        DEF:0% K:0% QB:23% RB:39% TE:10% WR:27%
-#   real              DEF:0% K:0% QB:24% RB:40% TE:10% WR:27%
-#   shuffle           DEF:0% K:0% QB:24% RB:38% TE:10% WR:28%
+#   adp               DEF:0% K:0% QB:23% RB:47% TE:9% WR:22%
+#   bot               DEF:0% K:0% QB:22% RB:39% TE:9% WR:30%
+#   legacy            DEF:0% K:0% QB:24% RB:42% TE:10% WR:25%
+#   legacy_recommend  DEF:0% K:0% QB:23% RB:47% TE:9% WR:21%
+#   no_bye            DEF:0% K:0% QB:24% RB:41% TE:10% WR:25%
+#   no_need           DEF:0% K:0% QB:24% RB:41% TE:10% WR:26%
+#   no_slice          DEF:0% K:0% QB:24% RB:41% TE:10% WR:26%
+#   no_urgency        DEF:0% K:0% QB:23% RB:41% TE:10% WR:26%
+#   real              DEF:0% K:0% QB:24% RB:41% TE:10% WR:26%
+#   shuffle           DEF:0% K:0% QB:24% RB:40% TE:10% WR:27%
+#
+# WHAT EACH ARM DRAFTS, mean of 16 picks. This is the
+# mechanism behind every board comparison above:
+#   adp                DEF:1.00 K:1.00 QB:2.72 RB:6.46 TE:1.53 WR:3.29
+#   bot                DEF:1.04 K:1.00 QB:1.67 RB:5.00 TE:1.47 WR:5.83
+#   legacy             DEF:1.00 K:1.00 QB:3.07 RB:5.42 TE:1.73 WR:3.77
+#   legacy_recommend   DEF:1.00 K:1.00 QB:3.15 RB:6.62 TE:1.41 WR:2.82
+#   no_bye             DEF:1.01 K:1.00 QB:1.05 RB:5.14 TE:2.78 WR:5.02
+#   no_need            DEF:1.00 K:1.00 QB:2.74 RB:5.44 TE:1.80 WR:4.03
+#   no_slice           DEF:1.01 K:1.00 QB:1.05 RB:5.11 TE:2.80 WR:5.03
+#   no_urgency         DEF:1.00 K:1.00 QB:1.06 RB:5.11 TE:2.83 WR:5.01
+#   real               DEF:1.01 K:1.00 QB:1.05 RB:5.12 TE:2.80 WR:5.02
+#   shuffle            DEF:1.01 K:1.01 QB:1.09 RB:5.10 TE:2.63 WR:5.16
 #
 # WALK-FORWARD, fit and test shown side by side:
 #   wf-in (2021, 2022, 2023):
-#     real_minus_adp     +48.5 [-52.0, +149.0]
-#     real_minus_legacy  +4.8 [-94.0, +103.5]
-#     real_minus_shuffle +111.8 [+58.9, +164.7]
+#     real_minus_adp     +57.0 [-56.3, +170.2]
+#     real_minus_legacy  +4.8 [-116.3, +125.8]
+#     real_minus_shuffle +124.5 [+49.7, +199.3]
 #   wf-out (2024, 2025):
-#     real_minus_adp     -24.0 [-665.8, +617.8]
-#     real_minus_legacy  -25.5 [-468.4, +417.3]
-#     real_minus_shuffle +8.8 [-61.7, +79.3]
+#     real_minus_adp     -29.1 [-616.3, +558.1]
+#     real_minus_legacy  -23.4 [-429.1, +382.3]
+#     real_minus_shuffle +6.8 [-86.3, +99.9]
 #     wf-out has 2 season-clusters, so 1 degrees of freedom
 #     and a t quantile of 12.7. Those intervals are too wide
 #     to resolve anything and are printed as a limit, not as
@@ -144,14 +158,14 @@
 #               illegal 0  deadline/16 0.20
 #
 # where the advantage over the BOTS comes from:
-#   machinery (bot in seat): -7.4
-#   + structure:             +64.7
-#   + value ordering:        +92.4
-#   = real:                  +149.7
+#   machinery (bot in seat): -9.6
+#   + structure:             +57.4
+#   + value ordering:        +91.9
+#   = real:                  +139.7
 #
 # shuffle control (the leak detector):
 #   at chance: NO
-#   advantage: +57.3 [+30.6, +84.1]
+#   advantage: +47.8 [+10.2, +85.5]
 #   SHUFFLE IS WINNING -- assume a leak until this is
 #   explained
 #   READ THE DECOMPOSITION ABOVE. The null control -- a bot
@@ -164,7 +178,7 @@
 #
 # intervals are clustered on SEASON, not on seed:
 #   five markets, not three hundred draws. On this run it
-#   widens a comparison by 1.25x to 3.57x, depending on how
+#   widens a comparison by 1.19x to 3.96x, depending on how
 #   much of that comparison's variance is between seasons
 #   rather than between seeds. There is no single ratio.
 #
@@ -178,38 +192,38 @@
 {
   "ablations": {
     "no_bye": {
-      "flat_hi": 8.767,
-      "flat_lo": -19.158,
-      "hi": 33.722,
-      "lo": -44.113,
-      "mean": -5.195,
+      "flat_hi": 13.438,
+      "flat_lo": -15.1,
+      "hi": 45.002,
+      "lo": -46.664,
+      "mean": -0.831,
       "n": 300,
       "verdict": "UNMEASURABLE: the bootstrap resamples a player's own weeks, so bye weeks do not exist in the outcome. A null here says nothing about the bye term."
     },
     "no_need": {
-      "flat_hi": 14.784,
-      "flat_lo": 3.608,
-      "hi": 24.008,
-      "lo": -5.616,
-      "mean": 9.196,
+      "flat_hi": 24.744,
+      "flat_lo": 9.641,
+      "hi": 37.843,
+      "lo": -3.458,
+      "mean": 17.193,
       "n": 300,
       "verdict": "no measurable change: removing this term is indistinguishable from keeping it"
     },
     "no_slice": {
-      "flat_hi": 1.897,
-      "flat_lo": -14.018,
-      "hi": 4.49,
-      "lo": -16.611,
-      "mean": -6.061,
+      "flat_hi": 1.037,
+      "flat_lo": -18.79,
+      "hi": 4.693,
+      "lo": -22.445,
+      "mean": -8.876,
       "n": 300,
       "verdict": "no measurable change: removing this term is indistinguishable from keeping it"
     },
     "no_urgency": {
-      "flat_hi": 3.445,
-      "flat_lo": -18.287,
-      "hi": 20.004,
-      "lo": -34.846,
-      "mean": -7.421,
+      "flat_hi": 3.563,
+      "flat_lo": -19.118,
+      "hi": 19.675,
+      "lo": -35.231,
+      "mean": -7.778,
       "n": 300,
       "verdict": "no measurable change: removing this term is indistinguishable from keeping it"
     }
@@ -217,9 +231,9 @@
   "arms": {
     "adp": {
       "advantage": {
-        "hi": 160.342,
-        "lo": 113.212,
-        "mean": 136.777
+        "hi": 147.814,
+        "lo": 120.654,
+        "mean": 134.234
       },
       "definition": "the SKILL BASELINE: best available by ADP rank, capped, no audible at all",
       "n": 300,
@@ -237,9 +251,17 @@
         }
       },
       "points_for": {
-        "hi": 1603.66,
-        "lo": 1469.035,
-        "mean": 1536.348
+        "hi": 1613.754,
+        "lo": 1474.329,
+        "mean": 1544.042
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 2.7167,
+        "RB": 6.4633,
+        "TE": 1.5267,
+        "WR": 3.2933
       },
       "realised_secondary": {
         "advantage": {
@@ -256,18 +278,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 214.68,
+        "FLEX": 221.85,
         "K": 0.02,
-        "QB": 356.08,
-        "RB": 505.55,
-        "TE": 131.58,
-        "WR": 328.43,
+        "QB": 356.42,
+        "RB": 502.83,
+        "TE": 131.59,
+        "WR": 331.34,
         "pos:DEF": 0.0,
         "pos:K": 0.02,
-        "pos:QB": 356.08,
-        "pos:RB": 710.31,
-        "pos:TE": 134.52,
-        "pos:WR": 335.42
+        "pos:QB": 356.42,
+        "pos:RB": 721.47,
+        "pos:TE": 131.59,
+        "pos:WR": 334.55
       },
       "structural": {
         "deadline_picks": 0.0,
@@ -280,9 +302,9 @@
     },
     "bot": {
       "advantage": {
-        "hi": 19.917,
-        "lo": -34.65,
-        "mean": -7.367
+        "hi": 20.599,
+        "lo": -39.734,
+        "mean": -9.568
       },
       "definition": "the null control: seat played by the room's own bot logic, no overlay",
       "n": 300,
@@ -300,9 +322,17 @@
         }
       },
       "points_for": {
-        "hi": 1473.761,
-        "lo": 1358.038,
-        "mean": 1415.9
+        "hi": 1481.541,
+        "lo": 1372.693,
+        "mean": 1427.117
+      },
+      "positions_drafted": {
+        "DEF": 1.0367,
+        "K": 1.0033,
+        "QB": 1.67,
+        "RB": 4.9967,
+        "TE": 1.4667,
+        "WR": 5.8267
       },
       "realised_secondary": {
         "advantage": {
@@ -319,18 +349,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 178.86,
+        "FLEX": 178.92,
         "K": 0.02,
-        "QB": 314.43,
-        "RB": 444.65,
-        "TE": 121.19,
-        "WR": 356.75,
+        "QB": 315.02,
+        "RB": 449.73,
+        "TE": 121.47,
+        "WR": 361.97,
         "pos:DEF": 0.0,
         "pos:K": 0.02,
-        "pos:QB": 314.43,
-        "pos:RB": 539.19,
-        "pos:TE": 122.84,
-        "pos:WR": 439.42
+        "pos:QB": 315.02,
+        "pos:RB": 559.37,
+        "pos:TE": 121.99,
+        "pos:WR": 430.72
       },
       "structural": {
         "deadline_picks": 0.0,
@@ -343,9 +373,9 @@
     },
     "legacy": {
       "advantage": {
-        "hi": 189.372,
-        "lo": 118.269,
-        "mean": 153.821
+        "hi": 214.092,
+        "lo": 95.103,
+        "mean": 154.598
       },
       "definition": "the PAGE's pre-audible#61 the_call: board-rank slice, (-need, urgency, vorp_rank), no effective_score. Like-for-like against real.",
       "n": 300,
@@ -363,9 +393,17 @@
         }
       },
       "points_for": {
-        "hi": 1593.929,
-        "lo": 1525.053,
-        "mean": 1559.491
+        "hi": 1616.628,
+        "lo": 1521.17,
+        "mean": 1568.899
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 3.0733,
+        "RB": 5.4233,
+        "TE": 1.7333,
+        "WR": 3.77
       },
       "realised_secondary": {
         "advantage": {
@@ -382,18 +420,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 166.65,
+        "FLEX": 169.42,
         "K": 0.01,
         "QB": 373.35,
-        "RB": 505.47,
+        "RB": 506.76,
         "TE": 151.49,
-        "WR": 362.53,
+        "WR": 367.88,
         "pos:DEF": 0.0,
         "pos:K": 0.01,
         "pos:QB": 373.35,
-        "pos:RB": 624.13,
-        "pos:TE": 164.42,
-        "pos:WR": 397.58
+        "pos:RB": 651.53,
+        "pos:TE": 152.32,
+        "pos:WR": 391.69
       },
       "structural": {
         "deadline_picks": 1.43,
@@ -406,9 +444,9 @@
     },
     "legacy_recommend": {
       "advantage": {
-        "hi": 160.954,
-        "lo": 106.025,
-        "mean": 133.49
+        "hi": 140.275,
+        "lo": 116.53,
+        "mean": 128.402
       },
       "definition": "the MCP list head's pre-audible#60 sort: (not grab_now, vorp_rank, not fills_need). A DIFFERENT SURFACE.",
       "n": 300,
@@ -426,9 +464,17 @@
         }
       },
       "points_for": {
-        "hi": 1604.545,
-        "lo": 1461.798,
-        "mean": 1533.172
+        "hi": 1607.652,
+        "lo": 1470.446,
+        "mean": 1539.049
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 3.1533,
+        "RB": 6.62,
+        "TE": 1.4067,
+        "WR": 2.82
       },
       "realised_secondary": {
         "advantage": {
@@ -445,18 +491,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 215.64,
+        "FLEX": 222.66,
         "K": 0.01,
-        "QB": 356.87,
-        "RB": 505.55,
-        "TE": 132.1,
-        "WR": 323.0,
+        "QB": 357.31,
+        "RB": 502.83,
+        "TE": 132.27,
+        "WR": 323.97,
         "pos:DEF": 0.0,
         "pos:K": 0.01,
-        "pos:QB": 356.87,
-        "pos:RB": 710.72,
-        "pos:TE": 135.04,
-        "pos:WR": 330.53
+        "pos:QB": 357.31,
+        "pos:RB": 722.28,
+        "pos:TE": 132.27,
+        "pos:WR": 327.18
       },
       "structural": {
         "deadline_picks": 2.19,
@@ -469,9 +515,9 @@
     },
     "no_bye": {
       "advantage": {
-        "hi": 178.74,
-        "lo": 110.266,
-        "mean": 144.503
+        "hi": 185.824,
+        "lo": 92.003,
+        "mean": 138.914
       },
       "definition": "real, with bye_conflict_penalty forced to 0.0",
       "n": 300,
@@ -489,9 +535,17 @@
         }
       },
       "points_for": {
-        "hi": 1587.712,
-        "lo": 1521.826,
-        "mean": 1554.769
+        "hi": 1609.043,
+        "lo": 1512.744,
+        "mean": 1560.893
+      },
+      "positions_drafted": {
+        "DEF": 1.0067,
+        "K": 1.0,
+        "QB": 1.0533,
+        "RB": 5.14,
+        "TE": 2.7833,
+        "WR": 5.0167
       },
       "realised_secondary": {
         "advantage": {
@@ -508,18 +562,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 165.41,
+        "FLEX": 163.79,
         "K": 0.0,
         "QB": 373.35,
-        "RB": 505.47,
-        "TE": 148.01,
-        "WR": 362.53,
+        "RB": 506.76,
+        "TE": 150.71,
+        "WR": 366.28,
         "pos:DEF": 0.0,
         "pos:K": 0.0,
         "pos:QB": 373.35,
-        "pos:RB": 618.31,
-        "pos:TE": 160.96,
-        "pos:WR": 402.15
+        "pos:RB": 644.59,
+        "pos:TE": 150.71,
+        "pos:WR": 392.24
       },
       "structural": {
         "deadline_picks": 0.3367,
@@ -532,9 +586,9 @@
     },
     "no_need": {
       "advantage": {
-        "hi": 187.719,
-        "lo": 130.07,
-        "mean": 158.894
+        "hi": 181.906,
+        "lo": 131.968,
+        "mean": 156.937
       },
       "definition": "real, with marginal_start_factor forced to 1.0",
       "n": 300,
@@ -552,9 +606,17 @@
         }
       },
       "points_for": {
-        "hi": 1623.397,
-        "lo": 1504.787,
-        "mean": 1564.092
+        "hi": 1635.076,
+        "lo": 1511.344,
+        "mean": 1573.21
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 2.7367,
+        "RB": 5.4367,
+        "TE": 1.8,
+        "WR": 4.0267
       },
       "realised_secondary": {
         "advantage": {
@@ -571,18 +633,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 174.72,
+        "FLEX": 175.49,
         "K": 0.01,
-        "QB": 367.55,
-        "RB": 500.33,
-        "TE": 149.84,
-        "WR": 371.64,
+        "QB": 370.41,
+        "RB": 502.92,
+        "TE": 149.91,
+        "WR": 374.47,
         "pos:DEF": 0.0,
         "pos:K": 0.01,
-        "pos:QB": 367.55,
-        "pos:RB": 625.04,
-        "pos:TE": 157.71,
-        "pos:WR": 413.78
+        "pos:QB": 370.41,
+        "pos:RB": 650.68,
+        "pos:TE": 149.91,
+        "pos:WR": 402.21
       },
       "structural": {
         "deadline_picks": 1.4633,
@@ -595,9 +657,9 @@
     },
     "no_slice": {
       "advantage": {
-        "hi": 190.111,
-        "lo": 97.164,
-        "mean": 143.638
+        "hi": 175.93,
+        "lo": 85.807,
+        "mean": 130.868
       },
       "definition": "real, with the_call's TOP_N shortlist cap effectively removed",
       "n": 300,
@@ -615,9 +677,17 @@
         }
       },
       "points_for": {
-        "hi": 1616.406,
-        "lo": 1493.976,
-        "mean": 1555.191
+        "hi": 1618.424,
+        "lo": 1493.227,
+        "mean": 1555.825
+      },
+      "positions_drafted": {
+        "DEF": 1.0067,
+        "K": 1.0,
+        "QB": 1.05,
+        "RB": 5.1067,
+        "TE": 2.8033,
+        "WR": 5.0333
       },
       "realised_secondary": {
         "advantage": {
@@ -634,18 +704,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 172.29,
+        "FLEX": 164.04,
         "K": 0.0,
         "QB": 367.55,
-        "RB": 500.33,
-        "TE": 144.6,
-        "WR": 370.42,
+        "RB": 502.76,
+        "TE": 149.13,
+        "WR": 372.34,
         "pos:DEF": 0.0,
         "pos:K": 0.0,
         "pos:QB": 367.55,
-        "pos:RB": 599.45,
-        "pos:TE": 157.79,
-        "pos:WR": 430.4
+        "pos:RB": 631.82,
+        "pos:TE": 149.58,
+        "pos:WR": 406.87
       },
       "structural": {
         "deadline_picks": 0.34,
@@ -658,9 +728,9 @@
     },
     "no_urgency": {
       "advantage": {
-        "hi": 185.074,
-        "lo": 99.481,
-        "mean": 142.277
+        "hi": 172.98,
+        "lo": 90.954,
+        "mean": 131.967
       },
       "definition": "real, with next_pick=None so survives_by and the tier are neutralised",
       "n": 300,
@@ -678,9 +748,17 @@
         }
       },
       "points_for": {
-        "hi": 1622.442,
-        "lo": 1486.739,
-        "mean": 1554.59
+        "hi": 1629.172,
+        "lo": 1485.232,
+        "mean": 1557.202
+      },
+      "positions_drafted": {
+        "DEF": 1.0,
+        "K": 1.0,
+        "QB": 1.0567,
+        "RB": 5.1067,
+        "TE": 2.8267,
+        "WR": 5.01
       },
       "realised_secondary": {
         "advantage": {
@@ -697,18 +775,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 175.12,
+        "FLEX": 171.15,
         "K": 0.0,
         "QB": 364.82,
-        "RB": 489.8,
-        "TE": 152.44,
-        "WR": 372.41,
+        "RB": 493.13,
+        "TE": 152.1,
+        "WR": 376.0,
         "pos:DEF": 0.0,
         "pos:K": 0.0,
         "pos:QB": 364.82,
-        "pos:RB": 607.2,
-        "pos:TE": 162.53,
-        "pos:WR": 420.04
+        "pos:RB": 635.67,
+        "pos:TE": 152.1,
+        "pos:WR": 404.6
       },
       "structural": {
         "deadline_picks": 0.0,
@@ -721,9 +799,9 @@
     },
     "real": {
       "advantage": {
-        "hi": 186.721,
-        "lo": 112.676,
-        "mean": 149.698
+        "hi": 175.629,
+        "lo": 103.86,
+        "mean": 139.745
       },
       "definition": "audible's board, ordered by the cockpit's own the_call",
       "n": 300,
@@ -741,9 +819,17 @@
         }
       },
       "points_for": {
-        "hi": 1619.478,
-        "lo": 1499.296,
-        "mean": 1559.387
+        "hi": 1627.833,
+        "lo": 1497.672,
+        "mean": 1562.753
+      },
+      "positions_drafted": {
+        "DEF": 1.0067,
+        "K": 1.0,
+        "QB": 1.05,
+        "RB": 5.12,
+        "TE": 2.8,
+        "WR": 5.0233
       },
       "realised_secondary": {
         "advantage": {
@@ -760,18 +846,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 174.33,
+        "FLEX": 171.57,
         "K": 0.0,
         "QB": 367.55,
-        "RB": 500.33,
-        "TE": 146.75,
-        "WR": 370.42,
+        "RB": 502.76,
+        "TE": 149.49,
+        "WR": 371.38,
         "pos:DEF": 0.0,
         "pos:K": 0.0,
         "pos:QB": 367.55,
-        "pos:RB": 618.41,
-        "pos:TE": 155.02,
-        "pos:WR": 418.41
+        "pos:RB": 638.86,
+        "pos:TE": 149.49,
+        "pos:WR": 406.86
       },
       "structural": {
         "deadline_picks": 0.3333,
@@ -784,9 +870,9 @@
     },
     "shuffle": {
       "advantage": {
-        "hi": 84.135,
-        "lo": 30.553,
-        "mean": 57.344
+        "hi": 85.501,
+        "lo": 10.16,
+        "mean": 47.831
       },
       "definition": "the same, with the board's value ordering permuted per seed",
       "n": 300,
@@ -804,9 +890,17 @@
         }
       },
       "points_for": {
-        "hi": 1527.81,
-        "lo": 1426.259,
-        "mean": 1477.034
+        "hi": 1538.834,
+        "lo": 1425.897,
+        "mean": 1482.365
+      },
+      "positions_drafted": {
+        "DEF": 1.0067,
+        "K": 1.0133,
+        "QB": 1.0867,
+        "RB": 5.0967,
+        "TE": 2.6333,
+        "WR": 5.1633
       },
       "realised_secondary": {
         "advantage": {
@@ -823,18 +917,18 @@
       },
       "slot_points": {
         "DEF": 0.0,
-        "FLEX": 154.64,
+        "FLEX": 148.52,
         "K": 0.0,
         "QB": 353.39,
-        "RB": 472.53,
-        "TE": 137.96,
-        "WR": 358.51,
+        "RB": 474.73,
+        "TE": 144.08,
+        "WR": 361.64,
         "pos:DEF": 0.0,
         "pos:K": 0.0,
         "pos:QB": 353.39,
-        "pos:RB": 553.89,
-        "pos:TE": 150.14,
-        "pos:WR": 419.61
+        "pos:RB": 587.33,
+        "pos:TE": 144.08,
+        "pos:WR": 397.56
       },
       "structural": {
         "deadline_picks": 0.2033,
@@ -890,9 +984,9 @@
       }
     }
   },
-  "code_sha": "76f2f3f348c2dce261fc6660cc28720440d5a143-dirty",
+  "code_sha": "bea6230988e59e09353bed5b418d89fb0310c2d8-dirty",
   "config_hash": "997746ee89df8f20504c917fb3dcc1cc5f2b18f7fc417c8d711b1dee8c37e856",
-  "content_digest": "8ba3ddbdd2d29493e98d58aa7906430aaa821aa65be1f500115e62716249be0e",
+  "content_digest": "90ee5815058aba9aae9623025b59cb7fce1f706bac903132006a515f9b244070",
   "fit": {
     "cap_hist": {
       "DEF": {
@@ -1182,21 +1276,21 @@
     2024,
     2025
   ],
-  "generated_at": "2026-09-07T09:14:41",
+  "generated_at": "2026-09-07T14:23:55",
   "league": "espn_davis_drive",
   "leak_decomposition": {
-    "machinery_bot_in_seat": -7.367,
+    "machinery_bot_in_seat": -9.568,
     "reading": "machinery at chance; the shuffle arm keeps audible's structure and only loses its value ordering. READ `real_minus_adp` BEFORE THIS: the terms below are audible against BOTS, and the bots reach by fitted amounts while the seat does not, so a noiseless seat of any kind collects what they pass. The baseline arm is what says whether any of it is audible's doing.",
-    "structure_shuffle_minus_bot": 64.711,
-    "total_real": 149.698,
-    "value_ordering_real_minus_shuffle": 92.354
+    "structure_shuffle_minus_bot": 57.399,
+    "total_real": 139.745,
+    "value_ordering_real_minus_shuffle": 91.914
   },
   "legacy_minus_adp": {
-    "flat_hi": 35.311,
-    "flat_lo": -1.223,
-    "hi": 74.005,
-    "lo": -39.917,
-    "mean": 17.044,
+    "flat_hi": 39.223,
+    "flat_lo": 1.504,
+    "hi": 91.969,
+    "lo": -51.242,
+    "mean": 20.364,
     "n": 300
   },
   "legacy_minus_adp_hindsight": {
@@ -1325,11 +1419,11 @@
     }
   },
   "real_minus_adp": {
-    "flat_hi": 33.093,
-    "flat_lo": -7.249,
-    "hi": 57.441,
-    "lo": -31.597,
-    "mean": 12.922,
+    "flat_hi": 25.827,
+    "flat_lo": -14.806,
+    "hi": 47.402,
+    "lo": -36.381,
+    "mean": 5.511,
     "n": 300
   },
   "real_minus_adp_hindsight": {
@@ -1349,11 +1443,11 @@
     "n": 300
   },
   "real_minus_legacy": {
-    "flat_hi": 10.952,
-    "flat_lo": -19.197,
-    "hi": 47.053,
-    "lo": -55.298,
-    "mean": -4.122,
+    "flat_hi": 0.859,
+    "flat_lo": -30.566,
+    "hi": 47.345,
+    "lo": -77.052,
+    "mean": -14.853,
     "n": 300
   },
   "real_minus_legacy_hindsight": {
@@ -1373,11 +1467,11 @@
     "n": 300
   },
   "real_minus_legacy_recommend": {
-    "flat_hi": 36.213,
-    "flat_lo": -3.796,
-    "hi": 60.833,
-    "lo": -28.415,
-    "mean": 16.209,
+    "flat_hi": 31.594,
+    "flat_lo": -8.909,
+    "hi": 50.793,
+    "lo": -28.109,
+    "mean": 11.342,
     "n": 300
   },
   "real_minus_legacy_recommend_hindsight": {
@@ -1397,11 +1491,11 @@
     "n": 300
   },
   "real_minus_shuffle": {
-    "flat_hi": 114.679,
-    "flat_lo": 70.03,
-    "hi": 121.833,
-    "lo": 62.876,
-    "mean": 92.354,
+    "flat_hi": 114.457,
+    "flat_lo": 69.371,
+    "hi": 118.702,
+    "lo": 65.126,
+    "mean": 91.914,
     "n": 300
   },
   "real_minus_shuffle_hindsight": {
@@ -1496,19 +1590,19 @@
     59
   ],
   "shuffle": {
-    "advantage": 57.34,
+    "advantage": 47.83,
     "at_chance": false,
-    "hi": 84.13,
-    "lo": 30.55,
+    "hi": 85.5,
+    "lo": 10.16,
     "n": 300,
     "reading": "SHUFFLE IS WINNING -- assume a leak until this is explained"
   },
   "shuffle_minus_bot": {
-    "flat_hi": 93.053,
-    "flat_lo": 36.368,
-    "hi": 100.208,
-    "lo": 29.213,
-    "mean": 64.711,
+    "flat_hi": 85.219,
+    "flat_lo": 29.578,
+    "hi": 100.284,
+    "lo": 14.512,
+    "mean": 57.398,
     "n": 300
   },
   "shuffle_minus_bot_hindsight": {
@@ -1573,11 +1667,11 @@
     }
   ],
   "surface_gap": {
-    "flat_hi": 38.782,
-    "flat_lo": 1.88,
-    "hi": 78.137,
-    "lo": -37.475,
-    "mean": 20.331,
+    "flat_hi": 45.108,
+    "flat_lo": 7.283,
+    "hi": 92.829,
+    "lo": -40.438,
+    "mean": 26.195,
     "n": 300
   },
   "surface_gap_hindsight": {
@@ -1597,82 +1691,82 @@
     "n": 300
   },
   "timing": {
-    "wall_s": 357.28
+    "wall_s": 360.42
   },
   "units": 6000,
   "walk_forward": {
     "wf-in": {
       "legacy_minus_adp": {
-        "flat_hi": 67.781,
-        "flat_lo": 19.656,
-        "hi": 237.264,
-        "lo": -149.828,
-        "mean": 43.718,
+        "flat_hi": 78.543,
+        "flat_lo": 25.84,
+        "hi": 277.656,
+        "lo": -173.273,
+        "mean": 52.191,
         "n": 180
       },
       "n": 1800,
       "no_bye": {
-        "flat_hi": 3.481,
-        "flat_lo": -30.448,
-        "hi": 96.787,
-        "lo": -123.754,
-        "mean": -13.483,
+        "flat_hi": 3.871,
+        "flat_lo": -34.121,
+        "hi": 91.052,
+        "lo": -121.303,
+        "mean": -15.125,
         "n": 180
       },
       "no_need": {
-        "flat_hi": 20.922,
-        "flat_lo": 5.999,
-        "hi": 43.326,
-        "lo": -16.406,
-        "mean": 13.46,
+        "flat_hi": 25.645,
+        "flat_lo": 4.075,
+        "hi": 45.364,
+        "lo": -15.644,
+        "mean": 14.86,
         "n": 180
       },
       "no_slice": {
-        "flat_hi": -4.554,
-        "flat_lo": -23.678,
-        "hi": 38.796,
-        "lo": -67.028,
-        "mean": -14.116,
+        "flat_hi": -6.944,
+        "flat_lo": -29.614,
+        "hi": 20.627,
+        "lo": -57.186,
+        "mean": -18.279,
         "n": 180
       },
       "no_urgency": {
-        "flat_hi": 15.656,
-        "flat_lo": -14.483,
-        "hi": 79.577,
-        "lo": -78.404,
-        "mean": 0.586,
+        "flat_hi": 13.715,
+        "flat_lo": -16.622,
+        "hi": 80.586,
+        "lo": -83.493,
+        "mean": -1.454,
         "n": 180
       },
       "real_minus_adp": {
-        "flat_hi": 73.331,
-        "flat_lo": 23.634,
-        "hi": 149.01,
-        "lo": -52.045,
-        "mean": 48.483,
+        "flat_hi": 83.469,
+        "flat_lo": 30.431,
+        "hi": 170.188,
+        "lo": -56.288,
+        "mean": 56.95,
         "n": 180
       },
       "real_minus_legacy": {
-        "flat_hi": 22.147,
-        "flat_lo": -12.618,
-        "hi": 103.525,
-        "lo": -93.996,
-        "mean": 4.764,
+        "flat_hi": 25.263,
+        "flat_lo": -15.746,
+        "hi": 125.826,
+        "lo": -116.308,
+        "mean": 4.759,
         "n": 180
       },
       "real_minus_legacy_recommend": {
-        "flat_hi": 104.993,
-        "flat_lo": 50.416,
-        "hi": 175.244,
-        "lo": -19.834,
-        "mean": 77.705,
+        "flat_hi": 115.699,
+        "flat_lo": 58.656,
+        "hi": 185.359,
+        "lo": -11.003,
+        "mean": 87.178,
         "n": 180
       },
       "real_minus_shuffle": {
-        "flat_hi": 139.663,
-        "flat_lo": 84.027,
-        "hi": 164.741,
-        "lo": 58.949,
-        "mean": 111.845,
+        "flat_hi": 154.691,
+        "flat_lo": 94.311,
+        "hi": 199.272,
+        "lo": 49.73,
+        "mean": 124.501,
         "n": 180
       },
       "seasons": [
@@ -1681,94 +1775,94 @@
         2023
       ],
       "shuffle_minus_bot": {
-        "flat_hi": 73.049,
-        "flat_lo": 7.288,
-        "hi": 69.041,
-        "lo": 11.297,
-        "mean": 40.169,
+        "flat_hi": 63.858,
+        "flat_lo": -4.074,
+        "hi": 72.28,
+        "lo": -12.496,
+        "mean": 29.892,
         "n": 180
       },
       "surface_gap": {
-        "flat_hi": 99.479,
-        "flat_lo": 46.402,
-        "hi": 260.148,
-        "lo": -114.267,
-        "mean": 72.94,
+        "flat_hi": 110.054,
+        "flat_lo": 54.784,
+        "hi": 289.735,
+        "lo": -124.896,
+        "mean": 82.419,
         "n": 180
       }
     },
     "wf-out": {
       "legacy_minus_adp": {
-        "flat_hi": 30.514,
-        "flat_lo": -27.504,
-        "hi": 200.448,
-        "lo": -197.438,
-        "mean": 1.505,
+        "flat_hi": 24.265,
+        "flat_lo": -35.748,
+        "hi": 175.734,
+        "lo": -187.216,
+        "mean": -5.741,
         "n": 120
       },
       "n": 1200,
       "no_bye": {
-        "flat_hi": 39.551,
-        "flat_lo": 3.518,
-        "hi": 431.577,
-        "lo": -388.508,
-        "mean": 21.535,
+        "flat_hi": 38.804,
+        "flat_lo": 5.406,
+        "hi": 337.577,
+        "lo": -293.367,
+        "mean": 22.105,
         "n": 120
       },
       "no_need": {
-        "flat_hi": 6.977,
-        "flat_lo": -6.565,
-        "hi": 54.13,
-        "lo": -53.717,
-        "mean": 0.206,
+        "flat_hi": 16.318,
+        "flat_lo": -7.103,
+        "hi": 204.922,
+        "lo": -195.707,
+        "mean": 4.608,
         "n": 120
       },
       "no_slice": {
-        "flat_hi": 11.4,
-        "flat_lo": 0.016,
-        "hi": 98.053,
-        "lo": -86.637,
-        "mean": 5.708,
+        "flat_hi": 15.658,
+        "flat_lo": -1.243,
+        "hi": 114.263,
+        "lo": -99.848,
+        "mean": 7.208,
         "n": 120
       },
       "no_urgency": {
-        "flat_hi": -19.322,
-        "flat_lo": -54.571,
-        "hi": 65.965,
-        "lo": -139.857,
-        "mean": -36.946,
+        "flat_hi": -8.338,
+        "flat_lo": -48.622,
+        "hi": 175.429,
+        "lo": -232.388,
+        "mean": -28.48,
         "n": 120
       },
       "real_minus_adp": {
-        "flat_hi": 9.181,
-        "flat_lo": -57.265,
-        "hi": 617.755,
-        "lo": -665.839,
-        "mean": -24.042,
+        "flat_hi": 5.933,
+        "flat_lo": -64.172,
+        "hi": 558.064,
+        "lo": -616.303,
+        "mean": -29.12,
         "n": 120
       },
       "real_minus_legacy": {
-        "flat_hi": -6.447,
-        "flat_lo": -44.647,
-        "hi": 417.307,
-        "lo": -468.401,
-        "mean": -25.547,
+        "flat_hi": -4.111,
+        "flat_lo": -42.646,
+        "hi": 382.33,
+        "lo": -429.087,
+        "mean": -23.378,
         "n": 120
       },
       "real_minus_legacy_recommend": {
-        "flat_hi": 42.265,
-        "flat_lo": -29.491,
-        "hi": 643.234,
-        "lo": -630.461,
-        "mean": 6.387,
+        "flat_hi": 34.3,
+        "flat_lo": -39.771,
+        "hi": 641.58,
+        "lo": -647.051,
+        "mean": -2.735,
         "n": 120
       },
       "real_minus_shuffle": {
-        "flat_hi": 44.734,
-        "flat_lo": -27.143,
-        "hi": 79.288,
-        "lo": -61.697,
-        "mean": 8.796,
+        "flat_hi": 42.768,
+        "flat_lo": -29.161,
+        "hi": 99.943,
+        "lo": -86.336,
+        "mean": 6.803,
         "n": 120
       },
       "seasons": [
@@ -1776,19 +1870,19 @@
         2025
       ],
       "shuffle_minus_bot": {
-        "flat_hi": 90.906,
-        "flat_lo": 0.8,
-        "hi": 445.502,
-        "lo": -353.796,
-        "mean": 45.853,
+        "flat_hi": 88.212,
+        "flat_lo": -3.956,
+        "hi": 560.445,
+        "lo": -476.189,
+        "mean": 42.128,
         "n": 120
       },
       "surface_gap": {
-        "flat_hi": 62.411,
-        "flat_lo": 1.456,
-        "hi": 225.927,
-        "lo": -162.06,
-        "mean": 31.934,
+        "flat_hi": 51.379,
+        "flat_lo": -10.094,
+        "hi": 259.25,
+        "lo": -217.964,
+        "mean": 20.643,
         "n": 120
       }
     }
