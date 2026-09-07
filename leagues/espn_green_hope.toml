@@ -39,15 +39,38 @@ starting_slots = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DEF", "K"]
 # clock uses before the first successful poll.
 draft_rounds = 16
 
-# Seat 1 of 8. DERIVED, not taken on trust: the authenticated SWID matches teams[].owners on
-# teamId 2, and draftSettings.pickOrder is [2, 9, 6, 7, 4, 1, 5, 8], so teamId 2 is seat 1.
-# It agrees with what the commissioner said, which is the point -- it was checked rather than
-# copied. `verify-scoring` now reports a draft_slot row when a pin and the live derivation
-# disagree, so this number cannot go stale in silence the way Danger Zone's did.
+# Seat 6 of 8. DERIVED, not taken on trust: the authenticated SWID matches teams[].owners on
+# teamId 2 ("Team Mika The Runner"), and draftSettings.pickOrder is [9, 6, 1, 4, 7, 2, 5, 8],
+# so teamId 2 is seat 6.
 #
-# Seat 1 of 8 picks in PAIRS -- 1, 16/17, 32/33, 48/49 -- which is the worst case for
-# `survival()`; see docs/STATE.md. `recommend` uses visible ADP subtraction instead.
-draft_slot = 1
+# THIS SAID 1 UNTIL 2026-09-07, AND 1 WAS CORRECT WHEN IT WAS WRITTEN. The commissioner
+# RE-DREW the order some time after 2026-09-05: pickOrder was [2, 9, 6, 7, 4, 1, 5, 8], which
+# put the same teamId 2 in seat 1. Identity did not move -- same account, same SWID, same
+# team, same eight teamIds -- only the order did. Measured twice on independent fetches
+# 2026-09-07, and the draft is still 2026-09-08 19:00 ET, SNAKE, 90s clock, not started.
+#
+# This is the drift `verify-scoring` exists to catch, and it caught it: the check reported
+# `draft_slot   config=1      live=6` and exited 1. Before audible#64 a null derivation and an
+# agreeing one printed identically, so a seat could go stale in silence the way Danger Zone's
+# did; now the command says which of the three happened. Worth stating plainly: a pick order
+# that moved once can move again, so the derived seat is a PRE-FLIGHT item on draft day, not
+# a thing settled by this commit.
+#
+# THIS NUMBER IS A FALLBACK, NOT THE SOURCE OF TRUTH. The live pick order wins whenever it
+# resolves; this is carried only when ESPN cannot say -- lapsed cookies, no SWID match, no
+# pick order yet -- which is the outage the field exists for. `serve()` passes it as
+# `slot_fallback`, and only an operator's explicit `--slot` outranks the platform.
+#
+# It said the opposite here until 2026-09-07, and it was true then: the pin was wired to win,
+# which is exactly how a config value came to beat a live one for hours. Editing this file is
+# still the right fix -- a `--slot` flag would put the seat in two places again -- but the
+# reason is now that the pin should AGREE with the platform, not that it overrules it.
+#
+# Seat 6 of 8 in a 16-round snake picks at 6, 11, 22, 27, 38, 43, 54, 59, 70, 75, 86, 91,
+# 102, 107, 118, 123 -- alternating gaps of 4 and 10 opponent picks. That is a materially
+# EASIER shape for `survival()` than seat 1's back-to-back pairs (1, 16/17, 32/33, 48/49),
+# which had `opponent_picks` at 0 for every turn after the first; see docs/STATE.md.
+draft_slot = 6
 
 # 9 starters, 16 rounds -> 7 bench picks per team, none of them on the waiver wire.
 # Same derivation and the same number as DDAFFL, which has the identical 8-team, 9-starter,

@@ -178,15 +178,24 @@ def serve(
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s | %(message)s"
     )
-    # An explicit --slot still wins; the config seat is the fallback that keeps the timing
-    # term alive when sync cannot answer.
-    seat = slot if slot is not None else config.draft_slot
+    # TWO CHANNELS, NOT ONE, and collapsing them was the defect. An explicit --slot is an
+    # operator instruction and still outranks the platform. The config seat is a FALLBACK --
+    # `schema.py` has always documented it that way -- so it is handed over separately and is
+    # used only when the live derivation says nothing.
+    #
+    # They were the same argument until 2026-09-07, which meant a config value beat a live
+    # one. Green Hope is the case: the commissioner re-drew the pick order, ESPN said seat 6,
+    # the config still said 1, and the cockpit served 1 for hours while logging the
+    # disagreement it was ignoring.
     service = CockpitService(
-        config, draft_id=draft_id, slot_override=seat, user_name=user_name
+        config, draft_id=draft_id,
+        slot_override=slot, slot_fallback=config.draft_slot, user_name=user_name,
     )
-    if seat is not None:
-        log.info("draft slot pinned to %s (%s)", seat,
-                 "--slot" if slot is not None else f"{config.key}.draft_slot")
+    if slot is not None:
+        log.info("draft slot OVERRIDDEN to %s by --slot; this beats the live pick order", slot)
+    elif config.draft_slot is not None:
+        log.info("draft slot fallback %s from %s.draft_slot; the live derivation wins "
+                 "whenever it resolves", config.draft_slot, config.key)
     token = os.environ.get("MCP_AUTH_TOKEN") or None
     app = create_app(service, mcp_token=token)
     log.info("cockpit for [%s] %s -> http://%s:%d", config.key, config.name, host, port)
