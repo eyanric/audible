@@ -77,6 +77,27 @@ class Identity:
         )
 
 
+def usable_slot(slot: int | None, teams: int | None) -> bool:
+    """Is a DERIVED seat one this league can actually have?
+
+    Now that the derivation outranks the pin, an upstream that answers WRONGLY is worse than
+    one that answers not at all -- silence falls back to the pin, garbage does not. And the
+    garbage is not absorbed anywhere downstream: `compute_view` RAISES on a slot outside
+    1..teams, `build_state` calls it without a guard, so a nine-entry pickOrder in an
+    eight-team league would 500 every `/api/state` and every `/api/taken` for as long as the
+    bad body persisted. Before the inversion a pinned league could not reach that.
+
+    So an out-of-range derivation is treated as no derivation -- the pin carries it -- while
+    the raw value is still kept on `Identity.derived_slot` so the disagreement is reported
+    rather than swallowed.
+    """
+    if slot is None:
+        return False
+    if teams is None:
+        return True
+    return 1 <= slot <= teams
+
+
 def roster_id_for_user(rosters: list[dict[str, Any]], user_id: str) -> int | None:
     """My roster, via ``owner_id`` and falling back to ``co_owners``."""
     for roster in rosters:
@@ -105,6 +126,7 @@ def resolve_slot(
     *,
     override: int | None = None,
     fallback: int | None = None,
+    teams: int | None = None,
 ) -> Identity:
     """Work out which draft slot is mine.
 
@@ -134,12 +156,13 @@ def resolve_slot(
     raw = order.get(user_id) if user_id else None
     derived = int(raw) if raw is not None else None
     pinned = override if override is not None else fallback
+    usable = derived if usable_slot(derived, teams) else None
 
     if override is not None:
         return Identity(user_id, roster_id, override, SOURCE_OVERRIDE,
                         derived_slot=derived, pinned_slot=pinned)
-    if derived is not None:
-        return Identity(user_id, roster_id, derived, SOURCE_DRAFT_ORDER,
+    if usable is not None:
+        return Identity(user_id, roster_id, usable, SOURCE_DRAFT_ORDER,
                         derived_slot=derived, pinned_slot=pinned)
     if fallback is not None:
         return Identity(user_id, roster_id, fallback, SOURCE_CONFIG_PIN,

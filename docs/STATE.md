@@ -236,8 +236,16 @@ sends you to re-copy credentials that were never the problem.
 league that pins a seat -- the only ones that need it.
 
 The derivation now runs unconditionally on **both** platforms. `Identity` carries
-`derived_slot` beside `slot`: the pin still wins (that is its job) while the platform's own
-answer survives to be compared, via `Identity.seat_conflict`.
+`derived_slot` beside `slot`, so the platform's own answer survives to be compared via
+`Identity.seat_conflict`.
+
+> **Superseded 2026-09-07.** This section said "the pin still wins (that is its job)". It no
+> longer does, and that framing was the defect: the pin is documented as a FALLBACK and was
+> wired to outrank the platform. Green Hope's commissioner re-drew the pick order, ESPN said
+> seat 6, the config said 1, and the cockpit served 1 for hours. The order is now
+> `--slot` > live derivation > config pin, `slot_source` distinguishes all three
+> (`override` / `pick_order` / `config_pin`), and `seat_conflict` no longer requires the pin
+> to have won.
 
 **The load-bearing part is that it reaches a person.** `verify_structure` now reports a
 `draft_slot` row, so a wrong pin is a **non-zero exit from `verify-scoring`**, not a log line.
@@ -573,8 +581,9 @@ field will be wrong.
   `[2, 3, 6, 4, 1, 5, 7, 8]` for 6012, **not** an identity map, so it is real commissioner-set
   data rather than a Sleeper-style placeholder. Type `SNAKE`, `orderType: MANUAL`.
 - The seat is derived from `ESPN_SWID` against `teams[].owners` — **match `owners`, not just
-  `primaryOwner`**: at least one team in 6012 is co-owned. No flag required. **But see the seat
-  section above: a pin silently beats the derivation and nothing says so.**
+  `primaryOwner`**: at least one team in 6012 is co-owned. No flag required. **Since
+  2026-09-07 the derivation BEATS the pin** and `slot_source` says which produced the seat;
+  an out-of-range derivation is refused and the pin carries instead.
 - `settings.size` is the live team count and is present on both reachable leagues.
 - **One request per tick.** `mDraftDetail` + `mTeam` + `mSettings` ride one conditional GET, so
   state, picks, seats, rounds and structure all come out of that single response. There is a test

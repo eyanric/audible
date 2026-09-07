@@ -30,6 +30,7 @@ from .identity import (
     SOURCE_UNRESOLVED,
     Identity,
     resolve_slot,
+    usable_slot,
     user_id_for_name,
 )
 from .live import Pick, parse_picks
@@ -114,6 +115,7 @@ class SleeperSync:
         return resolve_slot(
             draft, rosters, self._user_id,
             override=self._slot_override, fallback=self._slot_fallback,
+            teams=self._config.num_teams,
         )
 
     def poll(self, draft_id: str | None, *, want_meta: bool, slot_locked: bool) -> DraftUpdate:
@@ -391,17 +393,26 @@ class EspnSync:
         # LIVE pick order now beats the config pin. See `resolve_slot` for why. ESPN re-reads
         # `draftSettings.pickOrder` every poll, so a commissioner who reshuffles mid-week is
         # now followed rather than argued with.
+        # An out-of-range derivation is treated as NO derivation -- see identity.usable_slot.
+        # `pickOrder` is a bare enumerate with nothing bounding it, and now that it outranks
+        # the pin a wrong answer is worse than no answer.
+        usable = derived if usable_slot(derived, self._config.num_teams) else None
+        if usable is None and derived is not None:
+            log.error(
+                "ESPN derived draft slot %s, which is outside 1..%s for this league; "
+                "ignoring it and carrying the pin. Check draftSettings.pickOrder.",
+                derived, self._config.num_teams,
+            )
+
         if self._slot_override is not None:
             return Identity(uid, team_id, self._slot_override, SOURCE_OVERRIDE,
                             derived_slot=derived, pinned_slot=pinned)
-        if derived is not None:
-            return Identity(uid, team_id, derived, SOURCE_PICK_ORDER,
+        if usable is not None:
+            return Identity(uid, team_id, usable, SOURCE_PICK_ORDER,
                             derived_slot=derived, pinned_slot=pinned)
         if self._slot_fallback is not None:
             return Identity(uid, team_id, self._slot_fallback, SOURCE_CONFIG_PIN,
                             derived_slot=derived, pinned_slot=pinned)
-        if team_id is None:
-            return Identity(None, None, None, SOURCE_UNRESOLVED)
         return Identity(uid, team_id, None, SOURCE_UNRESOLVED)
 
     def poll(self, draft_id: str | None, *, want_meta: bool, slot_locked: bool) -> DraftUpdate:

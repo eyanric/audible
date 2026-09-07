@@ -56,10 +56,15 @@ draft_rounds = 16
 # that moved once can move again, so the derived seat is a PRE-FLIGHT item on draft day, not
 # a thing settled by this commit.
 #
-# The pin still exists because ESPN sync is the only other source, and the pin WINS at
-# runtime (`serve()` passes it as slot_override, which beats the pick-order derivation). That
-# is why editing this file is the fix and a `--slot` flag is not: a second place to pin the
-# seat is a second place to be wrong.
+# THIS NUMBER IS A FALLBACK, NOT THE SOURCE OF TRUTH. The live pick order wins whenever it
+# resolves; this is carried only when ESPN cannot say -- lapsed cookies, no SWID match, no
+# pick order yet -- which is the outage the field exists for. `serve()` passes it as
+# `slot_fallback`, and only an operator's explicit `--slot` outranks the platform.
+#
+# It said the opposite here until 2026-09-07, and it was true then: the pin was wired to win,
+# which is exactly how a config value came to beat a live one for hours. Editing this file is
+# still the right fix -- a `--slot` flag would put the seat in two places again -- but the
+# reason is now that the pin should AGREE with the platform, not that it overrules it.
 #
 # Seat 6 of 8 in a 16-round snake picks at 6, 11, 22, 27, 38, 43, 54, 59, 70, 75, 86, 91,
 # 102, 107, 118, 123 -- alternating gaps of 4 and 10 opponent picks. That is a materially

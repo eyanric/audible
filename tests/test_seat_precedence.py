@@ -21,6 +21,7 @@ Tier 3 is the outage case the field exists for and must not regress while fixing
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from audible.draft.identity import (
     SOURCE_UNRESOLVED,
     resolve_slot,
 )
+from audible.draft.service import DRAFTING_STATUS, CockpitService
 from audible.draft.sync import EspnIdBridge, EspnSync
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -172,8 +174,6 @@ def test_the_served_state_names_the_path_the_seat_came_from(
     applies to a value that cannot be traced to its source: `override` and `config_pin` are
     different claims and must not print the same.
     """
-    from audible.draft.service import CockpitService
-
     svc = CockpitService(espn_config, state_dir=tmp_path, slot_fallback=3,
                          sync=_sync(detail, espn_config, slot_fallback=3))
     svc.poll_once()
@@ -187,3 +187,105 @@ def test_the_served_state_names_the_path_the_seat_came_from(
     assert svc2.session.slot == 3
     assert svc2.session.slot_source == SOURCE_CONFIG_PIN
     assert svc2.session.slot_source != svc.session.slot_source
+
+
+# --- the paths a surviving mutant proved were ungated ----------------------------------
+
+
+def test_build_sync_actually_receives_the_config_fallback(
+    espn_config: LeagueConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ONE link that carries the fallback into the sync, and it was untested.
+
+    Every other gate here passes `sync=` directly, so `CockpitService.start()` -> `build_sync`
+    is never exercised -- and a mutant dropping `slot_fallback=self._slot_fallback` there
+    survived the entire suite. That is the production path: serve() -> create_app -> lifespan
+    -> start(). With it dropped the deployed cockpit reports my_slot unresolved on exactly the
+    outage tier 3 exists for.
+    """
+    from audible.draft import service as service_mod
+
+    captured: dict[str, Any] = {}
+
+    def _spy(config: LeagueConfig, **kw: Any) -> Any:
+        captured.update(kw)
+        raise RuntimeError("stop here; the kwargs are the assertion")
+
+    monkeypatch.setattr(service_mod, "build_sync", _spy)
+    svc = CockpitService(espn_config, state_dir=tmp_path, slot_fallback=6, slot_override=None)
+    with pytest.raises(RuntimeError):
+        svc.start()
+
+    assert captured["slot_fallback"] == 6, "build_sync never received the config fallback"
+    assert captured["slot_override"] is None
+
+
+def test_seat_drift_is_logged_when_the_PLATFORM_wins(
+    detail: dict[str, Any], espn_config: LeagueConfig, tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The Green Hope case, and the branch this whole change exists for.
+
+    A mutant gating the drift log on `source == SOURCE_OVERRIDE` -- reporting only when the
+    pin wins -- survived the whole suite, which is exactly what seat_conflict's docstring
+    forbids. Under it the Green Hope scenario logs NOTHING.
+    """
+    svc = CockpitService(espn_config, state_dir=tmp_path, slot_fallback=3,
+                         sync=_sync(detail, espn_config, slot_fallback=3))
+    with caplog.at_level(logging.ERROR, logger="audible.cockpit"):
+        svc.poll_once()
+
+    drift = [r.getMessage() for r in caplog.records if "SEAT DRIFT" in r.getMessage()]
+    assert len(drift) == 1, f"expected one SEAT DRIFT record, got {len(drift)}"
+    assert "pinned slot 3" in drift[0]
+    assert f"platform says {DERIVED_SEAT}" in drift[0]
+    assert "the platform is winning" in drift[0], (
+        "the log named the wrong winner -- a swapped winner string also survived the suite"
+    )
+    assert f"Serving {DERIVED_SEAT} ({SOURCE_PICK_ORDER})" in drift[0]
+
+
+# --- a wrong derivation is worse than a silent one -------------------------------------
+
+
+def test_an_out_of_range_derived_seat_is_ignored_and_the_pin_carries(
+    detail: dict[str, Any], espn_config: LeagueConfig
+) -> None:
+    """`compute_view` RAISES on a slot outside 1..teams and `build_state` has no guard, so an
+    over-long pickOrder would 500 every /api/state. Silence falls back; garbage must too."""
+    teams = espn_config.num_teams
+    # My team parked one past the last legal seat, behind `teams` distinct strangers.
+    order = [900 + i for i in range(teams)] + [detail["_my_team_id"]]
+    bad = dict(detail)
+    bad["settings"] = dict(detail["settings"],
+                           draftSettings=dict(detail["settings"]["draftSettings"],
+                                              pickOrder=order))
+    ident = _identity(bad, espn_config, slot_fallback=6)
+    assert ident.slot == 6, "an out-of-range derivation was served"
+    assert ident.source == SOURCE_CONFIG_PIN
+    assert ident.derived_slot == teams + 1, "the raw value must survive for reporting"
+    assert ident.seat_conflict is True
+
+
+def test_the_seat_is_frozen_once_the_draft_is_in_progress(
+    detail: dict[str, Any], espn_config: LeagueConfig, tmp_path: Path
+) -> None:
+    """A pick order cannot legitimately change with picks on the clock, so following it
+    mid-draft only lets a bad body re-attribute the whole roster for a tick."""
+    svc = CockpitService(espn_config, state_dir=tmp_path,
+                         sync=_sync(detail, espn_config))
+    svc.poll_once()
+    settled = svc.session.slot
+    assert settled == DERIVED_SEAT
+    svc.session.draft_status = DRAFTING_STATUS
+
+    moved = dict(detail)
+    order = list(detail["settings"]["draftSettings"]["pickOrder"])
+    order.remove(detail["teams"][0]["id"])
+    moved["settings"] = dict(detail["settings"],
+                             draftSettings=dict(detail["settings"]["draftSettings"],
+                                                pickOrder=[detail["teams"][0]["id"], *order]))
+    svc._sync = _sync(moved, espn_config)
+    svc.poll_once()
+
+    assert svc.session.slot == settled, "the seat moved while the draft was in progress"

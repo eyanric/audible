@@ -361,13 +361,28 @@ class CockpitService:
         if update.draft_type is not None:
             session.draft_type = update.draft_type
         if update.identity is not None:
-            # A pinned seat overrides the platform, so a disagreement would otherwise be
-            # invisible -- exactly the failure the pin exists to prevent, inverted.
+            # THE SEAT IS FROZEN ONCE THE DRAFT IS RUNNING, and this guard is the price of
+            # letting the live derivation win. ESPN re-reads `draftSettings.pickOrder` every
+            # poll, so a body that comes back reordered or short -- not empty, which falls to
+            # the pin, but WRONG -- would move the seat mid-draft. Everything hangs off it:
+            # picks_until_me, my_next_pick, survival_horizon, slack_picks, and
+            # `my_entries`, which re-attributes the whole drafted roster and flips
+            # `recommend`'s need term. It would then silently revert on the next good body.
             #
-            # This reads `derived_slot`, NOT `slot`. `slot` IS the override whenever one is
-            # set, so comparing it against the override compared a value with itself and the
-            # branch was unreachable on every league that pins a seat. `derived_slot` is what
-            # the platform said independently, so the two can now actually differ.
+            # A pick order cannot legitimately change once a draft is in progress, so
+            # following it after that point buys nothing and risks exactly this. Before the
+            # precedence inverted, a pinned league was structurally immune; this restores
+            # that without giving the pin back its old authority. The seat still settles from
+            # the platform -- it just stops being re-litigated with picks on the clock.
+            drafting = session.draft_status == DRAFTING_STATUS
+            frozen = drafting and session.slot is not None
+            if frozen and update.identity.slot != session.slot:
+                log.error(
+                    "SEAT CHANGED MID-DRAFT: the platform now says %s but this draft is in "
+                    "progress and the seat is frozen at %s (%s). Ignoring the change. If the "
+                    "room really did move, restart the cockpit.",
+                    update.identity.slot, session.slot, session.slot_source,
+                )
             if update.identity.seat_conflict:
                 # Says WHICH ONE WON, because the answer changed on 2026-09-07 and an operator
                 # reading this log has to know whether the tool corrected itself or is still
@@ -385,8 +400,9 @@ class CockpitService:
                 )
             session.user_id = update.identity.user_id
             session.roster_id = update.identity.roster_id
-            session.slot = update.identity.slot
-            session.slot_source = update.identity.source
+            if not frozen:
+                session.slot = update.identity.slot
+                session.slot_source = update.identity.source
         # The staleness clock, stamped BEFORE the assignment because it needs both sides.
         # `update.picks` is rebuilt from the payload every tick, so it is never the same list
         # object as `session.picks` -- but on a 304 the adapter replays the identical body, so
