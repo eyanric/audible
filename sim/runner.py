@@ -12,8 +12,15 @@ So:
 * PREFLIGHT ASSERTS EVERY INPUT BEFORE THE FIRST DRAFT. A run that dies forty minutes in on an
   upstream 404 is the failure mode this exists to design out, and it is not hypothetical -- a
   DynastyProcess URL began serving an HTML 404 page on 2026-08-17 and the board could not
-  build. Preflight opens and checksums every file the run will read, and exits non-zero naming
-  the first one missing. Nothing here ever reaches the network.
+  build. Preflight opens and checksums all 20 files the run reads, and exits non-zero naming
+  the first one missing. It also refuses a config that would run to completion and then
+  produce nothing readable: no seasons, no seeds, a repeated seed, an unknown season, or a
+  missing arm. Nothing here ever reaches the network.
+
+  THE LIST WAS INCOMPLETE ONCE AND IT COST NOTHING TO FIND, WHICH IS THE ARGUMENT FOR
+  CHECKING IT. `room.espn_identity()` reads three `espn_ranks_*` files inside a
+  `try/except FileNotFoundError`, so a missing one passed preflight and killed the run later
+  at the fit with a bare `ValueError: 2021: 9 of 128 picks resolve to no position`.
 * CHECKPOINTS. A sweep that dies at seed 800 of 1000 resumes at 800. Results are appended as
   they are produced, each line carrying its own hash, and the file header binds the config
   hash -- so a checkpoint written by a different config is refused rather than silently mixed
@@ -109,14 +116,48 @@ def load_config(path: Path) -> RunConfig:
             raise SystemExit(f"PREFLIGHT: {path} sets neither `seeds` nor `seed_count`")
         start = int(run.get("seed_start", 0))
         seeds = list(range(start, start + int(count)))
+    seasons = tuple(int(x) for x in run["seasons"])
+    seed_tuple = tuple(int(x) for x in seeds)
+    arms = tuple(str(a) for a in run["arms"])
+
+    # Everything below is a config that would otherwise run to completion and then produce a
+    # number that means nothing. Each was found by pointing a reviewer at the config loader.
+    if not seasons:
+        raise SystemExit(f"PREFLIGHT: {path} has no seasons; there is nothing to run")
+    if not seed_tuple:
+        raise SystemExit(
+            f"PREFLIGHT: {path} resolves to zero seeds. An empty run used to produce an "
+            f"artifact in which every arm read 0.0 [0.0, 0.0] and every gate passed."
+        )
+    if len(set(seed_tuple)) != len(seed_tuple):
+        # A duplicate seed is computed once and then counted N times by `build_payload`,
+        # which collapses the interval to zero width and makes a single draw look certain.
+        duplicates = sorted({x for x in seed_tuple if seed_tuple.count(x) > 1})
+        raise SystemExit(
+            f"PREFLIGHT: {path} repeats seed(s) {duplicates}. A repeated seed is one draw "
+            f"counted many times, and it makes the interval a fabrication."
+        )
+    if len(set(arms)) != len(arms):
+        raise SystemExit(f"PREFLIGHT: {path} repeats an arm: {arms}")
+    unknown_seasons = sorted(set(seasons) - set(room.SEASONS))
+    if unknown_seasons:
+        raise SystemExit(
+            f"PREFLIGHT: {path} names season(s) {unknown_seasons}, which the room is not "
+            f"fitted for. Nothing is substituted for a season that has no pinned inputs."
+        )
+    try:
+        seat_no = int(run["seat"])
+    except (TypeError, ValueError):
+        raise SystemExit(f"PREFLIGHT: {path} has a non-integer seat {run['seat']!r}") from None
+
     return RunConfig(
         name=str(run["name"]),
-        seasons=tuple(int(s) for s in run["seasons"]),
-        seeds=tuple(int(s) for s in seeds),
-        arms=tuple(str(a) for a in run["arms"]),
-        seat=int(run["seat"]),
+        seasons=seasons,
+        seeds=seed_tuple,
+        arms=arms,
+        seat=seat_no,
         league=str(run["league"]),
-        fit_seasons=tuple(int(s) for s in run.get("fit_seasons", room.SEASONS)),
+        fit_seasons=tuple(int(x) for x in run.get("fit_seasons", room.SEASONS)),
         raw=blob,
     )
 
@@ -132,6 +173,12 @@ def required_inputs(config: RunConfig) -> list[str]:
         names.append(f"espn_draft_{room.LEAGUE_ID}_{season}.json")
     for season in sorted(set(config.seasons)):
         names.append(f"nflverse/player_stats_{season}.parquet")
+    # `room.espn_identity()` reads these on every run and swallows FileNotFoundError, so a
+    # missing one used to sail through preflight and kill the run later at `fit_room` with a
+    # bare `ValueError: 2021: 9 of 128 picks resolve to no position`. They carry the
+    # thirty-two negative team-defence ids that the crosswalk has none of, so they are
+    # load-bearing rather than optional.
+    names.extend(f"espn_ranks_{room.LEAGUE_ID}_{season}.json" for season in (2023, 2024, 2025))
     return names
 
 
@@ -169,7 +216,7 @@ def preflight(config: RunConfig) -> dict[str, dict[str, str]]:
         raise SystemExit(
             f"PREFLIGHT FAILED: seat {config.seat} is outside 1..{room.TEAMS}"
         )
-    unknown = [a for a in config.arms if a not in ("real", "shuffle", "bot", "leaky-shuffle")]
+    unknown = [a for a in config.arms if a not in seat.ARMS]
     if unknown:
         raise SystemExit(f"PREFLIGHT FAILED: unknown arm(s) {unknown}")
     if "shuffle" not in config.arms:
@@ -177,6 +224,16 @@ def preflight(config: RunConfig) -> dict[str, dict[str, str]]:
             "PREFLIGHT FAILED: the shuffle arm is not optional. It is the leak detector and "
             "it runs on every run, permanently -- five prior validation attempts have failed "
             "and a sixth that suddenly succeeds is assumed leaky until shuffle says otherwise."
+        )
+    missing_arms = sorted(seat.REQUIRED_ARMS - set(config.arms))
+    if missing_arms:
+        # This used to run the whole sweep and then die inside `artifact.write` formatting a
+        # None -- 900 units of work, no artifact, and no named gate. It belongs here.
+        raise SystemExit(
+            f"PREFLIGHT FAILED: missing required arm(s) {missing_arms}. `real` is the thing "
+            f"under test, `shuffle` is the leak detector, `bot` is the null control that says "
+            f"the machinery is sound, and `adp` is the skill baseline that says whether "
+            f"beating the bots is an achievement. A report without all four is not readable."
         )
     return pins
 
@@ -194,9 +251,28 @@ class Checkpoint:
     from a half-written line is how a resume turns into a different run.
     """
 
-    def __init__(self, path: Path, config: RunConfig) -> None:
+    def __init__(
+        self, path: Path, config: RunConfig, pins: dict[str, dict[str, str]] | None = None
+    ) -> None:
         self.path = path
         self.config = config
+        self.pins = pins or {}
+
+    @property
+    def pin_hash(self) -> str:
+        """One hash over every input checksum, bound into the checkpoint header.
+
+        THE CONFIG HASH IS NOT ENOUGH. It covers seasons, seeds, arms, seat and league --
+        nothing about the DATA. A run killed at unit 5, resumed after a pinned file changed,
+        produced an artifact whose 12 units came from two different boards while its `pins`
+        block recorded only the second. That is precisely the `schedules_2026` failure the
+        artifact exists to catch, and the checkpoint was the hole it came through.
+        """
+        return hashlib.sha256(
+            artifact.canonical(
+                {k: v.get("sha256", "") for k, v in sorted(self.pins.items())}
+            ).encode("utf-8")
+        ).hexdigest()
 
     def load(self) -> dict[tuple[str, int, int], dict[str, Any]]:
         if not self.path.exists():
@@ -217,6 +293,13 @@ class Checkpoint:
                 f"{header.get('config_hash', '?')[:12]}, this run is "
                 f"{self.config.config_hash[:12]}. Resuming would mix two runs into one "
                 f"artifact. Delete the checkpoint or point --config at the original."
+            )
+        if self.pins and header.get("pin_hash") not in (None, self.pin_hash):
+            raise SystemExit(
+                f"CHECKPOINT REFUSED: {self.path} was written against different input data "
+                f"(pins {str(header.get('pin_hash'))[:12]}, this run {self.pin_hash[:12]}). "
+                f"Resuming would produce one artifact from two boards while recording only "
+                f"one set of checksums. Delete the checkpoint and rerun."
             )
         out: dict[tuple[str, int, int], dict[str, Any]] = {}
         for number, line in enumerate(lines[1:], start=2):
@@ -247,9 +330,18 @@ class Checkpoint:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         header = artifact.canonical(
-            {"config_hash": self.config.config_hash, "name": self.config.name}
+            {
+                "config_hash": self.config.config_hash,
+                "name": self.config.name,
+                "pin_hash": self.pin_hash,
+            }
         )
-        self.path.write_text(header + "\n", encoding="utf-8")
+        # Written to a temp file and renamed, so a kill between create and write cannot leave
+        # a zero-byte file whose first DATA line is then parsed as the header -- which
+        # discarded a whole completed sweep with "written by config ?".
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(header + "\n", encoding="utf-8")
+        tmp.replace(self.path)
 
     def append(self, payload: dict[str, Any]) -> None:
         line = artifact.canonical(payload)
@@ -289,15 +381,28 @@ def iter_units(
 
 
 def execute(
-    config: RunConfig, *, resume: bool, state_dir: Path, progress_every: int = 25
+    config: RunConfig,
+    *,
+    resume: bool,
+    state_dir: Path,
+    progress_every: int = 25,
+    checkpoint_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Run every unit, checkpointing as it goes, and return the artifact payload."""
+    """Run every unit, checkpointing as it goes, and return the artifact payload.
+
+    *checkpoint_dir* exists so a test run cannot delete a live sweep's checkpoint. The path
+    used to be `RUNS_DIR / f"{name}.checkpoint.jsonl"` with no override, so any second
+    invocation of the same config name -- a gate, a cron retrigger, a second terminal -- would
+    unlink the in-flight file and start appending its own.
+    """
     started = time.perf_counter()
     log.info("preflight: %d inputs", len(required_inputs(config)))
     pins = preflight(config)
     log.info("preflight ok: every input present and checksummed")
 
-    checkpoint = Checkpoint(RUNS_DIR / f"{config.name}.checkpoint.jsonl", config)
+    checkpoint = Checkpoint(
+        (checkpoint_dir or RUNS_DIR) / f"{config.name}.checkpoint.jsonl", config, pins
+    )
     if not resume and checkpoint.path.exists():
         checkpoint.path.unlink()
     checkpoint.start()
@@ -369,8 +474,13 @@ def build_payload(
     arms: dict[str, Any] = {}
     for arm in sorted(config.arms):
         mine = [r for r in rows if r["arm"] == arm]
-        pf, pf_lo, pf_hi = seat.mean_and_interval([r["points_for"] for r in mine])
-        ad, ad_lo, ad_hi = seat.mean_and_interval([r["advantage"] for r in mine])
+        seasons_of = [r["season"] for r in mine]
+        pf, pf_lo, pf_hi = seat.mean_and_interval(
+            [r["points_for"] for r in mine], seasons_of
+        )
+        ad, ad_lo, ad_hi = seat.mean_and_interval(
+            [r["advantage"] for r in mine], seasons_of
+        )
         arms[arm] = {
             "n": len(mine),
             "definition": _arm_definition(arm),
@@ -389,8 +499,10 @@ def build_payload(
                     sum(r["unresolved"] for r in mine) / max(1, len(mine)), 4
                 ),
                 # How many of the sixteen picks came from the harness's feasibility deadline
-                # rather than from audible's ordering. Audible never names a kicker on its
-                # own -- see `seat.AudibleSeat.choose` -- and this is the size of that.
+                # rather than from audible's ordering. Measured with the deadline disabled,
+                # audible finishes without a kicker in 6.0% of drafts and without a defence in
+                # 23.7%; it takes a kicker unassisted 94% of the time. See
+                # `seat.AudibleSeat.choose`.
                 "deadline_picks": round(
                     sum(r["deadline_picks"] for r in mine) / max(1, len(mine)), 4
                 ),
@@ -400,7 +512,9 @@ def build_payload(
         }
 
     shuffle_rows = [r for r in rows if r["arm"] == "shuffle"]
-    sh, sh_lo, sh_hi = seat.mean_and_interval([r["advantage"] for r in shuffle_rows])
+    sh, sh_lo, sh_hi = seat.mean_and_interval(
+        [r["advantage"] for r in shuffle_rows], [r["season"] for r in shuffle_rows]
+    )
     payload: dict[str, Any] = {
         "run": config.name,
         "config_hash": config.config_hash,
@@ -430,20 +544,27 @@ def build_payload(
         "require_shuffle_at_chance": bool(
             (config.raw.get("gates") or {}).get("require_shuffle_at_chance", False)
         ),
-        "leak_decomposition": _decomposition(arms, _paired_difference(rows, "real", "shuffle")),
+        "leak_decomposition": _decomposition(
+            arms, _paired_difference(rows, "real", "shuffle")[0]
+        ),
         "outcome_measure": "points-for under weekly optimal lineups",
         "slots_scored": f"7 of {len(room.STARTING_SLOTS)} (K and DEF have no scoreable rows)",
         "timing": {"wall_s": round(wall, 2)},
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
-    if "real" in arms and "shuffle" in arms:
-        paired = _paired_difference(rows, "real", "shuffle")
-        if paired:
-            m, lo, hi = seat.mean_and_interval(paired)
-            payload["real_minus_shuffle"] = {
-                "n": len(paired), "mean": round(m, 3),
-                "lo": round(lo, 3), "hi": round(hi, 3),
-            }
+    for left, right, label in (
+        ("real", "shuffle", "real_minus_shuffle"),
+        ("real", "adp", "real_minus_adp"),
+        ("shuffle", "bot", "shuffle_minus_bot"),
+    ):
+        if left in arms and right in arms:
+            paired, keys = _paired_difference(rows, left, right)
+            if paired:
+                m, lo, hi = seat.mean_and_interval(paired, [k[0] for k in keys])
+                payload[label] = {
+                    "n": len(paired), "mean": round(m, 3),
+                    "lo": round(lo, 3), "hi": round(hi, 3),
+                }
     return payload
 
 
@@ -471,18 +592,22 @@ def _decomposition(arms: dict[str, Any], real_minus_shuffle: Sequence[float]) ->
     }
     out["reading"] = (
         "machinery at chance; the shuffle arm keeps audible's structure and only loses its "
-        "value ordering, which is why it beats bots that draft a second unstartable QB"
+        "value ordering. READ `real_minus_adp` BEFORE THIS: the terms below are audible "
+        "against BOTS, and the bots reach by fitted amounts while the seat does not, so a "
+        "noiseless seat of any kind collects what they pass. The baseline arm is what says "
+        "whether any of it is audible's doing."
     )
     return out
 
 
 def _paired_difference(
     rows: Sequence[dict[str, Any]], left: str, right: str
-) -> list[float]:
-    """Differences on matched (season, seed). Unmatched units are dropped, not averaged."""
+) -> tuple[list[float], list[tuple[int, int]]]:
+    """Differences on matched (season, seed), and the keys, so the caller can cluster."""
     a = {(r["season"], r["seed"]): r["advantage"] for r in rows if r["arm"] == left}
     b = {(r["season"], r["seed"]): r["advantage"] for r in rows if r["arm"] == right}
-    return [a[k] - b[k] for k in sorted(a.keys() & b.keys())]
+    keys = sorted(a.keys() & b.keys())
+    return [a[k] - b[k] for k in keys], keys
 
 
 def _arm_definition(arm: str) -> str:
@@ -490,11 +615,40 @@ def _arm_definition(arm: str) -> str:
         "real": "audible's board, ordered by the cockpit's own the_call",
         "shuffle": "the same, with the board's value ordering permuted per seed",
         "bot": "the null control: seat played by the room's own bot logic, no overlay",
+        "adp": "the SKILL BASELINE: best available by ADP rank, capped, no audible at all",
         "leaky-shuffle": "INJECTION ONLY: shuffle arm reading the real board",
     }[arm]
 
 
 # --- gates -------------------------------------------------------------------------------------
+
+
+def leak_ceiling_failures(payload: dict[str, Any]) -> list[str]:
+    """G6d. A ceiling on how far past the ADP baseline an honest ordering can get.
+
+    THE SIGNATURE G6b WATCHES FOR IS NOT THE ONE A REAL LEAK PRODUCES. G6b fires when
+    `real - shuffle` COLLAPSES, on the reasoning that a leak lets a scrambled board win as
+    hard as a real one. An actual leak was built to test that -- a seat re-ranking its own
+    shortlist by what each player went on to score -- and the difference WIDENED instead, from
+    +92 to +428, because the leak helps whichever arm has the better shortlist. Every gate
+    passed while the real arm sat at +479.8.
+
+    What a leak cannot hide is its SIZE. The board's values are a monotone transform of ADP
+    rank, so there is no better ordering of it to find; audible's contribution is its overlay
+    and the overlay is worth tens of points. An arm hundreds of points past the ADP baseline
+    is reading something that is not on the board.
+    """
+    baseline = payload.get("real_minus_adp")
+    if baseline is None:
+        return []
+    if float(baseline["mean"]) > seat.LEAK_CEILING:
+        return [
+            f"G6d leak-ceiling: the real arm beats the ADP baseline by "
+            f"{baseline['mean']:+.1f}, past the {seat.LEAK_CEILING:+.0f} ceiling. The board "
+            f"is a monotone transform of ADP rank and contains no ordering worth that much, "
+            f"so the arm is reading something that is not on it."
+        ]
+    return []
 
 
 def gate_failures(payload: dict[str, Any]) -> list[str]:
@@ -538,6 +692,20 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
     """
     failures: list[str] = []
 
+    if not payload.get("units"):
+        failures.append(
+            "G0 empty-run: the artifact contains no units. Every arm then reads "
+            "0.0 [0.0, 0.0] and every other gate passes on nothing."
+        )
+
+    baseline = payload.get("real_minus_adp")
+    if baseline is None:
+        failures.append(
+            "G6c skill-baseline: no `adp` arm, so there is nothing that says beating the "
+            "bots is an achievement rather than an artifact of a noiseless seat in a noisy "
+            "room."
+        )
+
     bot = payload["arms"].get("bot")
     if bot is None:
         failures.append(
@@ -547,6 +715,8 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
         )
     else:
         lo, hi = bot["advantage"]["lo"], bot["advantage"]["hi"]
+        if isinstance(lo, str) or isinstance(hi, str):
+            lo, hi = float("-inf"), float("inf")
         if not (lo <= 0.0 <= hi):
             failures.append(
                 f"G6a null-control-at-chance: a bot in the seat scored "
@@ -556,7 +726,12 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
             )
 
     diff = payload.get("real_minus_shuffle")
-    if diff is not None and diff["lo"] <= 0.0:
+    if diff is not None and isinstance(diff["lo"], str):
+        failures.append(
+            "G6b real-beats-shuffle: unresolvable. This run has one season-cluster, so there "
+            "is no interval to read. Add SEASONS, not seeds."
+        )
+    elif diff is not None and diff["lo"] <= 0.0:
         failures.append(
             f"G6b real-beats-shuffle: real - shuffle is {diff['mean']:+.1f} "
             f"[{diff['lo']:+.1f}, {diff['hi']:+.1f}], which includes zero. A scrambled board "
@@ -569,6 +744,8 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
             f"[{payload['shuffle']['lo']:+.1f}, {payload['shuffle']['hi']:+.1f}] is "
             f"significantly positive"
         )
+
+    failures.extend(leak_ceiling_failures(payload))
 
     for name, block in payload["arms"].items():
         if block["structural"]["illegal_lineups"]:
@@ -593,6 +770,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--resume", action="store_true", help="continue from the checkpoint")
     parser.add_argument("--out", type=Path, default=None, help="artifact path")
     parser.add_argument("--log", type=Path, default=None, help="run log path")
+    parser.add_argument(
+        "--checkpoint-dir", type=Path, default=None,
+        help="where the checkpoint lives (default: sim/runs). Point a test run elsewhere.",
+    )
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
@@ -607,7 +788,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="sim-run-") as tmp:
-        payload = execute(config, resume=args.resume, state_dir=Path(tmp))
+        payload = execute(
+            config, resume=args.resume, state_dir=Path(tmp),
+            checkpoint_dir=args.checkpoint_dir,
+        )
 
     artifact.write(out, payload)
     log.info("artifact %s  digest %s", out, payload["content_digest"][:16])

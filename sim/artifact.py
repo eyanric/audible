@@ -138,13 +138,12 @@ def fit_block(fit: room.Fit) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class Structural:
-    """The outcomes with known-correct directions. Lower is better for all three."""
+    """The outcomes with known-correct directions. Lower is better for every field."""
 
     unfillable_bye_weeks: float
     wasted_roster_slots: float
     positional_surplus: float
     illegal_lineups: int
-    unresolved_players: float
 
 
 def structural_for(
@@ -156,11 +155,22 @@ def structural_for(
         slot, because too many of its eligible players share that bye. This is the failure
         `docs/STATE.md` describes: two running backs on the same bye and two dedicated RB
         slots means one week with no legal lineup, and no flex can rescue it.
-    wasted_roster_slots -- players at a position beyond what the lineup can ever start. A
-        third kicker is a wasted slot in a way a fifth receiver is not, because the receiver
-        can still flex.
-    positional_surplus -- total players held beyond `num_teams`-independent startable
-        capacity, summed over positions.
+
+        Filled greedily, most-specific-slot-first, which is optimal for THIS eligibility
+        lattice and was checked by brute force against a true max-matching over every roster of
+        length <= 9 and 300,000 random longer ones: zero disagreements. It stops being optimal
+        the moment a SUPER_FLEX or a second overlapping flex appears, which is the same caveat
+        `weekly.optimal_week` carries and the reason that one is exact.
+
+        NOTE that this metric cannot influence `points_for`: the bootstrap resamples a player's
+        own observed weeks, so bye weeks do not exist in the outcome measure. It is reported
+        because it is a real property of a roster, not because it feeds anything.
+    wasted_roster_slots -- surplus at a position that can fill AT MOST ONE starting slot, so
+        D/ST, K and QB in this league. A second kicker is dead weight in a way a fifth receiver
+        is not, because the receiver can still flex. This is deliberately narrower than
+        `positional_surplus` and the two are reported side by side.
+    positional_surplus -- total players held beyond startable capacity, summed over EVERY
+        position. A fourth tight end counts here and not above.
     """
     by_rank = {r.rank: r for r in board.rows}
     roster: list[tuple[str, int | None]] = []
@@ -212,16 +222,20 @@ def structural_for(
         wasted_roster_slots=float(wasted),
         positional_surplus=float(surplus),
         illegal_lineups=1 if filled_slots.unfilled() else 0,
-        unresolved_players=0.0,
     )
 
 
 def wrap60(text: str, indent: str = "  ") -> list[str]:
-    """Hard-wrap at 60 characters. Eric reads these on a phone."""
+    """Hard-wrap so the FINISHED line is at most 60 characters.
+
+    58, not 60: `write` prepends "# " to every summary line, and wrapping at 60 put four
+    lines of the committed artifacts at 61 and 62 columns. The budget belongs to the reader,
+    not to the text before the prefix is added.
+    """
     lines: list[str] = []
     current = indent
     for word in text.split():
-        if len(current) + len(word) > 60 and current.strip():
+        if len(current) + len(word) > 58 and current.strip():
             lines.append(current.rstrip())
             current = f"{indent}{word} "
         else:
@@ -229,6 +243,18 @@ def wrap60(text: str, indent: str = "  ") -> list[str]:
     if current.strip():
         lines.append(current.rstrip())
     return lines
+
+
+def _interval(block: Mapping[str, Any]) -> str:
+    """`mean [lo, hi]`, or `mean [unresolvable]` when the run has one season-cluster.
+
+    `_clean` turns an infinity into the string "inf", so an unresolvable bound arrives here as
+    text rather than a float. Formatting it with `:+.1f` is how this crashed.
+    """
+    lo, hi = block["lo"], block["hi"]
+    if isinstance(lo, str) or isinstance(hi, str):
+        return f"{float(block['mean']):+.1f} [unresolvable: one season]"
+    return f"{float(block['mean']):+.1f} [{lo:+.1f}, {hi:+.1f}]"
 
 
 def summary_block(payload: Mapping[str, Any]) -> list[str]:
@@ -254,18 +280,18 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
     out.append("")
     out.append("points-for, weekly optimal lineups (7 of 9 slots):")
     for name in sorted(arms):
-        pf = arms[name]["points_for"]
-        out.append(
-            f"  {name}: {pf['mean']:.0f} [{pf['lo']:.0f}, {pf['hi']:.0f}]"
-        )
+        out.append(f"  {name}: {_interval(arms[name]['points_for'])}")
     out.append("")
     out.append("advantage over the opponent field, paired:")
     for name in sorted(arms):
-        ad = arms[name]["advantage"]
-        out.append(f"  {name}: {ad['mean']:+.1f} [{ad['lo']:+.1f}, {ad['hi']:+.1f}]")
-    if "real_minus_shuffle" in payload:
-        d = payload["real_minus_shuffle"]
-        out.append(f"  real - shuffle: {d['mean']:+.1f} [{d['lo']:+.1f}, {d['hi']:+.1f}]")
+        out.append(f"  {name}: {_interval(arms[name]['advantage'])}")
+    for label, key in (
+        ("real - shuffle", "real_minus_shuffle"),
+        ("real - adp    ", "real_minus_adp"),
+        ("shuffle - bot ", "shuffle_minus_bot"),
+    ):
+        if key in payload:
+            out.append(f"  {label}: {_interval(payload[key])}")
     out.append("")
     if payload.get("leak_decomposition"):
         d = payload["leak_decomposition"]
@@ -277,8 +303,8 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
         out.append("")
     out.append("shuffle control (the leak detector):")
     out.append(f"  at chance: {'yes' if shuffle['at_chance'] else 'NO'}")
-    out.append(f"  advantage: {shuffle['advantage']:+.1f} "
-               f"[{shuffle['lo']:+.1f}, {shuffle['hi']:+.1f}]")
+    band = {"mean": shuffle["advantage"], "lo": shuffle["lo"], "hi": shuffle["hi"]}
+    out.append(f"  advantage: {_interval(band)}")
     out.extend(wrap60(shuffle["reading"], indent="  "))
     if not shuffle["at_chance"]:
         out.extend(
@@ -289,6 +315,35 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
                 "only loses its value ordering."
             )
         )
+    out.append("")
+    if "real_minus_adp" in payload:
+        d = payload["real_minus_adp"]
+        beats = not isinstance(d["lo"], str) and d["lo"] > 0.0
+        out.append("THE BASELINE, and read this before anything above:")
+        out.extend(
+            wrap60(
+                "audible against a ten-line ADP-greedy seat with no "
+                "audible in it at all, same room, same seeds, paired: "
+                f"{_interval(d)}."
+            )
+        )
+        out.extend(
+            wrap60(
+                "audible beats the obvious alternative."
+                if beats
+                else "audible does NOT beat the obvious alternative. The "
+                "advantage over the bots above is what any noiseless "
+                "seat gets in a room of bots that reach."
+            )
+        )
+        out.append("")
+    out.append("intervals are clustered on SEASON, not on seed:")
+    out.extend(
+        wrap60(
+            "five markets, not three hundred draws. A flat standard "
+            "error over seeds is 2.5 to 2.9 times too narrow."
+        )
+    )
     out.append("")
     out.append("limits that hold regardless:")
     out.extend(
@@ -313,8 +368,14 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
 
 
 def content_digest(payload: Mapping[str, Any]) -> str:
-    """sha256 over everything the config determines. Wall clock is excluded, nothing else is."""
-    stripped = {k: v for k, v in payload.items() if k not in VOLATILE}
+    """sha256 over everything the config determines. Wall clock is excluded, nothing else is.
+
+    Digested over the CLEANED payload, which is what the file stores. Digesting the raw one
+    meant the digest could not be recomputed from the artifact once `_clean` rounded a float,
+    and it raised outright on an infinity -- which a single-season run legitimately produces,
+    because one cluster has no interval.
+    """
+    stripped = {k: _clean(v) for k, v in payload.items() if k not in VOLATILE}
     return hashlib.sha256(canonical(stripped).encode("utf-8")).hexdigest()
 
 
@@ -323,7 +384,8 @@ def write(path: Path, payload: dict[str, Any]) -> Path:
     payload["schema_version"] = SCHEMA_VERSION
     payload["content_digest"] = content_digest(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = json.dumps(_clean(payload), indent=2, sort_keys=True, allow_nan=False)
+    payload = _clean(payload)
+    body = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False)
     header = "\n".join(f"# {line}" if line else "#" for line in summary_block(payload))
     path.write_text(f"{header}\n{body}\n", encoding="utf-8")
     return path

@@ -16,13 +16,18 @@ change that: no vintage preseason projections exist for any of these seasons. Th
 serves today's numbers for a 2021 season, not the numbers that stood before its draft.
 
 So the board Audible orders is built from the same FFC ADP the bots use -- see
-`board_from_season`. Points come from ADP rank through a monotone transform, and VORP comes
-from `audible.value.replacement.compute_vorp` over those points, which is the real value
-engine and the real config-derived replacement levels. What differs between arms is the
-ORDER, never the projections, because both arms have the same ones.
+`board_from_season`, which also records why audible's own `compute_vorp` is NOT used on it.
+Value is a monotone transform of ADP rank, so the board's order IS the market's order, and
+what differs between arms is audible's overlay and never the projections.
 
 That is also why the room is a fair opponent rather than a strawman: the bots draft from the
 identical board. Neither side has information the other lacks.
+
+AND IT IS ALSO WHY THE HEADLINE NUMBER IS NOT WHAT IT LOOKS LIKE. The bots reach -- they draw
+`rank + mu[position] + N(0, sigma)`, by fitted amounts, the way real drafters do. The seat
+draws nothing, so it collects every player the room reaches past: measured, the seat obtains
+mean ADP rank 63.1 against the opponents' 69.2. ANY noiseless seat wins that room by well over
+a hundred points, which is why the `adp` arm exists and why it is required.
 
 
 THE SHUFFLE ARM IS NOT OPTIONAL
@@ -38,10 +43,13 @@ drafting a scrambled board should be somewhat WORSE than eight ADP bots, and usu
 The failure it detects is the opposite one: if the harness leaks outcome information into the
 draft, even a scrambled board wins, because the leak and not the ordering is doing the work.
 
-So the gate is one-sided: the shuffle arm's paired advantage over the opponent field must not
-be significantly POSITIVE. `shuffle_verdict` returns that number with an interval, and
-`test_g_runner.py` fires an injection that points the shuffle arm at the real board to prove
-the detector can go red.
+AND THE ASSUMED SIGNATURE TURNED OUT TO BE WRONG, which is worth more than the gate it
+replaced. A real outcome leak was built to test it -- a seat re-ranking its own shortlist by
+what each player went on to score -- and `real - shuffle` WIDENED, from +92 to +428, because
+the leak helps whichever arm has the better shortlist. Every gate passed while the real arm
+sat at +479.8. So the detectable signature is SIZE, not collapse: see
+`runner.leak_ceiling_failures`, which is G6d, and `test_i7_an_outcome_informed_seat_is_caught`,
+which fires it.
 
 
 PAIRING
@@ -56,7 +64,7 @@ seed 7 face the identical opponent field.
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,16 +77,17 @@ from . import room, weekly
 DEFAULT_SEAT: int = 6
 
 # Points handed to the top of the board, and to the bottom. The transform is monotone in ADP
-# rank and nothing else, so it carries no information the bots do not also have. The span is
-# chosen to put replacement level somewhere sane for `compute_vorp`; the SCALE is arbitrary
-# and cancels, because every arm shares it.
+# rank and nothing else, so it carries no information the bots do not also have. The SCALE is
+# arbitrary and cancels, because every arm shares it.
 TOP_POINTS: float = 340.0
 BOTTOM_POINTS: float = 40.0
 
 
 def board_from_season(
     season_board: room.SeasonBoard,
-    config: Any,
+    config: Any,  # noqa: ARG001 -- kept so a config-derived board can be added without a
+    #                              signature change at every call site; unused today because
+    #                              value is a monotone transform of ADP rank and nothing else.
     *,
     shuffle: random.Random | None = None,
 ) -> Any:
@@ -205,17 +214,20 @@ class AudibleSeat:
         *,
         remaining: int = 0,
         unfilled: Sequence[str] = (),
+        counts: Mapping[str, int] | None = None,
     ) -> int:
         """The board index Audible would take. Returns -1 when it has no legal answer.
 
         THE DEADLINE IS THE HARNESS'S, NOT AUDIBLE'S, and the distinction matters.
 
-        Audible's ordering, left to draft sixteen picks unassisted, finishes without a kicker
-        or a defence 88% of the time. That is not a bug in The Call: `the_call` ranks on
-        `effective_score`, a kicker's value sits at ADP rank 138 or worse, and it will never
-        surface above a startable receiver. It is also not how the tool is used -- the cockpit
-        is open on a desk next to somebody who can see an empty K slot in round fifteen and
-        does something about it.
+Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
+        in 6.0% of drafts, without a defence in 23.7%, and short of at least one of the two in
+        25.7%. (An earlier version of this docstring said 88%, which was measured before the
+        board stopped being built through `compute_vorp` and was never re-measured.) That is
+        not a bug in The Call: `the_call` ranks on `effective_score`, a kicker's value sits at
+        ADP rank 138 or worse, and it will rarely surface above a startable receiver. It is
+        also not how the tool is used -- the cockpit is open on a desk next to somebody who can
+        see an empty D/ST slot in round fifteen and does something about it.
 
         So the harness applies the SAME feasibility deadline the bots get: with as many picks
         left as unfilled starting slots, fill the most specific one, using audible's own
@@ -342,6 +354,59 @@ def build_seat(
     )
 
 
+ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp", "leaky-shuffle"})
+
+# How far past the ADP baseline an honest ordering could plausibly get, in points-for over a
+# bootstrapped season. The board's values are a MONOTONE TRANSFORM OF ADP RANK, so there is no
+# better ordering of it to find -- audible's whole contribution is its overlay, and the overlay
+# is worth tens of points, not hundreds. Anything past this has information the board does not
+# contain. Measured: an oracle seat that picks whoever actually scored most that season clears
+# the baseline by roughly +330; the honest arm sits at -27 to -35.
+#
+# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it.
+LEAK_CEILING: float = 150.0
+
+# Arms that must all be present for the report to mean anything. `real` is the thing under
+# test, `shuffle` is the leak detector, `bot` is the null that says the machinery is sound,
+# and `adp` is the skill baseline that says whether beating the bots is an achievement.
+REQUIRED_ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp"})
+
+
+def _adp_greedy(season_board: room.SeasonBoard, fit: room.Fit):
+    """Best available by ADP rank, capped like a bot, deadline like the seat. No audible.
+
+    Deliberately the dumbest thing that is not obviously stupid, because that is what a
+    baseline is for. It carries no need logic beyond the deadline, no bye term, no surplus
+    discount and no survival estimate.
+    """
+    rows = season_board.rows
+
+    def choose(
+        overall: int,
+        taken: Sequence[int],
+        _rows: Sequence[Any],
+        *,
+        remaining: int = 0,
+        unfilled: Sequence[str] = (),
+        counts: Mapping[str, int] | None = None,
+    ) -> int:
+        held = dict(counts or {})
+        allowed: set[str] | None = None
+        if unfilled and remaining and len(unfilled) >= remaining:
+            allowed = set(room.SLOT_ELIGIBILITY[unfilled[0]])
+        for i, row in enumerate(rows):
+            if taken[i]:
+                continue
+            if allowed is not None and row.position not in allowed:
+                continue
+            if held.get(row.position, 0) >= fit.caps.get(row.position, room.ROUNDS):
+                continue
+            return i
+        return -1
+
+    return choose
+
+
 @dataclass(frozen=True, slots=True)
 class ArmResult:
     arm: str
@@ -384,8 +449,21 @@ def run_arm(
     face the identical opponent field and the identical weekly draws, and their difference
     isolates the arm.
     """
-    if arm not in ("real", "shuffle", "bot", "leaky-shuffle"):
-        raise ValueError(f"unknown arm {arm!r}")
+    if arm not in ARMS:
+        raise ValueError(f"unknown arm {arm!r}; expected one of {sorted(ARMS)}")
+
+    if arm == "adp":
+        # THE SKILL BASELINE, and the arm that decides whether any of this is evidence.
+        # Ten lines, no audible in it at all: take the best un-taken ADP rank, respect the
+        # same roster caps the bots have, honour the same feasibility deadline the seat gets.
+        # If audible cannot beat this it has not been shown to do anything, however far ahead
+        # of the bots it lands -- and it does not. See the module docstring.
+        picks = room.simulate_draft(
+            season_board, fit, seed,
+            chooser=_adp_greedy(season_board, fit),
+            chooser_seat=seat,
+        )
+        return _score_draft(arm, season, seed, seat, picks, season_board, week_table, 16, 0)
 
     if arm == "bot":
         # THE NULL CONTROL. Seat 6 played by the room's own bot logic -- no audible board, no
@@ -415,9 +493,11 @@ def run_arm(
         *,
         remaining: int = 0,
         unfilled: Sequence[str] = (),
+        counts: Mapping[str, int] | None = None,
     ) -> int:
         return holder.choose(
-            overall, taken, rows_, remaining=remaining, unfilled=unfilled
+            overall, taken, rows_,
+            remaining=remaining, unfilled=unfilled, counts=counts,
         )
 
     def observe(pick: room.SimPick, board_index: int) -> None:
@@ -441,6 +521,9 @@ def run_arm(
                 player_id=pid,
             )
         )
+        # `_invalidate`'s own docstring says callers must hold the lock. This harness is
+        # single-threaded and never starts the poll thread, so there is no other holder; the
+        # contract is noted rather than silently ignored.
         holder.service._invalidate()
 
     picks = room.simulate_draft(
@@ -499,23 +582,68 @@ def _score_draft(
     )
 
 
-def mean_and_interval(values: Sequence[float]) -> tuple[float, float, float]:
-    """(mean, lo, hi) at roughly 95%, from the normal approximation to the standard error.
+# Two-sided 95% t quantiles, indexed by degrees of freedom. Only small df matter here: the
+# clusters are SEASONS and there are five of them, so df is 4 and 2.776 is a long way from
+# the 1.96 a normal approximation would use.
+_T95: dict[int, float] = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
+    8: 2.306, 9: 2.262, 10: 2.228, 12: 2.179, 15: 2.131, 20: 2.086, 30: 2.042,
+}
 
-    A bare point estimate is never reported. With paired arms the quantity is a difference of
-    means over the same seeds, so the standard error is the one of the paired differences and
-    not of either arm on its own.
+
+def _t95(df: int) -> float:
+    if df <= 0:
+        return float("inf")
+    for key in sorted(_T95):
+        if df <= key:
+            return _T95[key]
+    return 1.96
+
+
+def mean_and_interval(
+    values: Sequence[float], clusters: Sequence[Any] | None = None
+) -> tuple[float, float, float]:
+    """(mean, lo, hi) at 95%, CLUSTERED ON SEASON when the clusters are given.
+
+    THE UNCLUSTERED VERSION WAS WRONG AND IT WAS WRONG IN THE DIRECTION THAT FLATTERS. A run
+    of 300 units is five seasons by sixty seeds, and within a season every seed shares one
+    board, one ADP vintage and one set of actuals. Sixty draws from 2023 are sixty views of
+    ONE market, so dividing by the square root of 300 counts each season sixty times.
+
+    Measured on the committed run: the real arm reads +146.4 [+127.9, +164.9] flat and
+    +146.4 [+92.6, +200.3] clustered -- 2.9 times wider. The shuffle arm reads
+    +42.9 [+25.6, +60.1] flat and +42.9 [-1.0, +86.7] clustered, which is the difference
+    between "the leak detector is red" and "the leak detector is green". The module docstring
+    already said five vintages remain five; the arithmetic did not.
+
+    So the interval is over SEASON MEANS with a t quantile on (number of seasons - 1) degrees
+    of freedom. It is much wider and it is the honest width: the thing that limits this
+    measurement is five markets, not three hundred seeds, and no number of seeds fixes that.
     """
     import statistics as st
 
-    n = len(values)
-    if n == 0:
+    if not values:
         return 0.0, 0.0, 0.0
     mean = st.mean(values)
-    if n == 1:
-        return mean, mean, mean
-    sem = st.stdev(values) / n**0.5
-    return mean, mean - 1.96 * sem, mean + 1.96 * sem
+    if clusters is None:
+        if len(values) == 1:
+            return mean, mean, mean
+        sem = st.stdev(values) / len(values) ** 0.5
+        return mean, mean - 1.96 * sem, mean + 1.96 * sem
+
+    grouped: dict[Any, list[float]] = {}
+    for value, key in zip(values, clusters, strict=True):
+        grouped.setdefault(key, []).append(value)
+    means = [st.mean(v) for v in grouped.values()]
+    if len(means) < 2:
+        # One cluster is one market. There is no interval to give and pretending otherwise by
+        # falling back to a flat SEM over seeds is exactly the error this function exists to
+        # stop, so it says "unresolvable" and every consumer has to handle that.
+        return mean, float("-inf"), float("inf")
+    grand = st.mean(means)
+    sem = st.stdev(means) / len(means) ** 0.5
+    half = _t95(len(means) - 1) * sem
+    return grand, grand - half, grand + half
 
 
 def shuffle_verdict(results: Sequence[ArmResult]) -> dict[str, Any]:

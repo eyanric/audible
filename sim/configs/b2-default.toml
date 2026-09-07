@@ -1,19 +1,44 @@
-# The real run. Five seasons, sixty seeds, both arms -- 600 units.
+# The real run. Five seasons, sixty seeds, four arms -- 1200 units, about a minute.
 #
-# Sixty seeds a season is chosen against measured cost, not taste: one unit is about 0.15s, so
-# 600 units is a couple of minutes. The binding constraint on precision is NOT seeds. Five ADP
+# THE BINDING CONSTRAINT ON PRECISION IS NOT SEEDS, and the intervals now say so. Five ADP
 # vintages and five real rooms remain five however many seeds are drawn, because the bootstrap
-# multiplies OUTCOME samples and never MARKET samples.
+# multiplies OUTCOME samples and never MARKET samples. Every interval is therefore clustered
+# on SEASON, with four degrees of freedom. Raising `seed_count` narrows nothing that matters;
+# it only makes each season's own mean less noisy.
 [run]
 name = "b2-default"
 seasons = [2021, 2022, 2023, 2024, 2025]
 seed_start = 0
 seed_count = 60
-# Three arms. `bot` is the NULL CONTROL -- seat 6 played by the room's own logic, which by
-# symmetry must score exactly the field average. It is what says the machinery is sound, and
-# it is the baseline the other two are read against: shuffle minus bot is what audible's
-# STRUCTURE is worth, real minus shuffle is what its VALUE ORDERING is worth.
-arms = ["real", "shuffle", "bot"]
+
+# Four arms, and all four are required.
+#   real    -- the thing under test.
+#   shuffle -- the leak detector: audible's board permuted, everything else identical.
+#   bot     -- the NULL CONTROL: seat 6 played by the room's own logic. By symmetry it must
+#              score the field average, and measuring that it does is what says the machinery
+#              is sound before any other number is believed.
+#   adp     -- the SKILL BASELINE: best available by ADP rank, capped, no audible in it at
+#              all. Without it, "audible beats the bots by 146" reads as an achievement when
+#              it is mostly what ANY noiseless seat gets in a room of bots that reach.
+arms = ["real", "shuffle", "bot", "adp"]
+
+# Seat 6 of 8. Green Hope's live seat, derived from draftSettings.pickOrder, and the seat that
+# matters on Tuesday. A mid-board seat also has a wheel and neighbours on both sides.
 seat = 6
+
+# 6012's rulebook is the one the historical seasons were actually played under. sim/weekly.py
+# applies HISTORICAL_DELTAS on top, because 6012 paid zero per reception in 2021-2025 and the
+# committed TOML's 0.5 describes 2026.
 league = "espn_davis_drive"
+
+# Seasons the OPPONENT MODEL is fitted from. All five: the room is validated on all five and a
+# run that drafts 2024 still wants the fit that was gated. B3's walk-forward split is what
+# changes this, and it changes it here rather than in code.
 fit_seasons = [2021, 2022, 2023, 2024, 2025]
+
+[gates]
+# The handoff's literal G6 -- "the shuffle arm must land at chance against the bots". It is
+# computed and printed on every run whatever this says. Set true to make it a hard gate.
+# It is false because the null control shows the premise is wrong: the shuffle arm keeps
+# audible's structure and only loses its value ordering, so it is not a no-skill control.
+require_shuffle_at_chance = false

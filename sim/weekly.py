@@ -36,17 +36,23 @@ combinations cannot generalise.
 
 TWO POSITIONS CANNOT BE SCORED, AND IT IS STRUCTURAL
 -----------------------------------------------------
-`player_stats_<season>` carries no team-defence rows at all, and `sim/roundtrip.py` measured
-kicker season totals running 3-12 points high against ESPN's, so it excludes them from its own
-gate. Both hold here.
+They score zero, but for two DIFFERENT reasons and only one of them is an absence.
 
-So D/ST and K score ZERO and their two starting slots are always empty. Reported as
-`slots_scored: 7 of 9` on every artifact rather than left to be discovered. The effect is
-COMMON-MODE across arms -- every arm drafts one kicker and one defence, because the room's
-schedule and deadline make it -- so a PAIRED comparison between arms is unaffected in
-expectation. It is not exactly zero: two arms can draft different kickers. The absolute
-points-for number is therefore an understatement of a real league's, by roughly a kicker and a
-defence a week, and only the DIFFERENCES between arms are meant to be read.
+D/ST: `player_stats_<season>` carries no team-defence rows at all. Measured, zero in all five
+seasons. There is nothing to score.
+
+K: kickers DO have rows -- 568 to 570 a season -- and they are scored, to exactly 0.0, because
+`roundtrip.COLUMN_TO_KEY` carries no kicking columns. Summed over every kicker row in a season
+the total is 0.0 for 2021-2024 and 0.6 for 2025. (An earlier version of this docstring said the
+pinned frames do not carry kickers. They do; the scoring vocabulary does not reach them.)
+
+So both starting slots score zero. The K slot is FILLED in the matching by a zero-scoring
+kicker, the D/ST slot is left empty; either way the lineup yields 7 scoring slots of 9, which
+every artifact reports as `slots_scored`. The effect is COMMON-MODE across arms -- every arm
+drafts one kicker and one defence, because the room's schedule and deadline make it -- so a
+PAIRED comparison is unaffected. Two arms drafting different kickers is worth 0.6 points a
+season at the very most. The absolute points-for number understates a real league's by roughly
+a kicker and a defence a week, and only the DIFFERENCES between arms are meant to be read.
 
 
 BYE WEEKS, AND WHY THEY ARE NOT LEAKAGE
@@ -56,9 +62,17 @@ information, published in May, months before a September draft -- it is not an o
 real drafter had it.
 
 The file it is read from also contains outcomes, so the extraction is restricted to four
-columns -- `season`, `week`, `team`, `game_id` -- and `test_g_runner.py` asserts that no stat
-column is touched. The provenance string it returns is `nfl_schedule_<season>`, which is on
-`room.PRE_DRAFT_SOURCES` for exactly this reason and no other.
+columns -- `season`, `week`, `team`, `game_id` -- and `test_g_runner.py` asserts that narrowing
+the frame to those four changes nothing, which really would fail if a stat column were reached
+for.
+
+`SeasonWeekly.provenance` records `player_stats_<season>` and `nfl_schedule_<season>`. NEITHER
+IS ON `room.PRE_DRAFT_SOURCES` AND NEITHER SHOULD BE: this table is an outcome table and it
+must never reach a `SeasonBoard`. An earlier version of this paragraph claimed
+`nfl_schedule_<season>` was on the allowlist "for exactly this reason", which was false in both
+halves -- it is not on it, and if it were, the `player_stats_<season>` entry beside it would
+still be refused. The guard that matters is structural: `build_seat` has no parameter through
+which a weekly table could arrive, and `run_arm` scores only what `simulate_draft` returned.
 
 Everything else in this module is post-draft by construction and is only ever consulted AFTER
 a draft is complete. Nothing here reaches a board or a bot.
@@ -88,7 +102,8 @@ from .roundtrip import (
 # comprehension over whatever happens to be there.
 SCHEDULE_COLUMNS: tuple[str, ...] = ("season", "week", "team", "game_id")
 
-# Positions with no scoreable rows in `player_stats_<season>`. See the module docstring.
+# Positions that score zero. D/ST has no rows at all; K has rows that score 0.0 because the
+# scoring vocabulary carries no kicking columns. See the module docstring for which is which.
 UNSCOREABLE: frozenset[str] = frozenset({"K", "DEF"})
 
 REG_WEEKS: tuple[int, ...] = tuple(range(1, 19))
@@ -99,8 +114,8 @@ def league_config() -> Any:
 
     `roundtrip.HISTORICAL_DELTAS` is `{"rec": 0.0}`: 6012 paid nothing per reception in
     2021-2025 and the committed TOML's 0.5 describes 2026. Scoring five historical seasons
-    under the 2026 table inflates every receiver -- Ja'Marr Chase's 2024 by exactly his 127
-    catches.
+    under the 2026 table inflates every receiver -- Ja'Marr Chase's 2024 by 63.5 points, which
+    is half of his 127 catches.
     """
     from pathlib import Path
 
@@ -287,10 +302,12 @@ def optimal_week(
 
     EXACT, not greedy. `draft/live.py::place_into_slots` fills the most specific open slot
     first, sorted by season projection, and for these nested FLEX structures that happens to
-    be optimal -- but "happens to be" is not a thing to build an outcome measure on, and the
-    two are checked against each other in `test_g_runner.py`. A max-weight matching is also
-    the only version that stays correct if a league config ever grows a SUPER_FLEX or a second
-    overlapping flex.
+    be optimal -- measured, 0 disagreements over 14,400 player-weeks -- but "happens to be" is
+    not a thing to build an outcome measure on. `greedy_week` below exists so
+    `test_g_runner.py::test_the_exact_lineup_matches_greedy_on_this_config` can keep saying so.
+    A max-weight matching is also the only version that stays correct if a league config ever
+    grows a SUPER_FLEX or a second overlapping flex, which is exactly when the equivalence
+    stops holding.
     """
     n = len(slots)
     padded = list(roster) + [("", "")] * max(0, n - len(roster))
@@ -356,10 +373,18 @@ def bootstrap_weeks(
     week of that player's, so identity and position eligibility survive by construction -- the
     thing being resampled is which of his own games he played, never whose game it was.
 
-    A player with no observed weeks (he did not take a snap that season, or he is a kicker or
-    a defence, which the pinned frames do not carry) gets eighteen zeros. That is the honest
-    answer and it is what makes the K and D/ST exclusion visible in the output rather than
-    silently absorbed.
+    A player with no observed weeks gets eighteen zeros -- he took no snap that season, or he
+    is a team defence, which the frames do not carry at all. Kickers DO have rows, so they take
+    the resampling branch like anyone else and resample a set of zeros.
+
+    TWO THINGS THE DRAW DOES THAT ARE WORTH KNOWING. A player with one observed week has that
+    week replayed eighteen times with no shrinkage, and 0.49 players on a typical sixteen-man
+    roster are in that position -- combined with an optimal lineup that starts whoever scored
+    most, one lucky game can become a season-long starter. And only 16 of 12,800 drafted-player
+    slots have all 18 weeks, so every player is handed a bye-free season, inflating totals by
+    roughly one seventeenth. Both are common-mode across arms and survive differencing; both
+    inflate the between-unit variance that the season-clustered intervals already have to
+    absorb.
 
     What this does NOT model, stated because it bounds every interval computed downstream:
     weeks are drawn independently, so there is no within-season autocorrelation -- a player

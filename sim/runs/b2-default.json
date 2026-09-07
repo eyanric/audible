@@ -1,9 +1,15 @@
 # run: b2-default
 # seasons: 2021, 2022, 2023, 2024, 2025
 # seeds: 60  seat: 6
-# units: 900  wall: 48.8s
+# units: 1200  wall: 50.0s
 #
 # structural (lower is better):
+#   adp:
+#     unfillable bye weeks: 2.36
+#     wasted roster slots:  1.72
+#     positional surplus:   5.78
+#     illegal lineups:      0
+#     deadline picks /16:   0.00
 #   bot:
 #     unfillable bye weeks: 2.51
 #     wasted roster slots:  0.71
@@ -11,65 +17,98 @@
 #     illegal lineups:      0
 #     deadline picks /16:   0.00
 #   real:
-#     unfillable bye weeks: 2.42
-#     wasted roster slots:  0.00
+#     unfillable bye weeks: 2.36
+#     wasted roster slots:  0.06
 #     positional surplus:   5.00
 #     illegal lineups:      0
-#     deadline picks /16:   0.37
+#     deadline picks /16:   0.33
 #   shuffle:
-#     unfillable bye weeks: 2.49
-#     wasted roster slots:  0.05
+#     unfillable bye weeks: 2.39
+#     wasted roster slots:  0.11
 #     positional surplus:   5.00
 #     illegal lineups:      0
-#     deadline picks /16:   0.26
+#     deadline picks /16:   0.20
 #
 # points-for, weekly optimal lineups (7 of 9 slots):
-#   bot: 1802 [1783, 1822]
-#   real: 1940 [1923, 1956]
-#   shuffle: 1849 [1832, 1865]
+#   adp: +1928.9 [+1868.3, +1989.5]
+#   bot: +1802.5 [+1746.0, +1858.9]
+#   real: +1928.7 [+1853.7, +2003.8]
+#   shuffle: +1838.0 [+1775.7, +1900.3]
 #
 # advantage over the opponent field, paired:
-#   bot: -4.5 [-25.8, +16.7]
-#   real: +146.4 [+127.9, +164.9]
-#   shuffle: +42.9 [+25.6, +60.1]
-#   real - shuffle: +103.5 [+80.1, +127.0]
+#   adp: +150.7 [+128.5, +172.9]
+#   bot: -4.5 [-40.3, +31.3]
+#   real: +134.8 [+84.3, +185.3]
+#   shuffle: +31.7 [-8.8, +72.2]
+#   real - shuffle: +103.1 [+43.5, +162.8]
+#   real - adp    : -15.9 [-51.3, +19.5]
+#   shuffle - bot : +36.2 [-14.7, +87.1]
 #
 # where the advantage comes from:
 #   machinery (bot in seat): -4.5
-#   + structure:             +47.4
-#   + value ordering:        +103.5
-#   = real:                  +146.4
+#   + structure:             +36.2
+#   + value ordering:        +103.1
+#   = real:                  +134.8
 #
 # shuffle control (the leak detector):
-#   at chance: NO
-#   advantage: +42.9 [+25.6, +60.1]
-#   SHUFFLE IS WINNING -- assume a leak until this is
-#   explained
-#   READ THE DECOMPOSITION ABOVE. The null control -- a bot in
-#   the same seat -- lands at chance, so the machinery is
-#   sound. The shuffle arm keeps audible's structure and only
-#   loses its value ordering.
+#   at chance: yes
+#   advantage: +31.7 [-8.8, +72.2]
+#   shuffle shows no advantage over the field
+#
+# THE BASELINE, and read this before anything above:
+#   audible against a ten-line ADP-greedy seat with no
+#   audible in it at all, same room, same seeds, paired:
+#   -15.9 [-51.3, +19.5].
+#   audible does NOT beat the obvious alternative. The
+#   advantage over the bots above is what any noiseless seat
+#   gets in a room of bots that reach.
+#
+# intervals are clustered on SEASON, not on seed:
+#   five markets, not three hundred draws. A flat standard
+#   error over seeds is 2.5 to 2.9 times too narrow.
 #
 # limits that hold regardless:
-#   no vintage preseason projections exist for any season, so
-#   this measures ORDERING and never the projections.
+#   no vintage preseason projections exist for any season,
+#   so this measures ORDERING and never the projections.
 #   bots fitted to ADP are not people. They do not stack,
 #   reach for their own players, or panic.
 #   the bootstrap multiplies OUTCOME samples, not MARKET
 #   samples. Five ADP vintages remain five.
 {
   "arms": {
+    "adp": {
+      "advantage": {
+        "hi": 172.917,
+        "lo": 128.452,
+        "mean": 150.685
+      },
+      "definition": "the SKILL BASELINE: best available by ADP rank, capped, no audible at all",
+      "n": 300,
+      "points_for": {
+        "hi": 1989.469,
+        "lo": 1868.338,
+        "mean": 1928.904
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.78,
+        "unfillable_bye_weeks": 2.3633,
+        "unresolved_players": 1.36,
+        "wasted_roster_slots": 1.7167
+      }
+    },
     "bot": {
       "advantage": {
-        "hi": 16.732,
-        "lo": -25.792,
+        "hi": 31.27,
+        "lo": -40.33,
         "mean": -4.53
       },
       "definition": "the null control: seat played by the room's own bot logic, no overlay",
       "n": 300,
       "points_for": {
-        "hi": 1821.906,
-        "lo": 1783.021,
+        "hi": 1858.924,
+        "lo": 1746.003,
         "mean": 1802.464
       },
       "structural": {
@@ -83,52 +122,52 @@
     },
     "real": {
       "advantage": {
-        "hi": 164.884,
-        "lo": 127.925,
-        "mean": 146.405
+        "hi": 185.319,
+        "lo": 84.293,
+        "mean": 134.806
       },
       "definition": "audible's board, ordered by the cockpit's own the_call",
       "n": 300,
       "points_for": {
-        "hi": 1956.461,
-        "lo": 1922.967,
-        "mean": 1939.714
+        "hi": 2003.835,
+        "lo": 1853.654,
+        "mean": 1928.744
       },
       "structural": {
-        "deadline_picks": 0.3667,
+        "deadline_picks": 0.3333,
         "illegal_lineups": 0,
         "positional_surplus": 5.0,
-        "unfillable_bye_weeks": 2.4167,
-        "unresolved_players": 1.04,
-        "wasted_roster_slots": 0.0033
+        "unfillable_bye_weeks": 2.36,
+        "unresolved_players": 1.42,
+        "wasted_roster_slots": 0.0567
       }
     },
     "shuffle": {
       "advantage": {
-        "hi": 60.128,
-        "lo": 25.627,
-        "mean": 42.877
+        "hi": 72.188,
+        "lo": -8.848,
+        "mean": 31.67
       },
       "definition": "the same, with the board's value ordering permuted per seed",
       "n": 300,
       "points_for": {
-        "hi": 1864.77,
-        "lo": 1832.445,
-        "mean": 1848.608
+        "hi": 1900.282,
+        "lo": 1775.693,
+        "mean": 1837.988
       },
       "structural": {
-        "deadline_picks": 0.2633,
+        "deadline_picks": 0.2033,
         "illegal_lineups": 0,
-        "positional_surplus": 5.0033,
-        "unfillable_bye_weeks": 2.4867,
-        "unresolved_players": 1.0967,
-        "wasted_roster_slots": 0.0467
+        "positional_surplus": 5.0,
+        "unfillable_bye_weeks": 2.3933,
+        "unresolved_players": 1.5,
+        "wasted_roster_slots": 0.1067
       }
     }
   },
-  "code_sha": "13faf6540579c6b6a9d0ecbedc2e2353c132abee-dirty",
-  "config_hash": "3fe27036551e49a06f2c767bf265213b9d7bfeb8b97604c6836b59db00bba85e",
-  "content_digest": "5e7411051fc40ef2c78d589f04c057dc59d10dc82a469144bdd72a3e5f3707c3",
+  "code_sha": "782c2f495b431b5d3abe1acf6e28ef9eaa3e7dee-dirty",
+  "config_hash": "089f1c462006aa32a1c7747ba05ff4e3e83d55ff5bc7dd65e43c96e2f6cb3cc9",
+  "content_digest": "298540e898fe5ab48ee3ddf259ec158228363872e78e8b0f115a5c27bf179850",
   "fit": {
     "cap_hist": {
       "DEF": {
@@ -418,14 +457,14 @@
     2024,
     2025
   ],
-  "generated_at": "2026-09-07T04:38:30",
+  "generated_at": "2026-09-07T05:34:37",
   "league": "espn_davis_drive",
   "leak_decomposition": {
     "machinery_bot_in_seat": -4.53,
-    "reading": "machinery at chance; the shuffle arm keeps audible's structure and only loses its value ordering, which is why it beats bots that draft a second unstartable QB",
-    "structure_shuffle_minus_bot": 47.407,
-    "total_real": 146.405,
-    "value_ordering_real_minus_shuffle": 103.527
+    "reading": "machinery at chance; the shuffle arm keeps audible's structure and only loses its value ordering. READ `real_minus_adp` BEFORE THIS: the terms below are audible against BOTS, and the bots reach by fitted amounts while the seat does not, so a noiseless seat of any kind collects what they pass. The baseline arm is what says whether any of it is audible's doing.",
+    "structure_shuffle_minus_bot": 36.2,
+    "total_real": 134.806,
+    "value_ordering_real_minus_shuffle": 103.136
   },
   "outcome_measure": "points-for under weekly optimal lineups",
   "pins": {
@@ -453,6 +492,21 @@
       "bytes": "8633",
       "root": "live",
       "sha256": "92cc92355e230c6f468bfe272e78e8791010eeaf709eec32a3faa56ddca2a7a1"
+    },
+    "espn_ranks_6012_2023.json": {
+      "bytes": "101766",
+      "root": "live",
+      "sha256": "dfc2c7694f18f438d71b06698109e061ef3f09ed3b57083ab35cb036de0344f5"
+    },
+    "espn_ranks_6012_2024.json": {
+      "bytes": "96820",
+      "root": "live",
+      "sha256": "548844a48af1c910d1d835fbafd3770cc55aaa4bb842b40762f26f3acc57f14c"
+    },
+    "espn_ranks_6012_2025.json": {
+      "bytes": "94952",
+      "root": "live",
+      "sha256": "3c81dc346c53aee63e65b0a49f44977f0783fbed6d7a9061bb8890f85a38627b"
     },
     "ffc_adp_standard_8_2021.json": {
       "bytes": "42520",
@@ -520,10 +574,16 @@
       "sha256": "1d1d105ff0b0fca8806bfa047c96ef001d150c0bcbba481db5babbafa1f36636"
     }
   },
+  "real_minus_adp": {
+    "hi": 19.537,
+    "lo": -51.294,
+    "mean": -15.879,
+    "n": 300
+  },
   "real_minus_shuffle": {
-    "hi": 126.99,
-    "lo": 80.065,
-    "mean": 103.527,
+    "hi": 162.761,
+    "lo": 43.511,
+    "mean": 103.136,
     "n": 300
   },
   "require_shuffle_at_chance": false,
@@ -601,16 +661,22 @@
     59
   ],
   "shuffle": {
-    "advantage": 42.88,
-    "at_chance": false,
-    "hi": 60.13,
-    "lo": 25.63,
+    "advantage": 31.67,
+    "at_chance": true,
+    "hi": 72.19,
+    "lo": -8.85,
     "n": 300,
-    "reading": "SHUFFLE IS WINNING -- assume a leak until this is explained"
+    "reading": "shuffle shows no advantage over the field"
+  },
+  "shuffle_minus_bot": {
+    "hi": 87.056,
+    "lo": -14.656,
+    "mean": 36.2,
+    "n": 300
   },
   "slots_scored": "7 of 9 (K and DEF have no scoreable rows)",
   "timing": {
-    "wall_s": 48.81
+    "wall_s": 50.03
   },
-  "units": 900
+  "units": 1200
 }

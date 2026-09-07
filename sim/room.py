@@ -93,12 +93,13 @@ paragraph is the correction.
 
 CHANGED 3 -- a feasibility deadline. With as many picks left as unfilled starting slots, a
 seat must spend them there, most specific slot first. Zero fitted parameters. Both halves
-earn their place against ``deadline=False``: without it 42.6% of seats finish unable to field
-a legal lineup, usually missing a tight end or a quarterback, and with the schedule off as
-well that is 77.5% and 0-6 seats a draft with no kicker at all. All forty real team-seasons
-could field a lineup. This matters more than it looks: the positional TOTALS were right
-without it and only the allocation across seats was wrong, so no draft-level statistic in the
-pre-registered set could see it.
+earn their place against ``deadline=False``: without it 45.0% of seats finish unable to field
+a legal lineup at the current defaults -- 42.6% with ``refinements=False``, which is where that
+figure was first measured -- usually missing a tight end or a quarterback, and with the
+schedule off as well that is 77.5% and 0-6 seats a draft with no kicker at all. All forty
+real team-seasons could field a lineup. This matters more than it looks: the positional
+TOTALS were right without it and only the allocation across seats was wrong, so no
+draft-level statistic in the pre-registered set could see it.
 
 CHANGED 4 -- the legality filter runs INSIDE the argmin rather than ahead of the draw. With
 per-draft sampling the noise is drawn for the whole board up front, so caps and slot
@@ -141,39 +142,41 @@ a threshold), ``MIN_CELL`` (12, the pooling floor) and ``BUCKETS`` (the four rou
                             one-starting-slot need test plus the deadline, not the cap.
 
 
-WHAT THIS ROOM DOES NOT DO
---------------------------
-Left unfixed on purpose: closing a held-out miss by adding a mechanism is what tuning a gate
-to pass looks like from the inside.
+WHAT B2 CLOSED, AND WHAT IS STILL OPEN
+--------------------------------------
+B1 named six deficiencies and closed none, deliberately. B2 closed the three that were
+structural rather than fitted-to-the-target. Every number below is current.
 
-Found by the held-out check:
+CLOSED:
 
-* It never takes a second kicker or a second defence, so K+DEF inside 128 is exactly 16 in
-  every synthetic draft while the real room ranged 16-17 and hit 17 in three seasons of five.
-  Three of eighty real team-slot-seasons took a second.
-* It under-disperses in a loose season. Sigma is pooled across all five, so 2021 (board 224
-  rows, real spread 27.5) and 2025 (221 rows, 26.8) come out near 20.8 like the rest. Board
-  depth and real spread are rank-monotone across all five seasons and a pooled sigma cannot
-  express that.
-* 2023's first defence went in round 11 against a synthetic band of 12-14. The schedule is
-  pooled across seasons for the same reason sigma is. 2025 is the other season whose first K
-  and first D/ST both came a round early, and it is covered.
+* SECOND SPECIALISTS. 2 of 40 real team-seasons took a second D/ST and 1 of 40 a second K, so
+  ``second_specialist_p`` is {DEF: 0.05, K: 0.025} and K+DEF inside 128 now reads 16.2 with a
+  16/17/18 spread against a real 16-17. It used to be exactly 16 in every draft.
+* OFF-BOARD PICKS. 18 of 640 real picks (2.8%) were players FFC never listed, and the room now
+  takes them at 2.80%. By position the real ones are 7 K, 4 DEF, 3 RB, 3 WR, 1 QB. The
+  (round bucket, position) pair is drawn JOINTLY -- independent marginals manufactured
+  off-board kickers in round 3, because the one real early off-board pick was a running back.
+* SEASON-LEVEL SIGMA. The five per-season residual spreads are 14.5 to 21.9 around 18.1; the
+  sampling sd of a sample sd at n~124 is 1.15, so the TRUE between-season sd is 2.20, or 12%
+  of the mean. A per-draft multiplier from N(1, 0.12) carries it.
 
-Known independently of the held-out check:
+STILL OPEN, and reported on every run:
 
-* It cannot draft anyone who is not on the FFC board, and 18 of 640 real picks (2.8%) were
-  not. By position that is 7 K, 4 DEF, 3 RB, 3 WR, 1 QB -- kickers are the plurality, not
-  defences.
-* THE SPREAD GATE IS COMPARED AGAINST A TRUNCATED TARGET. The real ``pick-ADP spread`` is
-  computed over joined picks only, because an off-board pick has no rank. Give every
-  off-board pick the most conservative rank possible -- board depth + 1 -- and the real range
-  becomes 22.5-37.7 rather than 20.6-27.5, and the synthetic 21.95 FAILS. The pass on that
-  line depends on the truncation, and the fitted sigma is a FLOOR on true market dispersion
-  rather than an estimate of it.
+* 2021 and 2025 pick-ADP spread still miss their held-out band. Those are the two loosest
+  seasons and the season multiplier does not reach them. Held-out is 28/30, up from 24/30.
 * THE GATE'S RESOLUTION ON THE SPECIALIST SCHEDULE IS ABOUT ONE ROUND. Shifting ``pick_mu``
   for K and D/ST by -8 picks -- a full round early -- still passes all six pre-registered
-  statistics; -12 and +8 do not. "Room resembles real" means "within about a round", and no
-  more than that.
+  statistics; -12 and +8 do not. "Room resembles real" means "within about a round".
+
+RESOLVED, AND IT WENT THE OTHER WAY FROM B1'S EXPECTATION. B1 recorded honestly that the
+``pick-ADP spread`` gate was compared against a TRUNCATED target: give every off-board pick
+the most conservative rank available and the real range moved to 22.5-37.7 while the synthetic
+21.95 failed. B1 could not act on it, because its room had no off-board picks at all and the
+two sides were not comparable. B2's room has them at the measured rate, so the comparison is
+symmetric -- and it PASSES, at 26.3 against a real 22.5-36.8. The range moved from B1's
+22.5-37.7 because fixing the Rams D/ST join took 2021 from five off-board picks to four. It is
+printed as G9 on every ``python -m sim.room`` run, and it would be printed the same way had it
+failed.
 
 Two limits that hold regardless and belong in every sim report: no vintage preseason
 projections exist for any season, so this measures ORDERING and never the projections; and
@@ -1034,11 +1037,19 @@ def simulate_draft(
     finding about the ordering, not a reason to abandon the draft, and the fall-through is
     counted rather than hidden -- ``ArmResult.calls`` against 16 says how often it answered.
 
-    The chooser CANNOT perturb the opponents. At the default ``sampler="per-draft"`` every
-    random draw is taken before the pick loop begins, so the bots' board values, their
-    specialist schedules and the off-board plan are all fixed before the seat says anything.
-    Arm A and arm B on the same seed therefore face a byte-identical opponent field, which is
-    what makes the paired comparison a paired comparison.
+    WHAT THE PAIRING ACTUALLY GIVES, stated precisely because the obvious claim is false. At
+    the default ``sampler="per-draft"`` every draw for the BOARD VALUES and for the SPECIALIST
+    SCHEDULES is taken before the pick loop begins, so those are identical across arms on one
+    seed. The off-board plan's EXECUTION is not: ``_weighted`` is called inside the loop when a
+    planned pick is re-targeted. And the room is REACTIVE by design, so the opponents' realised
+    picks diverge from the seat's first pick onward -- measured, 300 of 300 (season, seed)
+    pairs have a differing opponent field and about 66 of 112 opponent picks change.
+
+    So the pairing is on LATENT randomness, not on the realised field. That is still real
+    variance reduction, and it is why arms are compared paired. But "identical opponent field"
+    would be false, and ``advantage`` conflates acquisition with denial: the real arm's own
+    roster is about +137 better than the null control's while it also leaves the opponents
+    about 14 worse, so roughly 9% of the gap is denial rather than acquisition.
     """
     if check_leakage:
         assert_pre_draft(board)
@@ -1210,8 +1221,18 @@ def simulate_draft(
         # point of it -- the real room left 1 to 7 board players on the table every draft.
         # It yields to the deadline: a seat one pick from being unable to field a lineup
         # takes the slot it owes, exactly as it would with the plan absent.
-        if chooser is not None and seat == chooser_seat:
-            picked = chooser(overall, taken, rows, remaining=remaining, unfilled=unfilled)
+        # THE SEAT TAKES ITS OFF-BOARD PICKS LIKE EVERY OTHER SEAT. The chooser branch used
+        # to `continue` before `offboard_plan` was consulted, so the seat's phantoms were
+        # silently discarded and it finished with 14.96 scoreable players against an
+        # opponent's 14.53. Measured, that construction advantage was worth +15.0
+        # [+10.3, +19.8] of the arm's reported edge -- about a tenth of it, taken from
+        # nowhere. The plan is now applied first, for every seat, chooser or not.
+        planned = offboard_plan.get(overall)
+        if chooser is not None and seat == chooser_seat and planned is None:
+            picked = chooser(
+                overall, taken, rows,
+                remaining=remaining, unfilled=unfilled, counts=dict(roster.counts),
+            )
             if picked is not None and picked >= 0 and not taken[picked]:
                 taken[picked] = 1
                 row = rows[picked]
@@ -1226,7 +1247,6 @@ def simulate_draft(
                     observer(made, picked)
                 continue
 
-        planned = offboard_plan.get(overall)
         if planned is not None:
             # EVERY off-board specialist in the real record was that team's FIRST at the
             # position -- 7 kickers and 4 defences, eleven of eleven, no exceptions. The
@@ -1279,7 +1299,10 @@ def simulate_draft(
             # board carries eight defences for eight seats, so a single second D/ST empties
             # the pool, and a seat owing both D/ST and K would then fail to find a defence
             # and silently spend the pick on a receiver instead of taking the kicker that
-            # WAS still there. Measured at 2 seats in 2000 before this loop.
+            # WAS still there. Measured at 2 seats in 2000 with the other three B2 changes
+            # in place and only this loop reverted; reverting the loop alone from the B1 room
+            # gives 0, because a second specialist is what empties the pool. The number
+            # belongs to the set of four, not to this loop by itself.
             for slot in unfilled:
                 best = _best(roster, frozenset(SLOT_ELIGIBILITY[slot]))
                 if best >= 0:
