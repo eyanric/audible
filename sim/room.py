@@ -203,7 +203,7 @@ import statistics as st
 import sys
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -993,6 +993,9 @@ def simulate_draft(
     deadline: bool = True,
     refinements: bool = True,
     check_leakage: bool = True,
+    chooser: Callable[[int, Sequence[int], Sequence[BoardRow]], int] | None = None,
+    chooser_seat: int | None = None,
+    observer: Callable[[SimPick, int], None] | None = None,
 ) -> tuple[SimPick, ...]:
     """One synthetic draft. Same seed, same board, same fit -> byte-identical picks.
 
@@ -1020,6 +1023,22 @@ def simulate_draft(
     alongside its verdict. The VERDICT itself is always computed at ``sigma_scale=1.0``,
     ``sampler="per-draft"``, ``schedule_specialists=True``, ``deadline=True``; anything run at
     other settings is labelled as an ablation where it is printed.
+
+    THE SEAT HOOK, which is what B2 adds. *chooser* is asked for one board index whenever
+    *chooser_seat* is on the clock, and *observer* is told about every pick as it lands so an
+    outside model can follow the draft. Both default to None and the room then behaves exactly
+    as B1 validated it.
+
+    A chooser returning -1, or an index already taken, falls through to the bot cascade rather
+    than raising. That is deliberate: an ordering that has no legal answer at pick 128 is a
+    finding about the ordering, not a reason to abandon the draft, and the fall-through is
+    counted rather than hidden -- ``ArmResult.calls`` against 16 says how often it answered.
+
+    The chooser CANNOT perturb the opponents. At the default ``sampler="per-draft"`` every
+    random draw is taken before the pick loop begins, so the bots' board values, their
+    specialist schedules and the off-board plan are all fixed before the seat says anything.
+    Arm A and arm B on the same seed therefore face a byte-identical opponent field, which is
+    what makes the paired comparison a paired comparison.
     """
     if check_leakage:
         assert_pre_draft(board)
@@ -1191,6 +1210,22 @@ def simulate_draft(
         # point of it -- the real room left 1 to 7 board players on the table every draft.
         # It yields to the deadline: a seat one pick from being unable to field a lineup
         # takes the slot it owes, exactly as it would with the plan absent.
+        if chooser is not None and seat == chooser_seat:
+            picked = chooser(overall, taken, rows)
+            if picked is not None and picked >= 0 and not taken[picked]:
+                taken[picked] = 1
+                row = rows[picked]
+                roster.add(row.position)
+                picks_left[seat] = remaining - 1
+                made = SimPick(
+                    overall=overall, round=(overall - 1) // teams + 1, seat=seat,
+                    rank=row.rank, position=row.position, name=row.name,
+                )
+                picks.append(made)
+                if observer is not None:
+                    observer(made, picked)
+                continue
+
         planned = offboard_plan.get(overall)
         if planned is not None:
             # EVERY off-board specialist in the real record was that team's FIRST at the
@@ -1220,13 +1255,14 @@ def simulate_draft(
             if legal and (not blocks_deadline or fills):
                 roster.add(planned)
                 picks_left[seat] = remaining - 1
-                picks.append(
-                    SimPick(
-                        overall=overall, round=(overall - 1) // teams + 1, seat=seat,
-                        rank=0, position=planned, name=f"off-board {planned}",
-                        offboard=True,
-                    )
+                made = SimPick(
+                    overall=overall, round=(overall - 1) // teams + 1, seat=seat,
+                    rank=0, position=planned, name=f"off-board {planned}",
+                    offboard=True,
                 )
+                picks.append(made)
+                if observer is not None:
+                    observer(made, -1)
                 continue
 
         best = -1
@@ -1266,12 +1302,13 @@ def simulate_draft(
         row = rows[best]
         roster.add(row.position)
         picks_left[seat] = remaining - 1
-        picks.append(
-            SimPick(
-                overall=overall, round=(overall - 1) // teams + 1, seat=seat,
-                rank=row.rank, position=row.position, name=row.name,
-            )
+        made = SimPick(
+            overall=overall, round=(overall - 1) // teams + 1, seat=seat,
+            rank=row.rank, position=row.position, name=row.name,
         )
+        picks.append(made)
+        if observer is not None:
+            observer(made, best)
     return tuple(picks)
 
 
