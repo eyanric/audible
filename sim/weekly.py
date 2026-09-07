@@ -1,8 +1,15 @@
 """TASK B2/4 -- weekly actuals, optimal lineups, and the bootstrap.
 
-The outcome measure for every arm is POINTS-FOR UNDER WEEKLY OPTIMAL LINEUPS. Not simulated
-wins: a head-to-head record adds schedule variance that has nothing to do with drafting, and
+The outcome measure for every arm is POINTS-FOR UNDER AN EX-ANTE LINEUP. Not simulated wins:
+a head-to-head record adds schedule variance that has nothing to do with drafting, and
 spending statistical power on it is spending it on noise.
+
+EX-ANTE, NOT REALISED, and that distinction is the whole of B3's first task. A lineup chosen
+with the week's outcome already known pays E[max of k] for holding k players at a position, so
+hoarding is free in the simulation and expensive in a real league. Measured under the old
+realised-point lineup, +78.9 of the real arm's +134.8 advantage sat in one slot -- TE0 -- and
+the seat drafted 2.92 tight ends against a real room's 1.30. The realised version is still
+computed and still reported, as a secondary, so the size of that artifact stays visible.
 
 Three things live here, in the order the harness uses them.
 
@@ -300,6 +307,10 @@ def optimal_week(
     *roster* is (player_key, position). A player with no entry in *week_points* scores zero,
     which is how a bye and an inactive both look in the pinned data: no row.
 
+    `week_points` is whatever the caller is optimising against. Under the ex-ante measure that
+    is `expected_points`, and the returned assignment is then scored on the realised draw by
+    `points_for` -- the lineup and the score come from different vectors on purpose.
+
     EXACT, not greedy. `draft/live.py::place_into_slots` fills the most specific open slot
     first, sorted by season projection, and for these nested FLEX structures that happens to
     be optimal -- measured, 0 disagreements over 14,400 player-weeks -- but "happens to be" is
@@ -403,23 +414,82 @@ def bootstrap_weeks(
     return out
 
 
+def expected_points(
+    weekly: SeasonWeekly, players: Sequence[str]
+) -> dict[str, float]:
+    """Each player's mean over HIS OWN observed weeks. The ex-ante lineup is set on this.
+
+    It is the only forward-looking quantity this harness has. A real manager sets a lineup on
+    a projection; there are no vintage projections for any of these seasons, so the mean of a
+    player's own bootstrap pool is the closest honest stand-in. It is deliberately NOT the
+    realised week -- that is the artifact being removed.
+    """
+    out: dict[str, float] = {}
+    for player in players:
+        weeks = weekly.points.get(player)
+        out[player] = (sum(weeks.values()) / len(weeks)) if weeks else 0.0
+    return out
+
+
 def points_for(
     rng: random.Random,
     weekly: SeasonWeekly,
     roster: Sequence[tuple[str, str]],
-) -> float:
-    """Points-for over one bootstrapped season, under weekly optimal lineups.
+    *,
+    lineup: str = "ex-ante",
+) -> tuple[float, dict[str, float]]:
+    """Points-for over one bootstrapped season. Returns (total, points by starting slot).
+
+    THE LINEUP IS SET EX-ANTE BY DEFAULT, AND THAT IS A CORRECTNESS FIX RATHER THAN A CHOICE.
+    The realised-points version picks each week's lineup KNOWING that week's outcome, which no
+    manager can do, and it pays E[max of k] for holding k players at a position. B2 measured
+    the consequence and did not act on it: +78.9 of the real arm's +134.8 sat in the TE0 slot,
+    because hoarding three tight ends is free under hindsight and expensive in a real league.
+
+    ``lineup="ex-ante"``  -- choose the lineup on `expected_points`, score it on the realised
+                            draw. The lineup is therefore the same every week, which is the
+                            honest bound: this harness has no in-season information a manager
+                            could legitimately act on. Weekly start/sit skill is not modelled
+                            and is not claimed.
+    ``lineup="realised"`` -- the old behaviour, kept and reported as a secondary so the two are
+                            comparable and the size of the artifact stays visible.
+
+    The per-slot breakdown is returned on every call and reported in every artifact,
+    permanently. The tight-end result hid for a whole session because nothing broke the
+    advantage down by slot.
 
     *roster* is (player_key, position) for the sixteen players a seat drafted. Unresolved
     players -- an off-board pick, a name the crosswalk does not carry -- have no weeks and
-    contribute zero, exactly like a kicker.
+    contribute zero, exactly like a team defence.
     """
-    draws = bootstrap_weeks(rng, weekly, [key for key, _pos in roster])
+    if lineup not in ("ex-ante", "realised"):
+        raise ValueError(f"unknown lineup {lineup!r}; expected ex-ante or realised")
+
+    keys = [key for key, _pos in roster]
+    draws = bootstrap_weeks(rng, weekly, keys)
+    by_slot: dict[str, float] = {slot: 0.0 for slot in room.STARTING_SLOTS}
     total = 0.0
+
+    if lineup == "ex-ante":
+        # One lineup for the season, chosen before any week is seen.
+        _, filled = optimal_week(roster, expected_points(weekly, keys))
+        for index in range(len(REG_WEEKS)):
+            for slot, player in filled:
+                if player is None:
+                    continue
+                points = draws[player][index] if player in draws else 0.0
+                by_slot[slot] = by_slot.get(slot, 0.0) + points
+                total += points
+        return total, by_slot
+
     for index in range(len(REG_WEEKS)):
-        week_points = {key: draws[key][index] for key, _pos in roster}
-        total += optimal_week(roster, week_points)[0]
-    return total
+        week_points = {key: draws[key][index] for key in keys}
+        week_total, filled = optimal_week(roster, week_points)
+        total += week_total
+        for slot, player in filled:
+            if player is not None:
+                by_slot[slot] = by_slot.get(slot, 0.0) + week_points.get(player, 0.0)
+    return total, by_slot
 
 
 def resolve_roster(

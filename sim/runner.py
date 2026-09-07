@@ -72,7 +72,22 @@ class RunConfig:
     seat: int
     league: str
     fit_seasons: tuple[int, ...]
+    # Walk-forward. When set, every comparison is reported three times: over the whole sample,
+    # then fit on `wf_fit` and tested in-sample on `wf_fit`, then the SAME fit tested
+    # out-of-sample on `wf_test`. An effect that appears in-sample and vanishes out-of-sample
+    # is the signature of overfitting, and it has to be visible on the page rather than
+    # something a reader remembers to check.
+    wf_fit: tuple[int, ...] = ()
+    wf_test: tuple[int, ...] = ()
     raw: dict[str, Any] = field(default_factory=dict)
+
+    def splits(self) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
+        """(label, fit seasons, run seasons). The main split first, then walk-forward."""
+        out = [("main", self.fit_seasons, self.seasons)]
+        if self.wf_fit and self.wf_test:
+            out.append(("wf-in", self.wf_fit, self.wf_fit))
+            out.append(("wf-out", self.wf_fit, self.wf_test))
+        return out
 
     @property
     def config_hash(self) -> str:
@@ -83,20 +98,22 @@ class RunConfig:
                     "seeds": list(self.seeds), "arms": list(self.arms),
                     "seat": self.seat, "league": self.league,
                     "fit_seasons": list(self.fit_seasons),
+                    "wf_fit": list(self.wf_fit), "wf_test": list(self.wf_test),
                 }
             ).encode("utf-8")
         ).hexdigest()
 
-    def units(self) -> list[tuple[str, int, int]]:
-        """Every (arm, season, seed) this run will produce, in a fixed order.
+    def units(self) -> list[tuple[str, str, int, int]]:
+        """Every (split, arm, season, seed) this run will produce, in a fixed order.
 
         Sorted, so a resumed run walks the identical sequence and the artifact it writes is
         byte-identical to a straight-through one.
         """
         return [
-            (arm, season, seed)
+            (label, arm, season, seed)
+            for label, _fit, seasons in self.splits()
             for arm in sorted(self.arms)
-            for season in sorted(self.seasons)
+            for season in sorted(seasons)
             for seed in sorted(self.seeds)
         ]
 
@@ -139,7 +156,25 @@ def load_config(path: Path) -> RunConfig:
         )
     if len(set(arms)) != len(arms):
         raise SystemExit(f"PREFLIGHT: {path} repeats an arm: {arms}")
-    unknown_seasons = sorted(set(seasons) - set(room.SEASONS))
+    walk = blob.get("walk_forward") or {}
+    wf_fit = tuple(int(x) for x in walk.get("fit", ()))
+    wf_test = tuple(int(x) for x in walk.get("test", ()))
+    if bool(wf_fit) != bool(wf_test):
+        raise SystemExit(
+            f"PREFLIGHT: {path} sets only one half of [walk_forward]. Both `fit` and `test` "
+            f"are required, or neither -- a split reported without its other half is the "
+            f"thing walk-forward exists to prevent."
+        )
+    overlap = sorted(set(wf_fit) & set(wf_test))
+    if overlap:
+        raise SystemExit(
+            f"PREFLIGHT: {path} has season(s) {overlap} in BOTH the walk-forward fit and the "
+            f"test. That is not out-of-sample."
+        )
+
+    unknown_seasons = sorted(
+        (set(seasons) | set(wf_fit) | set(wf_test)) - set(room.SEASONS)
+    )
     if unknown_seasons:
         raise SystemExit(
             f"PREFLIGHT: {path} names season(s) {unknown_seasons}, which the room is not "
@@ -158,6 +193,8 @@ def load_config(path: Path) -> RunConfig:
         seat=seat_no,
         league=str(run["league"]),
         fit_seasons=tuple(int(x) for x in run.get("fit_seasons", room.SEASONS)),
+        wf_fit=wf_fit,
+        wf_test=wf_test,
         raw=blob,
     )
 
@@ -168,10 +205,12 @@ def load_config(path: Path) -> RunConfig:
 def required_inputs(config: RunConfig) -> list[str]:
     """Every file the run will read, named before anything is opened."""
     names = ["nflverse/ff_playerids.parquet", "nflverse/teams.parquet"]
-    for season in sorted(set(config.seasons) | set(config.fit_seasons)):
+    every_season = set(config.seasons) | set(config.fit_seasons)
+    every_season |= set(config.wf_fit) | set(config.wf_test)
+    for season in sorted(every_season):
         names.append(f"ffc_adp_standard_8_{season}.json")
         names.append(f"espn_draft_{room.LEAGUE_ID}_{season}.json")
-    for season in sorted(set(config.seasons)):
+    for season in sorted(set(config.seasons) | set(config.wf_fit) | set(config.wf_test)):
         names.append(f"nflverse/player_stats_{season}.parquet")
     # `room.espn_identity()` reads these on every run and swallows FileNotFoundError, so a
     # missing one used to sail through preflight and kill the run later at `fit_room` with a
@@ -274,7 +313,7 @@ class Checkpoint:
             ).encode("utf-8")
         ).hexdigest()
 
-    def load(self) -> dict[tuple[str, int, int], dict[str, Any]]:
+    def load(self) -> dict[tuple[str, str, int, int], dict[str, Any]]:
         if not self.path.exists():
             return {}
         lines = self.path.read_text(encoding="utf-8").splitlines()
@@ -322,7 +361,14 @@ class Checkpoint:
                     f"CHECKPOINT REFUSED: {self.path} line {number} fails its own hash "
                     f"({row.get('hash')} != {want}). The file has been edited or corrupted."
                 )
-            out[(payload["arm"], payload["season"], payload["seed"])] = payload
+            out[
+                (
+                    payload.get("split", "main"),
+                    payload["arm"],
+                    payload["season"],
+                    payload["seed"],
+                )
+            ] = payload
         return out
 
     def start(self) -> None:
@@ -373,8 +419,8 @@ def _eta(done: int, total: int, elapsed: float) -> str:
 
 def iter_units(
     config: RunConfig,
-    done: dict[tuple[str, int, int], dict[str, Any]],
-) -> Iterator[tuple[str, int, int]]:
+    done: dict[tuple[str, str, int, int], dict[str, Any]],
+) -> Iterator[tuple[str, str, int, int]]:
     for unit in config.units():
         if unit not in done:
             yield unit
@@ -410,32 +456,45 @@ def execute(
     if done:
         log.info("resuming: %d of %d units already done", len(done), len(config.units()))
 
-    fit = room.fit_room(config.fit_seasons)
-    boards = {s: room.load_board(s) for s in sorted(set(config.seasons))}
-    weeks = {s: weekly.weekly_points(s) for s in sorted(set(config.seasons))}
+    # One fit per SPLIT, not one per run. The walk-forward split's whole point is that the
+    # opponent model is fitted on 2021-2023 and then tested on seasons it never saw, so
+    # sharing a single all-five-season fit across the splits would defeat it silently.
+    fits: dict[tuple[int, ...], room.Fit] = {}
+    for _label, fit_seasons, _run in config.splits():
+        if fit_seasons not in fits:
+            fits[fit_seasons] = room.fit_room(fit_seasons)
+            log.info(
+                "fit %s: %d/%d picks joined, scheduled=%s",
+                list(fit_seasons), fits[fit_seasons].joined, fits[fit_seasons].total,
+                sorted(fits[fit_seasons].scheduled),
+            )
+    fit_for = {label: fits[fs] for label, fs, _run in config.splits()}
+
+    every = sorted({s for _l, _f, run in config.splits() for s in run})
+    boards = {s: room.load_board(s) for s in every}
+    weeks = {s: weekly.weekly_points(s) for s in every}
     league = weekly.league_config() if config.league == weekly.LEAGUE_KEY else _league(config)
-    log.info(
-        "fit: %d/%d picks joined, scheduled=%s",
-        fit.joined, fit.total, sorted(fit.scheduled),
-    )
 
     pending = list(iter_units(config, done))
-    for index, (arm, season, seed) in enumerate(pending, start=1):
+    for index, (split, arm, season, seed) in enumerate(pending, start=1):
         result = seat.run_arm(
             arm, season, seed,
-            season_board=boards[season], fit=fit, week_table=weeks[season],
+            season_board=boards[season], fit=fit_for[split], week_table=weeks[season],
             config=league, state_dir=state_dir, seat=config.seat,
         )
         structural = artifact.structural_for(
             result.picks, config.seat, weeks[season].byes, boards[season]
         )
         payload = {
-            "arm": arm, "season": season, "seed": seed,
+            "split": split, "arm": arm, "season": season, "seed": seed,
             "points_for": round(result.points_for, 4),
             "opponent_mean": round(
                 sum(result.opponent_points) / len(result.opponent_points), 4
             ),
             "advantage": round(result.advantage, 4),
+            "points_for_realised": round(result.points_for_realised, 4),
+            "advantage_realised": round(result.advantage_realised, 4),
+            "slot_points": {k: round(v, 3) for k, v in sorted(result.slot_points.items())},
             "calls": result.calls,
             "deadline_picks": result.deadline_picks,
             "unresolved": result.unresolved,
@@ -445,7 +504,7 @@ def execute(
             "illegal_lineups": structural.illegal_lineups,
         }
         checkpoint.append(payload)
-        done[(arm, season, seed)] = payload
+        done[(split, arm, season, seed)] = payload
         if index % progress_every == 0 or index == len(pending):
             elapsed = time.perf_counter() - started
             log.info(
@@ -454,7 +513,7 @@ def execute(
             )
 
     wall = time.perf_counter() - started
-    return build_payload(config, pins, fit, done, wall)
+    return build_payload(config, pins, fit_for["main"], done, wall)
 
 
 def _league(config: RunConfig) -> Any:
@@ -467,10 +526,11 @@ def build_payload(
     config: RunConfig,
     pins: dict[str, dict[str, str]],
     fit: room.Fit,
-    done: dict[tuple[str, int, int], dict[str, Any]],
+    done: dict[tuple[str, str, int, int], dict[str, Any]],
     wall: float,
 ) -> dict[str, Any]:
-    rows = [done[u] for u in config.units()]
+    all_rows = [done[u] for u in config.units()]
+    rows = [r for r in all_rows if r.get("split", "main") == "main"]
     arms: dict[str, Any] = {}
     for arm in sorted(config.arms):
         mine = [r for r in rows if r["arm"] == arm]
@@ -509,6 +569,11 @@ def build_payload(
             },
             "points_for": {"mean": round(pf, 3), "lo": round(pf_lo, 3), "hi": round(pf_hi, 3)},
             "advantage": {"mean": round(ad, 3), "lo": round(ad_lo, 3), "hi": round(ad_hi, 3)},
+            "realised_secondary": _secondary(mine),
+            # PER-SLOT DECOMPOSITION, on every arm, in every artifact, permanently. The
+            # tight-end result hid for a whole session because nothing broke the advantage
+            # down by slot; that is not going to be possible again.
+            "slot_points": _slot_mean(mine),
         }
 
     shuffle_rows = [r for r in rows if r["arm"] == "shuffle"]
@@ -525,7 +590,12 @@ def build_payload(
         "seat": config.seat,
         "league": config.league,
         "fit_seasons": list(sorted(config.fit_seasons)),
-        "units": len(rows),
+        "units": len(all_rows),
+        "main_units": len(rows),
+        "splits": [
+            {"label": label, "fit": list(fs), "run": list(run)}
+            for label, fs, run in config.splits()
+        ],
         "pins": pins,
         "fit": artifact.fit_block(fit),
         "arms": arms,
@@ -547,25 +617,228 @@ def build_payload(
         "leak_decomposition": _decomposition(
             arms, _paired_difference(rows, "real", "shuffle")[0]
         ),
-        "outcome_measure": "points-for under weekly optimal lineups",
+        "outcome_measure": "points-for under an EX-ANTE weekly lineup (primary)",
+        "secondary_measure": "points-for under a realised-point lineup (hindsight)",
         "slots_scored": f"7 of {len(room.STARTING_SLOTS)} (K and DEF have no scoreable rows)",
         "timing": {"wall_s": round(wall, 2)},
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
-    for left, right, label in (
-        ("real", "shuffle", "real_minus_shuffle"),
-        ("real", "adp", "real_minus_adp"),
-        ("shuffle", "bot", "shuffle_minus_bot"),
-    ):
-        if left in arms and right in arms:
-            paired, keys = _paired_difference(rows, left, right)
-            if paired:
-                m, lo, hi = seat.mean_and_interval(paired, [k[0] for k in keys])
-                payload[label] = {
-                    "n": len(paired), "mean": round(m, 3),
-                    "lo": round(lo, 3), "hi": round(hi, 3),
-                }
+    for left, right, label in _COMPARISONS:
+        if left in config.arms and right in config.arms:
+            block = _compare(rows, left, right)
+            if block:
+                payload[label] = block
+            # The same comparison under the hindsight lineup. The gap between the two is the
+            # size of the artifact Task 1 removed, and it is worth printing rather than
+            # describing: under hindsight `real - adp` reads -15.9, under ex-ante +2.1, so
+            # the tight-end hoarding was masking audible rather than flattering it.
+            secondary = _compare(rows, left, right, "advantage_realised")
+            if secondary:
+                payload[f"{label}_realised"] = secondary
+
+    # THE ABLATIONS, each against `real`, each with a stated verdict. A component whose
+    # ablation is indistinguishable from `real` is not contributing, and that is a fact about
+    # the tool worth knowing whatever a sweep would say.
+    ablations: dict[str, Any] = {}
+    for name in sorted(seat.ABLATIONS):
+        if name not in config.arms or "real" not in config.arms:
+            continue
+        block = _compare(rows, name, "real")
+        if not block:
+            continue
+        block["verdict"] = _ablation_verdict(name, block)
+        ablations[name] = block
+    if ablations:
+        payload["ablations"] = ablations
+
+    # WALK-FORWARD. Every comparison above, again, in-sample and out-of-sample side by side.
+    walk: dict[str, Any] = {}
+    for label in ("wf-in", "wf-out"):
+        split_rows = [r for r in all_rows if r.get("split") == label]
+        if not split_rows:
+            continue
+        block: dict[str, Any] = {
+            "seasons": sorted({r["season"] for r in split_rows}),
+            "n": len(split_rows),
+        }
+        for left, right, name in _COMPARISONS:
+            if left in config.arms and right in config.arms:
+                got = _compare(split_rows, left, right)
+                if got:
+                    block[name] = got
+        for name in sorted(seat.ABLATIONS):
+            if name in config.arms and "real" in config.arms:
+                got = _compare(split_rows, name, "real")
+                if got:
+                    block[name] = got
+        walk[label] = block
+    if walk:
+        payload["walk_forward"] = walk
+
+    payload["leak_decomposition"] = _decomposition(
+        arms, _paired_difference(rows, "real", "shuffle")[0]
+    )
+    payload["board_vs_adp"] = board_vs_adp(config)
     return payload
+
+
+# Every paired comparison the artifact reports, in reading order. `real - adp` is first
+# because it is the only one that says whether anything here is an achievement.
+_COMPARISONS: tuple[tuple[str, str, str], ...] = (
+    ("real", "adp", "real_minus_adp"),
+    ("real", "legacy", "real_minus_legacy"),
+    ("real", "shuffle", "real_minus_shuffle"),
+    ("legacy", "adp", "legacy_minus_adp"),
+    ("shuffle", "bot", "shuffle_minus_bot"),
+)
+
+
+def _compare(
+    rows: Sequence[dict[str, Any]],
+    left: str,
+    right: str,
+    field: str = "advantage",
+) -> dict[str, Any] | None:
+    """Paired difference, clustered on season. None when nothing pairs.
+
+    *field* selects the lineup: `advantage` is the ex-ante primary, `advantage_realised` the
+    hindsight secondary. Both are reported for the headline comparisons, because the gap
+    between them IS the size of the artifact Task 1 removed and asserting it in prose would be
+    weaker than printing it.
+    """
+    paired, keys = _paired_difference(rows, left, right, field)
+    if not paired:
+        return None
+    m, lo, hi = seat.mean_and_interval(paired, [k[0] for k in keys])
+    return {"n": len(paired), "mean": round(m, 3), "lo": round(lo, 3), "hi": round(hi, 3)}
+
+
+def _ablation_verdict(name: str, block: dict[str, Any]) -> str:
+    """Does removing this term change anything measurable?
+
+    `no_bye` is UNMEASURABLE BY CONSTRUCTION and is labelled so rather than called null. The
+    bootstrap resamples a player's own observed weeks, so a bye week does not exist in the
+    outcome measure at all -- the term cannot help or hurt, and a null result here is a
+    property of the harness rather than of the bye logic.
+    """
+    if name == "no_bye":
+        return (
+            "UNMEASURABLE: the bootstrap resamples a player's own weeks, so bye weeks do "
+            "not exist in the outcome. A null here says nothing about the bye term."
+        )
+    lo, hi = block["lo"], block["hi"]
+    if isinstance(lo, str) or isinstance(hi, str):
+        return "unresolvable: one season-cluster"
+    if lo <= 0.0 <= hi:
+        return "no measurable change: removing this term is indistinguishable from keeping it"
+    direction = "HURTS" if block["mean"] < 0 else "HELPS"
+    return (
+        f"measurable: removing it {direction} by {abs(block['mean']):.1f} "
+        f"[{lo:+.1f}, {hi:+.1f}]"
+    )
+
+
+def _secondary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """The realised-lineup numbers, kept so the hindsight artifact's size stays visible."""
+    seasons_of = [r["season"] for r in rows]
+    pf, pf_lo, pf_hi = seat.mean_and_interval(
+        [r.get("points_for_realised", 0.0) for r in rows], seasons_of
+    )
+    ad, ad_lo, ad_hi = seat.mean_and_interval(
+        [r.get("advantage_realised", 0.0) for r in rows], seasons_of
+    )
+    return {
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {"mean": round(pf, 3), "lo": round(pf_lo, 3), "hi": round(pf_hi, 3)},
+        "advantage": {"mean": round(ad, 3), "lo": round(ad_lo, 3), "hi": round(ad_hi, 3)},
+    }
+
+
+def _slot_mean(rows: Sequence[dict[str, Any]]) -> dict[str, float]:
+    """Mean points contributed by each starting slot, seat only, ex-ante lineup."""
+    totals: dict[str, float] = {}
+    for row in rows:
+        for slot, points in (row.get("slot_points") or {}).items():
+            totals[slot] = totals.get(slot, 0.0) + float(points)
+    n = max(1, len(rows))
+    return {slot: round(v / n, 2) for slot, v in sorted(totals.items())}
+
+
+def board_vs_adp(config: RunConfig) -> dict[str, Any]:
+    """TASK 4. How much ordering is there for the harness to find? None, and here is why.
+
+    `seat.board_from_season` gives audible a board whose value is a MONOTONE TRANSFORM OF ADP
+    RANK. So in this harness audible's board order and the market's order are the same list --
+    measured below, 128 of 128 exact matches and a Pearson of 1.000000 in every season. There
+    is no ordering difference to find, and no amount of ordering work could produce one.
+
+    That is not a defect in the harness; it is the honest consequence of a limit stated since
+    B1. No vintage preseason projections exist for any of these seasons, so a board cannot be
+    built the way production builds one, and the market's own ordering is the only defensible
+    stand-in.
+
+    The production comparison is reported beside it, off the pinned QA fixtures, and it is the
+    number that matters: audible's REAL board disagrees with ADP in most of the top 128. That
+    disagreement is where audible's value would live, and it is exactly what this harness
+    cannot exercise.
+    """
+    import importlib.util
+
+    out: dict[str, Any] = {
+        "harness": {},
+        "note": (
+            "the harness board is a monotone transform of ADP rank, so its ordering IS the "
+            "market's. real - adp therefore measures the OVERLAY alone, never the board."
+        ),
+    }
+    league = weekly.league_config() if config.league == weekly.LEAGUE_KEY else _league(config)
+    for season in sorted(set(config.seasons)):
+        board = room.load_board(season)
+        audible = seat.board_from_season(board, league)
+        top = audible.entries[: room.PICKS]
+        exact = sum(1 for i, e in enumerate(top, start=1) if e.adp_rank == i)
+        apart = sum(1 for i, e in enumerate(top, start=1) if abs(e.adp_rank - i) > room.TEAMS)
+        corr, _slope = room._pearson(
+            [float(e.adp_rank) for e in top], [float(i) for i in range(1, len(top) + 1)]
+        )
+        out["harness"][str(season)] = {
+            "exact_of_128": exact,
+            "disagree_over_one_round": apart,
+            "pearson": round(corr, 6),
+        }
+
+    loader = REPO / "scripts" / "qa_board_fixture.py"
+    fixtures = loader.parent / "fixtures"
+    if loader.exists():
+        spec = importlib.util.spec_from_file_location("_qa_board_fixture", loader)
+        if spec is not None and spec.loader is not None:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            production: dict[str, Any] = {}
+            for key in ("espn_green_hope", "espn_davis_drive"):
+                path = fixtures / f"qa-board-{key}.json"
+                if not path.exists():
+                    continue
+                board = module.load_board(key, path)
+                priced = [e for e in board.entries if e.adp_rank is not None]
+                top = sorted(priced, key=lambda e: e.vorp_rank)[: room.PICKS]
+                exact = sum(1 for i, e in enumerate(top, start=1) if e.adp_rank == i)
+                apart = sum(
+                    1 for i, e in enumerate(top, start=1) if abs(e.adp_rank - i) > room.TEAMS
+                )
+                corr, _slope = room._pearson(
+                    [float(e.adp_rank) for e in top],
+                    [float(i) for i in range(1, len(top) + 1)],
+                )
+                production[key] = {
+                    "entries": len(board.entries),
+                    "exact_of_128": exact,
+                    "disagree_over_one_round": apart,
+                    "pearson": round(corr, 4),
+                }
+            if production:
+                out["production"] = production
+    return out
 
 
 def _decomposition(arms: dict[str, Any], real_minus_shuffle: Sequence[float]) -> dict[str, Any]:
@@ -601,11 +874,15 @@ def _decomposition(arms: dict[str, Any], real_minus_shuffle: Sequence[float]) ->
 
 
 def _paired_difference(
-    rows: Sequence[dict[str, Any]], left: str, right: str
+    rows: Sequence[dict[str, Any]], left: str, right: str, field: str = "advantage"
 ) -> tuple[list[float], list[tuple[int, int]]]:
-    """Differences on matched (season, seed), and the keys, so the caller can cluster."""
-    a = {(r["season"], r["seed"]): r["advantage"] for r in rows if r["arm"] == left}
-    b = {(r["season"], r["seed"]): r["advantage"] for r in rows if r["arm"] == right}
+    """Differences on matched (season, seed), and the keys, so the caller can cluster.
+
+    Rows are assumed to come from ONE split; `build_payload` filters before calling. Mixing
+    splits here would pair a 2024 unit fitted on five seasons with one fitted on three.
+    """
+    a = {(r["season"], r["seed"]): r.get(field, 0.0) for r in rows if r["arm"] == left}
+    b = {(r["season"], r["seed"]): r.get(field, 0.0) for r in rows if r["arm"] == right}
     keys = sorted(a.keys() & b.keys())
     return [a[k] - b[k] for k in keys], keys
 
@@ -616,6 +893,11 @@ def _arm_definition(arm: str) -> str:
         "shuffle": "the same, with the board's value ordering permuted per seed",
         "bot": "the null control: seat played by the room's own bot logic, no overlay",
         "adp": "the SKILL BASELINE: best available by ADP rank, capped, no audible at all",
+        "legacy": "the pre-audible#60 sort: (not grab_now, vorp_rank, not fills_need)",
+        "no_need": "real, with marginal_start_factor forced to 1.0",
+        "no_bye": "real, with bye_conflict_penalty forced to 0.0",
+        "no_urgency": "real, with next_pick=None so survives_by and the tier are neutralised",
+        "no_slice": "real, with the_call's TOP_N shortlist cap effectively removed",
         "leaky-shuffle": "INJECTION ONLY: shuffle arm reading the real board",
     }[arm]
 

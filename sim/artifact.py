@@ -258,7 +258,12 @@ def _interval(block: Mapping[str, Any]) -> str:
 
 
 def summary_block(payload: Mapping[str, Any]) -> list[str]:
-    """The mobile-readable block that heads every artifact. key: value, wrapped at 60."""
+    """The mobile-readable block that heads every artifact. key: value, wrapped at 60.
+
+    Reading order is deliberate and it starts with the two things a reader must not miss: the
+    lineup measure in use, and whether audible beats the ADP baseline. Everything else is
+    detail underneath those.
+    """
     arms = payload["arms"]
     shuffle = payload["shuffle"]
     out: list[str] = [
@@ -267,40 +272,158 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
         f"seeds: {payload['seed_count']}  seat: {payload['seat']}",
         f"units: {payload['units']}  wall: {payload['timing']['wall_s']:.1f}s",
         "",
-        "structural (lower is better):",
+        "OUTCOME MEASURE:",
     ]
-    for name in sorted(arms):
-        st = arms[name]["structural"]
-        out.append(f"  {name}:")
-        out.append(f"    unfillable bye weeks: {st['unfillable_bye_weeks']:.2f}")
-        out.append(f"    wasted roster slots:  {st['wasted_roster_slots']:.2f}")
-        out.append(f"    positional surplus:   {st['positional_surplus']:.2f}")
-        out.append(f"    illegal lineups:      {st['illegal_lineups']}")
-        out.append(f"    deadline picks /16:   {st['deadline_picks']:.2f}")
+    out.extend(wrap60(str(payload.get("outcome_measure", "?"))))
+    out.extend(
+        wrap60(
+            "the lineup is chosen on EXPECTED weekly points and scored "
+            "on realised ones. A lineup chosen knowing the week's "
+            "outcome pays for hoarding, which is not a thing a manager "
+            "can do."
+        )
+    )
+    if payload.get("secondary_measure"):
+        out.append("secondary (hindsight lineup), reported per arm below.")
+
     out.append("")
-    out.append("points-for, weekly optimal lineups (7 of 9 slots):")
-    for name in sorted(arms):
-        out.append(f"  {name}: {_interval(arms[name]['points_for'])}")
+    if "real_minus_adp" in payload:
+        d = payload["real_minus_adp"]
+        beats = not isinstance(d["lo"], str) and d["lo"] > 0.0
+        out.append("THE BASELINE, and read this before anything else:")
+        out.extend(
+            wrap60(
+                "audible against a ten-line ADP-greedy seat with no "
+                f"audible in it at all, paired: {_interval(d)}."
+            )
+        )
+        out.extend(
+            wrap60(
+                "audible beats the obvious alternative."
+                if beats
+                else "audible does NOT beat the obvious alternative."
+            )
+        )
+
+    board = payload.get("board_vs_adp") or {}
+    if board:
+        out.append("")
+        out.append("HOW MUCH ORDERING IS THERE TO FIND HERE? none:")
+        for season, row in sorted((board.get("harness") or {}).items()):
+            out.append(
+                f"  {season}: {row['exact_of_128']}/128 exact, "
+                f"{row['disagree_over_one_round']} disagree >1rd, r={row['pearson']}"
+            )
+        out.extend(wrap60(str(board.get("note", ""))))
+        for key, row in sorted((board.get("production") or {}).items()):
+            out.append(f"  production {key}:")
+            out.append(
+                f"    {row['exact_of_128']}/128 exact, "
+                f"{row['disagree_over_one_round']} disagree >1rd, r={row['pearson']}"
+            )
+        if board.get("production"):
+            out.extend(
+                wrap60(
+                    "the production board disagrees with ADP across most "
+                    "of the top 128. That disagreement is where audible's "
+                    "value would live and this harness cannot exercise it."
+                )
+            )
+
     out.append("")
-    out.append("advantage over the opponent field, paired:")
+    out.append("advantage over the field, paired, clustered on season:")
     for name in sorted(arms):
-        out.append(f"  {name}: {_interval(arms[name]['advantage'])}")
+        out.append(f"  {name:<11s} {_interval(arms[name]['advantage'])}")
+
+    out.append("")
+    out.append("paired comparisons (ex-ante primary; hindsight in brackets):")
     for label, key in (
-        ("real - shuffle", "real_minus_shuffle"),
         ("real - adp    ", "real_minus_adp"),
+        ("real - legacy ", "real_minus_legacy"),
+        ("real - shuffle", "real_minus_shuffle"),
+        ("legacy - adp  ", "legacy_minus_adp"),
         ("shuffle - bot ", "shuffle_minus_bot"),
     ):
         if key in payload:
             out.append(f"  {label}: {_interval(payload[key])}")
+            secondary = payload.get(f"{key}_realised")
+            if secondary:
+                out.append(f"    hindsight: {_interval(secondary)}")
+
+    if payload.get("ablations"):
+        out.append("")
+        out.append("ablations, each vs real (negative = removing it HURTS):")
+        for name, block in sorted(payload["ablations"].items()):
+            out.append(f"  {name:<11s} {_interval(block)}")
+            out.extend(wrap60(str(block.get("verdict", "")), indent="    "))
+
     out.append("")
+    out.append("points by starting slot, seat only, ex-ante lineup:")
+    for name in sorted(arms):
+        slots = arms[name].get("slot_points") or {}
+        total = sum(slots.values()) or 1.0
+        parts = " ".join(
+            f"{slot}:{points / total * 100:.0f}%"
+            for slot, points in sorted(slots.items())
+            if points
+        )
+        out.append(f"  {name:<11s} {parts}")
+
+    if payload.get("walk_forward"):
+        out.append("")
+        out.append("WALK-FORWARD, fit and test shown side by side:")
+        for label in ("wf-in", "wf-out"):
+            block = payload["walk_forward"].get(label)
+            if not block:
+                continue
+            seasons = block.get("seasons", [])
+            out.append(f"  {label} ({', '.join(str(x) for x in seasons)}):")
+            for key in ("real_minus_adp", "real_minus_legacy", "real_minus_shuffle"):
+                if key in block:
+                    out.append(f"    {key:<20s} {_interval(block[key])}")
+            if len(seasons) < 3:
+                out.extend(
+                    wrap60(
+                        f"{label} has {len(seasons)} season-clusters, so "
+                        f"{max(0, len(seasons) - 1)} degrees of freedom and a t "
+                        "quantile of 12.7. Those intervals are too wide to "
+                        "resolve anything and are printed as a limit, not as "
+                        "a result. Five seasons cannot be split any better.",
+                        indent="    ",
+                    )
+                )
+        out.extend(
+            wrap60(
+                "an effect present in-sample and absent out-of-sample is "
+                "the signature of overfitting. Both are printed so nobody "
+                "has to remember to look."
+            )
+        )
+
+    out.append("")
+    out.append("structural (lower is better):")
+    for name in sorted(arms):
+        st = arms[name]["structural"]
+        out.append(
+            f"  {name:<11s} bye {st['unfillable_bye_weeks']:.2f}  "
+            f"wasted {st['wasted_roster_slots']:.2f}  "
+            f"surplus {st['positional_surplus']:.2f}"
+        )
+        out.append(
+            f"              illegal {st['illegal_lineups']}  "
+            f"deadline/16 {st['deadline_picks']:.2f}"
+        )
+
     if payload.get("leak_decomposition"):
         d = payload["leak_decomposition"]
-        out.append("where the advantage comes from:")
+        out.append("")
+        out.append("where the advantage over the BOTS comes from:")
         out.append(f"  machinery (bot in seat): {d['machinery_bot_in_seat']:+.1f}")
         out.append(f"  + structure:             {d['structure_shuffle_minus_bot']:+.1f}")
         out.append(f"  + value ordering:        {d['value_ordering_real_minus_shuffle']:+.1f}")
         out.append(f"  = real:                  {d['total_real']:+.1f}")
-        out.append("")
+
+    out.append("")
     out.append("shuffle control (the leak detector):")
     out.append(f"  at chance: {'yes' if shuffle['at_chance'] else 'NO'}")
     band = {"mean": shuffle["advantage"], "lo": shuffle["lo"], "hi": shuffle["hi"]}
@@ -311,32 +434,15 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
             wrap60(
                 "READ THE DECOMPOSITION ABOVE. The null control -- a bot "
                 "in the same seat -- lands at chance, so the machinery is "
-                "sound. The shuffle arm keeps audible's structure and "
-                "only loses its value ordering."
+                "sound. The shuffle arm keeps audible's STRUCTURE and only "
+                "loses its value ordering, so it is not a no-skill control "
+                "and beating bots that draft a second unstartable QB is "
+                "not a leak. The leak gates are the null control, "
+                "real-beats-shuffle, and the G6d size ceiling."
             )
         )
+
     out.append("")
-    if "real_minus_adp" in payload:
-        d = payload["real_minus_adp"]
-        beats = not isinstance(d["lo"], str) and d["lo"] > 0.0
-        out.append("THE BASELINE, and read this before anything above:")
-        out.extend(
-            wrap60(
-                "audible against a ten-line ADP-greedy seat with no "
-                "audible in it at all, same room, same seeds, paired: "
-                f"{_interval(d)}."
-            )
-        )
-        out.extend(
-            wrap60(
-                "audible beats the obvious alternative."
-                if beats
-                else "audible does NOT beat the obvious alternative. The "
-                "advantage over the bots above is what any noiseless "
-                "seat gets in a room of bots that reach."
-            )
-        )
-        out.append("")
     out.append("intervals are clustered on SEASON, not on seed:")
     out.extend(
         wrap60(
@@ -344,6 +450,7 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
             "error over seeds is 2.5 to 2.9 times too narrow."
         )
     )
+
     out.append("")
     out.append("limits that hold regardless:")
     out.extend(

@@ -1,7 +1,7 @@
-# run: b2-default
+# run: b3-diagnose
 # seasons: 2021, 2022, 2023, 2024, 2025
 # seeds: 60  seat: 6
-# units: 1200  wall: 51.9s
+# units: 5400  wall: 1.4s
 #
 # OUTCOME MEASURE:
 #   points-for under an EX-ANTE weekly lineup (primary)
@@ -36,27 +36,82 @@
 # advantage over the field, paired, clustered on season:
 #   adp         +134.7 [+113.7, +155.6]
 #   bot         -9.9 [-29.0, +9.2]
+#   legacy      +115.7 [+83.3, +148.0]
+#   no_bye      +138.7 [+102.2, +175.2]
+#   no_need     +160.8 [+117.2, +204.4]
+#   no_slice    +127.7 [+83.6, +171.8]
+#   no_urgency  +128.7 [+75.0, +182.5]
 #   real        +136.7 [+95.6, +177.8]
 #   shuffle     +53.7 [+19.4, +88.0]
 #
 # paired comparisons (ex-ante primary; hindsight in brackets):
 #   real - adp    : +2.1 [-35.4, +39.5]
 #     hindsight: -15.9 [-51.3, +19.5]
+#   real - legacy : +21.0 [-20.1, +62.2]
+#     hindsight: +20.8 [-5.4, +47.0]
 #   real - shuffle: +83.0 [+31.2, +134.8]
 #     hindsight: +103.1 [+43.5, +162.8]
+#   legacy - adp  : -19.0 [-33.0, -4.9]
+#     hindsight: -36.7 [-55.5, -17.9]
 #   shuffle - bot : +63.6 [+26.0, +101.2]
 #     hindsight: +36.2 [-14.7, +87.1]
+#
+# ablations, each vs real (negative = removing it HURTS):
+#   no_bye      +2.0 [-42.7, +46.7]
+#     UNMEASURABLE: the bootstrap resamples a player's own
+#     weeks, so bye weeks do not exist in the outcome. A
+#     null here says nothing about the bye term.
+#   no_need     +24.1 [+8.9, +39.2]
+#     measurable: removing it HELPS by 24.1 [+8.9, +39.2]
+#   no_slice    -9.0 [-25.7, +7.7]
+#     no measurable change: removing this term is
+#     indistinguishable from keeping it
+#   no_urgency  -8.0 [-32.8, +16.8]
+#     no measurable change: removing this term is
+#     indistinguishable from keeping it
 #
 # points by starting slot, seat only, ex-ante lineup:
 #   adp         FLEX:13% K:0% QB:23% RB:34% TE:8% WR:22%
 #   bot         FLEX:13% K:0% QB:21% RB:32% TE:8% WR:26%
+#   legacy      FLEX:13% K:0% QB:23% RB:34% TE:8% WR:21%
+#   no_bye      FLEX:12% QB:22% RB:32% TE:10% WR:24%
+#   no_need     FLEX:12% K:0% QB:23% RB:32% TE:9% WR:24%
+#   no_slice    FLEX:12% QB:22% RB:32% TE:10% WR:24%
+#   no_urgency  FLEX:12% QB:22% RB:31% TE:10% WR:25%
 #   real        FLEX:12% QB:22% RB:32% TE:10% WR:24%
 #   shuffle     FLEX:12% QB:22% RB:31% TE:10% WR:24%
+#
+# WALK-FORWARD, fit and test shown side by side:
+#   wf-in (2021, 2022, 2023):
+#     real_minus_adp       +53.2 [+23.2, +83.1]
+#     real_minus_legacy    +107.5 [+47.0, +168.0]
+#     real_minus_shuffle   +116.5 [+49.4, +183.5]
+#   wf-out (2024, 2025):
+#     real_minus_adp       -50.7 [-845.9, +744.4]
+#     real_minus_legacy    +6.2 [-768.0, +780.4]
+#     real_minus_shuffle   -2.3 [-160.4, +155.9]
+#     wf-out has 2 season-clusters, so 1 degrees of freedom
+#     and a t quantile of 12.7. Those intervals are too wide
+#     to resolve anything and are printed as a limit, not as
+#     a result. Five seasons cannot be split any better.
+#   an effect present in-sample and absent out-of-sample is
+#   the signature of overfitting. Both are printed so nobody
+#   has to remember to look.
 #
 # structural (lower is better):
 #   adp         bye 2.36  wasted 1.72  surplus 5.78
 #               illegal 0  deadline/16 0.00
 #   bot         bye 2.51  wasted 0.71  surplus 5.70
+#               illegal 0  deadline/16 0.00
+#   legacy      bye 2.90  wasted 2.15  surplus 6.22
+#               illegal 0  deadline/16 2.19
+#   no_bye      bye 2.40  wasted 0.06  surplus 5.00
+#               illegal 0  deadline/16 0.34
+#   no_need     bye 1.91  wasted 1.74  surplus 5.39
+#               illegal 0  deadline/16 1.46
+#   no_slice    bye 2.36  wasted 0.06  surplus 5.00
+#               illegal 0  deadline/16 0.34
+#   no_urgency  bye 2.43  wasted 0.06  surplus 5.00
 #               illegal 0  deadline/16 0.00
 #   real        bye 2.36  wasted 0.06  surplus 5.00
 #               illegal 0  deadline/16 0.33
@@ -94,6 +149,36 @@
 #   the bootstrap multiplies OUTCOME samples, not MARKET
 #   samples. Five ADP vintages remain five.
 {
+  "ablations": {
+    "no_bye": {
+      "hi": 46.663,
+      "lo": -42.695,
+      "mean": 1.984,
+      "n": 300,
+      "verdict": "UNMEASURABLE: the bootstrap resamples a player's own weeks, so bye weeks do not exist in the outcome. A null here says nothing about the bye term."
+    },
+    "no_need": {
+      "hi": 39.245,
+      "lo": 8.875,
+      "mean": 24.06,
+      "n": 300,
+      "verdict": "measurable: removing it HELPS by 24.1 [+8.9, +39.2]"
+    },
+    "no_slice": {
+      "hi": 7.662,
+      "lo": -25.675,
+      "mean": -9.007,
+      "n": 300,
+      "verdict": "no measurable change: removing this term is indistinguishable from keeping it"
+    },
+    "no_urgency": {
+      "hi": 16.803,
+      "lo": -32.816,
+      "mean": -8.007,
+      "n": 300,
+      "verdict": "no measurable change: removing this term is indistinguishable from keeping it"
+    }
+  },
   "arms": {
     "adp": {
       "advantage": {
@@ -181,6 +266,226 @@
         "unfillable_bye_weeks": 2.51,
         "unresolved_players": 1.4733,
         "wasted_roster_slots": 0.71
+      }
+    },
+    "legacy": {
+      "advantage": {
+        "hi": 148.02,
+        "lo": 83.327,
+        "mean": 115.673
+      },
+      "definition": "the pre-audible#60 sort: (not grab_now, vorp_rank, not fills_need)",
+      "n": 300,
+      "points_for": {
+        "hi": 1682.084,
+        "lo": 1575.026,
+        "mean": 1628.555
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 149.756,
+          "lo": 78.266,
+          "mean": 114.011
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1944.812,
+          "lo": 1839.116,
+          "mean": 1891.964
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 219.85,
+        "K": 0.01,
+        "QB": 382.09,
+        "RB": 553.41,
+        "TE": 135.48,
+        "WR": 337.71
+      },
+      "structural": {
+        "deadline_picks": 2.19,
+        "illegal_lineups": 0,
+        "positional_surplus": 6.2167,
+        "unfillable_bye_weeks": 2.9033,
+        "unresolved_players": 1.37,
+        "wasted_roster_slots": 2.1533
+      }
+    },
+    "no_bye": {
+      "advantage": {
+        "hi": 175.173,
+        "lo": 102.222,
+        "mean": 138.698
+      },
+      "definition": "real, with bye_conflict_penalty forced to 0.0",
+      "n": 300,
+      "points_for": {
+        "hi": 1726.078,
+        "lo": 1603.578,
+        "mean": 1664.828
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 175.442,
+          "lo": 85.496,
+          "mean": 130.469
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1977.028,
+          "lo": 1872.88,
+          "mean": 1924.954
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 197.17,
+        "K": 0.0,
+        "QB": 373.35,
+        "RB": 530.05,
+        "TE": 165.68,
+        "WR": 398.58
+      },
+      "structural": {
+        "deadline_picks": 0.3367,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0,
+        "unfillable_bye_weeks": 2.3967,
+        "unresolved_players": 1.4167,
+        "wasted_roster_slots": 0.06
+      }
+    },
+    "no_need": {
+      "advantage": {
+        "hi": 204.385,
+        "lo": 117.162,
+        "mean": 160.774
+      },
+      "definition": "real, with marginal_start_factor forced to 1.0",
+      "n": 300,
+      "points_for": {
+        "hi": 1743.863,
+        "lo": 1615.947,
+        "mean": 1679.905
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 233.629,
+          "lo": 127.342,
+          "mean": 180.485
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 2036.022,
+          "lo": 1894.533,
+          "mean": 1965.277
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 199.39,
+        "K": 0.01,
+        "QB": 384.68,
+        "RB": 535.83,
+        "TE": 158.22,
+        "WR": 401.77
+      },
+      "structural": {
+        "deadline_picks": 1.4633,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.3867,
+        "unfillable_bye_weeks": 1.91,
+        "unresolved_players": 1.37,
+        "wasted_roster_slots": 1.7367
+      }
+    },
+    "no_slice": {
+      "advantage": {
+        "hi": 171.767,
+        "lo": 83.646,
+        "mean": 127.707
+      },
+      "definition": "real, with the_call's TOP_N shortlist cap effectively removed",
+      "n": 300,
+      "points_for": {
+        "hi": 1718.974,
+        "lo": 1592.238,
+        "mean": 1655.606
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 188.859,
+          "lo": 64.275,
+          "mean": 126.567
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 1985.976,
+          "lo": 1859.648,
+          "mean": 1922.812
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 195.89,
+        "K": 0.0,
+        "QB": 367.55,
+        "RB": 528.61,
+        "TE": 162.23,
+        "WR": 401.32
+      },
+      "structural": {
+        "deadline_picks": 0.34,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0033,
+        "unfillable_bye_weeks": 2.36,
+        "unresolved_players": 1.4167,
+        "wasted_roster_slots": 0.0567
+      }
+    },
+    "no_urgency": {
+      "advantage": {
+        "hi": 182.462,
+        "lo": 74.952,
+        "mean": 128.707
+      },
+      "definition": "real, with next_pick=None so survives_by and the tier are neutralised",
+      "n": 300,
+      "points_for": {
+        "hi": 1742.564,
+        "lo": 1573.343,
+        "mean": 1657.954
+      },
+      "realised_secondary": {
+        "advantage": {
+          "hi": 186.16,
+          "lo": 55.786,
+          "mean": 120.973
+        },
+        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "points_for": {
+          "hi": 2004.119,
+          "lo": 1832.591,
+          "mean": 1918.355
+        }
+      },
+      "slot_points": {
+        "DEF": 0.0,
+        "FLEX": 196.24,
+        "K": 0.0,
+        "QB": 364.82,
+        "RB": 520.25,
+        "TE": 165.38,
+        "WR": 411.25
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0,
+        "unfillable_bye_weeks": 2.43,
+        "unresolved_players": 1.4633,
+        "wasted_roster_slots": 0.0567
       }
     },
     "real": {
@@ -317,8 +622,8 @@
     }
   },
   "code_sha": "2863ea9ea6b2b3755eaaa8571e5e207edf0be374-dirty",
-  "config_hash": "3a84a38a7adf63601ae4a122b57628aeedabcaf8445e72377db8746454192918",
-  "content_digest": "cc0043cfea33e129591979b857843c062d21e981bb1c46d42268a9acfa2e22a3",
+  "config_hash": "45070a49afe7f48fa8c145d956722a231876ff4282ee5d647a9b1467474d21ad",
+  "content_digest": "50ba840729f547d3cc2a0233423a473b0b16dafb6046fe0d0cb225714b19d180",
   "fit": {
     "cap_hist": {
       "DEF": {
@@ -608,7 +913,7 @@
     2024,
     2025
   ],
-  "generated_at": "2026-09-07T07:50:42",
+  "generated_at": "2026-09-07T07:49:50",
   "league": "espn_davis_drive",
   "leak_decomposition": {
     "machinery_bot_in_seat": -9.884,
@@ -617,7 +922,19 @@
     "total_real": 136.714,
     "value_ordering_real_minus_shuffle": 83.01
   },
-  "main_units": 1200,
+  "legacy_minus_adp": {
+    "hi": -4.939,
+    "lo": -33.033,
+    "mean": -18.986,
+    "n": 300
+  },
+  "legacy_minus_adp_realised": {
+    "hi": -17.851,
+    "lo": -55.497,
+    "mean": -36.674,
+    "n": 300
+  },
+  "main_units": 2700,
   "outcome_measure": "points-for under an EX-ANTE weekly lineup (primary)",
   "pins": {
     "espn_draft_6012_2021.json": {
@@ -738,6 +1055,18 @@
     "mean": -15.879,
     "n": 300
   },
+  "real_minus_legacy": {
+    "hi": 62.2,
+    "lo": -20.119,
+    "mean": 21.04,
+    "n": 300
+  },
+  "real_minus_legacy_realised": {
+    "hi": 46.985,
+    "lo": -5.395,
+    "mean": 20.795,
+    "n": 300
+  },
   "real_minus_shuffle": {
     "hi": 134.771,
     "lo": 31.249,
@@ -751,7 +1080,7 @@
     "n": 300
   },
   "require_shuffle_at_chance": false,
-  "run": "b2-default",
+  "run": "b3-diagnose",
   "schema_version": 1,
   "seasons": [
     2021,
@@ -863,10 +1192,160 @@
         2024,
         2025
       ]
+    },
+    {
+      "fit": [
+        2021,
+        2022,
+        2023
+      ],
+      "label": "wf-in",
+      "run": [
+        2021,
+        2022,
+        2023
+      ]
+    },
+    {
+      "fit": [
+        2021,
+        2022,
+        2023
+      ],
+      "label": "wf-out",
+      "run": [
+        2024,
+        2025
+      ]
     }
   ],
   "timing": {
-    "wall_s": 51.86
+    "wall_s": 1.45
   },
-  "units": 1200
+  "units": 5400,
+  "walk_forward": {
+    "wf-in": {
+      "legacy_minus_adp": {
+        "hi": -6.773,
+        "lo": -101.883,
+        "mean": -54.328,
+        "n": 180
+      },
+      "n": 1620,
+      "no_bye": {
+        "hi": 81.157,
+        "lo": -107.248,
+        "mean": -13.045,
+        "n": 180
+      },
+      "no_need": {
+        "hi": 142.313,
+        "lo": -73.264,
+        "mean": 34.525,
+        "n": 180
+      },
+      "no_slice": {
+        "hi": 23.552,
+        "lo": -31.87,
+        "mean": -4.159,
+        "n": 180
+      },
+      "no_urgency": {
+        "hi": 69.289,
+        "lo": -71.006,
+        "mean": -0.859,
+        "n": 180
+      },
+      "real_minus_adp": {
+        "hi": 83.131,
+        "lo": 23.23,
+        "mean": 53.18,
+        "n": 180
+      },
+      "real_minus_legacy": {
+        "hi": 167.977,
+        "lo": 47.04,
+        "mean": 107.508,
+        "n": 180
+      },
+      "real_minus_shuffle": {
+        "hi": 183.543,
+        "lo": 49.396,
+        "mean": 116.469,
+        "n": 180
+      },
+      "seasons": [
+        2021,
+        2022,
+        2023
+      ],
+      "shuffle_minus_bot": {
+        "hi": 88.413,
+        "lo": -37.648,
+        "mean": 25.382,
+        "n": 180
+      }
+    },
+    "wf-out": {
+      "legacy_minus_adp": {
+        "hi": -35.948,
+        "lo": -77.923,
+        "mean": -56.935,
+        "n": 120
+      },
+      "n": 1080,
+      "no_bye": {
+        "hi": 408.36,
+        "lo": -349.277,
+        "mean": 29.541,
+        "n": 120
+      },
+      "no_need": {
+        "hi": 88.426,
+        "lo": -52.913,
+        "mean": 17.757,
+        "n": 120
+      },
+      "no_slice": {
+        "hi": 41.431,
+        "lo": -38.56,
+        "mean": 1.435,
+        "n": 120
+      },
+      "no_urgency": {
+        "hi": 173.909,
+        "lo": -231.08,
+        "mean": -28.585,
+        "n": 120
+      },
+      "real_minus_adp": {
+        "hi": 744.435,
+        "lo": -845.903,
+        "mean": -50.734,
+        "n": 120
+      },
+      "real_minus_legacy": {
+        "hi": 780.383,
+        "lo": -767.98,
+        "mean": 6.202,
+        "n": 120
+      },
+      "real_minus_shuffle": {
+        "hi": 155.919,
+        "lo": -160.421,
+        "mean": -2.251,
+        "n": 120
+      },
+      "seasons": [
+        2024,
+        2025
+      ],
+      "shuffle_minus_bot": {
+        "hi": 378.545,
+        "lo": -307.633,
+        "mean": 35.456,
+        "n": 120
+      }
+    }
+  }
 }

@@ -65,7 +65,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -201,6 +201,10 @@ class AudibleSeat:
     # pick landed on an unrelated player while the mirrored id said something else again. It
     # looked like a working harness. The shuffle arm was "winning" by 139 points.
     by_index: dict[str, int]
+    # Which ordering this seat runs. "real" is the cockpit's own path; "legacy" is the
+    # pre-audible#60 `recommend` sort; the four `no_*` names disable one term each.
+    mode: str = "real"
+    by_id: dict[str, Any] = field(default_factory=dict)
     calls: int = 0
     # Picks that came from the feasibility deadline rather than from the ordering. Reported,
     # because it is the size of a real finding -- see `choose`.
@@ -249,6 +253,25 @@ Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
             for c in pool
         ]
         state_mod._score_rows(self.service, view, served, self.byes)
+
+        # THE ABLATIONS. `_score_rows` has already composed `effective_score` from
+        # `max(0, vorp) * marginal_start_factor - bye_conflict_penalty`; disabling a term means
+        # neutralising it and recomposing from the same three parts, which is exactly what
+        # `ordering.effective_score` does. Recomposing here rather than monkeypatching
+        # `ordering` keeps the ablation inside sim/ and keeps production code untouched.
+        if self.mode in ("no_need", "no_bye"):
+            for row in served:
+                base = max(0.0, float(row.get("vorp") or 0.0))
+                factor = 1.0 if self.mode == "no_need" else float(
+                    row.get("marginal_start_factor") or 1.0
+                )
+                penalty = 0.0 if self.mode == "no_bye" else float(
+                    row.get("bye_conflict_penalty") or 0.0
+                )
+                row["marginal_start_factor"] = round(factor, 4)
+                row["bye_conflict_penalty"] = round(penalty, 3)
+                row["effective_score"] = round(base * factor - penalty, 3)
+
         # The row rebuild is `state._the_call`'s, field for field. It has to be: those rows
         # are built by hand and anything not named here is silently dropped, and the field
         # that got dropped last time was `effective_score` -- The Call then fell back to raw
@@ -267,15 +290,62 @@ Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
         ]
         taken_ids = self.service.session.taken_ids()
         available = [e for e in self.board.entries if e.player_id not in taken_ids]
-        call = urgency.the_call(
-            rows_for_call,
-            next_pick=view.my_next_pick,
-            needs=urgency.roster_needs(
-                state_mod._roster_slots(view), self.service.config.slot_eligibility
-            ),
-            available_entries=available,
-        )
         self.calls += 1
+
+        if self.mode == "legacy":
+            # THE PRE-audible#60 ORDERING, verbatim from `mcp.py` at 6bdb2e7^:
+            #     key=lambda p: (not p["grab_now"], p["vorp_rank"], not p["fills_need"])
+            # The third key is DEAD and that is the point of the arm: `vorp_rank` is a unique,
+            # gapless integer assigned by `board.py:259` over a total order with a player_id
+            # tiebreak, so a key placed after it is never compared. Need was computed,
+            # published, and then discarded at the moment of ordering.
+            #
+            # Two faithfulness notes. This reproduces `recommend`'s sort rather than
+            # `the_call`'s -- `the_call` had its own, different pre-#61 ordering, and the
+            # handoff names this tuple. And the `forced` need-filter that `recommend` applies
+            # when clock slack is exhausted is omitted, because it reads a clock block this
+            # harness does not build; it fires only at slack <= 0.
+            ranked = sorted(
+                served,
+                key=lambda p: (
+                    not p.get("grab_now"), p["vorp_rank"], not p.get("fills_need")
+                ),
+            )
+            legacy_pick = next(
+                (
+                    idx
+                    for row in ranked
+                    if (idx := self.by_index.get(str(row["id"]), -1)) >= 0
+                    and not taken[idx]
+                ),
+                -1,
+            )
+        else:
+            legacy_pick = None
+
+        call: dict[str, Any] = {}
+        if self.mode != "legacy":
+            # `no_urgency`: `the_call` never reads `grab_now` at all -- that key belongs to
+            # `recommend`. Its only urgency input is `survives_by(adp, next_pick)`, which
+            # drives both the will-last skip and `_urgency_tier`. Handing it `next_pick=None`
+            # makes `survives_by` return None for every row, so nothing is skipped as
+            # likely-to-last and the tier is the constant 1: the term is neutralised without
+            # touching the function.
+            next_pick = None if self.mode == "no_urgency" else view.my_next_pick
+            original_top_n = urgency.TOP_N
+            if self.mode == "no_slice":
+                urgency.TOP_N = NO_SLICE_TOP_N
+            try:
+                call = urgency.the_call(
+                    rows_for_call,
+                    next_pick=next_pick,
+                    needs=urgency.roster_needs(
+                        state_mod._roster_slots(view), self.service.config.slot_eligibility
+                    ),
+                    available_entries=available,
+                )
+            finally:
+                urgency.TOP_N = original_top_n
 
         if unfilled and remaining and len(unfilled) >= remaining:
             allowed = set(room.SLOT_ELIGIBILITY[unfilled[0]])
@@ -305,6 +375,9 @@ Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
                 )
                 return self.by_index[str(best["id"])]
 
+        if self.mode == "legacy":
+            return legacy_pick if legacy_pick is not None else -1
+
         pick = call.get("pick") or {}
         pid = pick.get("id")
         if pid is None:
@@ -321,6 +394,7 @@ def build_seat(
     *,
     seat: int = DEFAULT_SEAT,
     shuffle: random.Random | None = None,
+    mode: str = "real",
 ) -> AudibleSeat:
     """A `CockpitService` holding the season board, with no network and no poll thread.
 
@@ -351,10 +425,20 @@ def build_seat(
         by_index={
             f"ffc{r.rank:04d}": i for i, r in enumerate(season_board.rows)
         },
+        mode=mode,
+        by_id={e.player_id: e for e in board.entries},
     )
 
 
-ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp", "leaky-shuffle"})
+# The ablations, each identical to `real` except that one named term is disabled. B3 exists to
+# answer "which of these mechanisms contributes anything measurable", and an ablation whose
+# result is indistinguishable from `real` is a fact about the tool worth knowing regardless of
+# what any sweep would say.
+ABLATIONS: frozenset[str] = frozenset({"no_need", "no_bye", "no_urgency", "no_slice"})
+
+ARMS: frozenset[str] = (
+    frozenset({"real", "shuffle", "bot", "adp", "legacy", "leaky-shuffle"}) | ABLATIONS
+)
 
 # How far past the ADP baseline an honest ordering could plausibly get, in points-for over a
 # bootstrapped season. The board's values are a MONOTONE TRANSFORM OF ADP RANK, so there is no
@@ -370,6 +454,11 @@ LEAK_CEILING: float = 150.0
 # test, `shuffle` is the leak detector, `bot` is the null that says the machinery is sound,
 # and `adp` is the skill baseline that says whether beating the bots is an achievement.
 REQUIRED_ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp"})
+
+# How far the `no_slice` ablation opens the shortlist. `urgency.TOP_N` is 12; this is larger
+# than any served pool (~200 rows), so the cap is effectively removed rather than merely
+# widened. Restored in a `finally` -- it is a module global on production code.
+NO_SLICE_TOP_N: int = 10_000
 
 
 def _adp_greedy(season_board: room.SeasonBoard, fit: room.Fit):
@@ -419,6 +508,13 @@ class ArmResult:
     picks: tuple[Any, ...]
     calls: int
     deadline_picks: int
+    # The secondary measure, kept so the size of the hindsight artifact stays visible.
+    points_for_realised: float = 0.0
+    realised_opponent_points: tuple[float, ...] = ()
+    # Points by starting slot, seat only, under the PRIMARY (ex-ante) lineup. Reported for
+    # every arm in every artifact -- the tight-end result hid for a whole session because
+    # nothing broke the advantage down by slot.
+    slot_points: dict[str, float] = field(default_factory=dict)
 
     @property
     def advantage(self) -> float:
@@ -426,6 +522,15 @@ class ArmResult:
         return self.points_for - (
             sum(self.opponent_points) / len(self.opponent_points)
             if self.opponent_points
+            else 0.0
+        )
+
+    @property
+    def advantage_realised(self) -> float:
+        """The same, under the realised-point lineup. Secondary, and labelled everywhere."""
+        return self.points_for_realised - (
+            sum(self.realised_opponent_points) / len(self.realised_opponent_points)
+            if self.realised_opponent_points
             else 0.0
         )
 
@@ -479,8 +584,12 @@ def run_arm(
     # the real board. `real - shuffle` then collapses to exactly zero, which is the signature
     # G6b exists to catch. It is never a reported arm.
     shuffle_rng = random.Random(seed) if arm == "shuffle" else None
+    # `real`, `shuffle` and `leaky-shuffle` all run the cockpit's own ordering; the board is
+    # what differs. `legacy` and the four ablations differ in the ORDERING and share the board.
+    mode = arm if arm in ABLATIONS or arm == "legacy" else "real"
     holder = build_seat(
-        season_board, config, week_table.byes, state_dir, seat=seat, shuffle=shuffle_rng
+        season_board, config, week_table.byes, state_dir,
+        seat=seat, shuffle=shuffle_rng, mode=mode,
     )
     from audible.draft.live import Pick
 
@@ -562,16 +671,31 @@ def _score_draft(
         rosters.setdefault(p.seat, []).append(p)
 
     mine, unresolved = weekly.resolve_roster(rosters[seat], season_board, week_table)
-    mine_points = weekly.points_for(
+    # Both measures come off the SAME bootstrap draw, so the only difference between them is
+    # which vector the lineup was chosen against. `random.Random` is re-seeded identically for
+    # each, which is what makes them comparable rather than two separate experiments.
+    mine_points, slot_points = weekly.points_for(
         random.Random(seed * 1_000_003 + seat), week_table, mine
     )
+    mine_realised, _ = weekly.points_for(
+        random.Random(seed * 1_000_003 + seat), week_table, mine, lineup="realised"
+    )
     opponents: list[float] = []
+    opponents_realised: list[float] = []
     for other in sorted(rosters):
         if other == seat:
             continue
         roster, _ = weekly.resolve_roster(rosters[other], season_board, week_table)
         opponents.append(
-            weekly.points_for(random.Random(seed * 1_000_003 + other), week_table, roster)
+            weekly.points_for(
+                random.Random(seed * 1_000_003 + other), week_table, roster
+            )[0]
+        )
+        opponents_realised.append(
+            weekly.points_for(
+                random.Random(seed * 1_000_003 + other), week_table, roster,
+                lineup="realised",
+            )[0]
         )
 
     return ArmResult(
@@ -579,6 +703,9 @@ def _score_draft(
         points_for=mine_points, opponent_points=tuple(opponents),
         unresolved=unresolved, picks=tuple(picks), calls=calls,
         deadline_picks=deadline_picks,
+        points_for_realised=mine_realised,
+        realised_opponent_points=tuple(opponents_realised),
+        slot_points=slot_points,
     )
 
 
