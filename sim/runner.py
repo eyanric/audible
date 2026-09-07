@@ -35,9 +35,11 @@ So:
 DETERMINISM
 -----------
 Every stream derives from the config's seed set. The units are enumerated in a fixed order --
-sorted arm, then season, then seed -- and each unit's result depends only on its own seed, so
-a resumed run produces the byte-identical artifact a straight-through run does. That is G2 and
-G4 in one property, and it is the reason `run_arm` takes a seed rather than an RNG.
+sorted split, then arm, then season, then seed -- and each unit's result depends only on its
+own seed, so a resumed run produces the same `content_digest` a straight-through run does. NOT
+a byte-identical file: `timing.wall_s` and `generated_at` are written into it and are excluded
+from the digest, so a resumed write reports the wall clock of the resume rather than of the
+work. That is G2 and G4 in one property, and the reason `run_arm` takes a seed, not an RNG.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ from pathlib import Path
 from typing import Any
 
 from . import LIVE_CACHE, SIM_CACHE, artifact, room, seat, weekly
+from .adp_join import normalize
 
 REPO = Path(__file__).resolve().parents[1]
 RUNS_DIR = REPO / "sim" / "runs"
@@ -475,12 +478,19 @@ def execute(
     weeks = {s: weekly.weekly_points(s) for s in every}
     league = weekly.league_config() if config.league == weekly.LEAGUE_KEY else _league(config)
 
+    # THE PRIOR, fitted leave-one-season-out. For every season a run scores, the expectation
+    # its lineups are chosen against comes from the OTHER seasons only -- so nothing about the
+    # season being scored reaches the lineup. This is the primary outcome measure and it is
+    # the reason `real - adp` is quoted three ways: prior, oracle and hindsight.
+    priors = {s: _prior_for(s, room.SEASONS, boards, weeks) for s in every}
+    log.info("priors fitted leave-one-out over %s", list(room.SEASONS))
+
     pending = list(iter_units(config, done))
     for index, (split, arm, season, seed) in enumerate(pending, start=1):
         result = seat.run_arm(
             arm, season, seed,
             season_board=boards[season], fit=fit_for[split], week_table=weeks[season],
-            config=league, state_dir=state_dir, seat=config.seat,
+            config=league, state_dir=state_dir, seat=config.seat, prior=priors[season],
         )
         structural = artifact.structural_for(
             result.picks, config.seat, weeks[season].byes, boards[season]
@@ -492,6 +502,8 @@ def execute(
                 sum(result.opponent_points) / len(result.opponent_points), 4
             ),
             "advantage": round(result.advantage, 4),
+            "points_for_season_mean": round(result.points_for_season_mean, 4),
+            "advantage_season_mean": round(result.advantage_season_mean, 4),
             "points_for_realised": round(result.points_for_realised, 4),
             "advantage_realised": round(result.advantage_realised, 4),
             "slot_points": {k: round(v, 3) for k, v in sorted(result.slot_points.items())},
@@ -514,6 +526,35 @@ def execute(
 
     wall = time.perf_counter() - started
     return build_payload(config, pins, fit_for["main"], done, wall)
+
+
+def _prior_for(
+    held_out: int,
+    seasons: Sequence[int],
+    boards: dict[int, Any],
+    weeks: dict[int, Any],
+) -> dict[tuple[str, int], float]:
+    """The pre-draft expectation table for *held_out*, fitted on every OTHER season.
+
+    Loads any season it needs that the run itself does not score, so the prior is always
+    fitted on four seasons even when a walk-forward split only runs two.
+    """
+    others: dict[int, tuple[Any, list[tuple[str, int]]]] = {}
+    for season in seasons:
+        if season == held_out:
+            continue
+        board = boards.get(season) or room.load_board(season)
+        table = weeks.get(season) or weekly.weekly_points(season)
+        ranks = seat.positional_ranks(board)
+        roster: list[tuple[str, int]] = []
+        for row in board.rows:
+            key = f"ffc{row.rank:04d}"
+            for candidate in table.by_name.get(normalize(row.name), []):
+                if table.position.get(candidate) == row.position:
+                    roster.append((candidate, ranks[key]))
+                    break
+        others[season] = (table, roster)
+    return weekly.prior_table(others)
 
 
 def _league(config: RunConfig) -> Any:
@@ -569,7 +610,12 @@ def build_payload(
             },
             "points_for": {"mean": round(pf, 3), "lo": round(pf_lo, 3), "hi": round(pf_hi, 3)},
             "advantage": {"mean": round(ad, 3), "lo": round(ad_lo, 3), "hi": round(ad_hi, 3)},
-            "realised_secondary": _secondary(mine),
+            # BOTH UPPER BOUNDS, per arm. Only the hindsight one used to be here, so the
+            # summary's claim about what an oracle projection is worth had to be hardcoded --
+            # and a hardcoded number in this file is a number that goes stale within a
+            # session. With both present the summary computes it.
+            "oracle_secondary": _secondary(mine, "season_mean", "oracle (season-mean)"),
+            "realised_secondary": _secondary(mine, "realised", "realised (hindsight)"),
             # PER-SLOT DECOMPOSITION, on every arm, in every artifact, permanently. The
             # tight-end result hid for a whole session because nothing broke the advantage
             # down by slot; that is not going to be possible again.
@@ -617,9 +663,22 @@ def build_payload(
         "leak_decomposition": _decomposition(
             arms, _paired_difference(rows, "real", "shuffle")[0]
         ),
-        "outcome_measure": "points-for under an EX-ANTE weekly lineup (primary)",
-        "secondary_measure": "points-for under a realised-point lineup (hindsight)",
-        "slots_scored": f"7 of {len(room.STARTING_SLOTS)} (K and DEF have no scoreable rows)",
+        "outcome_measure": (
+            "points-for under a PRIOR lineup: the season lineup is chosen on a "
+            "(position, positional rank) table fitted leave-one-season-out, so no "
+            "information about the season being scored reaches it"
+        ),
+        "secondary_measure": (
+            "two upper bounds beside every comparison -- _oracle chooses the lineup on each "
+            "player's own season mean (a zero-error projection), _hindsight chooses each week "
+            "knowing that week"
+        ),
+        "slots_scored": (
+            f"7 of {len(room.STARTING_SLOTS)}. DEF has no rows in player_stats at all; K has "
+            f"542-545 regular-season rows a season and scores exactly zero because the "
+            f"scoring vocabulary carries no kicking columns. Both slots are filled and "
+            f"neither can displace a scoring player."
+        ),
         "timing": {"wall_s": round(wall, 2)},
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
@@ -628,13 +687,21 @@ def build_payload(
             block = _compare(rows, left, right)
             if block:
                 payload[label] = block
-            # The same comparison under the hindsight lineup. The gap between the two is the
-            # size of the artifact Task 1 removed, and it is worth printing rather than
-            # describing: under hindsight `real - adp` reads -15.9, under ex-ante +2.1, so
-            # the tight-end hoarding was masking audible rather than flattering it.
-            secondary = _compare(rows, left, right, "advantage_realised")
-            if secondary:
-                payload[f"{label}_realised"] = secondary
+            # THE SAME COMPARISON UNDER ALL THREE LINEUP POLICIES, printed rather than
+            # described. The spread between them is the harness's own uncertainty about what a
+            # manager could have known, and any effect smaller than that spread is not a
+            # result. Adversarial review found one that was not: a `legacy - adp` reading that
+            # was resolvably negative on an oracle lineup and null on a genuine prior, and it
+            # had been written up as a finding. B2's headline `real - adp` moves the same way
+            # -- it is negative under hindsight and positive under the prior -- which is the
+            # whole reason all three are now emitted side by side instead of one.
+            for field, suffix in (
+                ("advantage_season_mean", "_oracle"),
+                ("advantage_realised", "_hindsight"),
+            ):
+                bound = _compare(rows, left, right, field)
+                if bound:
+                    payload[f"{label}{suffix}"] = bound
 
     # THE ABLATIONS, each against `real`, each with a stated verdict. A component whose
     # ablation is indistinguishable from `real` is not contributing, and that is a fact about
@@ -687,8 +754,10 @@ def build_payload(
 _COMPARISONS: tuple[tuple[str, str, str], ...] = (
     ("real", "adp", "real_minus_adp"),
     ("real", "legacy", "real_minus_legacy"),
-    ("real", "shuffle", "real_minus_shuffle"),
     ("legacy", "adp", "legacy_minus_adp"),
+    ("real", "legacy_recommend", "real_minus_legacy_recommend"),
+    ("legacy", "legacy_recommend", "surface_gap"),
+    ("real", "shuffle", "real_minus_shuffle"),
     ("shuffle", "bot", "shuffle_minus_bot"),
 )
 
@@ -701,25 +770,48 @@ def _compare(
 ) -> dict[str, Any] | None:
     """Paired difference, clustered on season. None when nothing pairs.
 
-    *field* selects the lineup: `advantage` is the ex-ante primary, `advantage_realised` the
-    hindsight secondary. Both are reported for the headline comparisons, because the gap
-    between them IS the size of the artifact Task 1 removed and asserting it in prose would be
-    weaker than printing it.
+    *field* selects the lineup: `advantage` is the PRIOR primary, `advantage_season_mean` an
+    oracle upper bound, `advantage_realised` the hindsight one. All three are reported for the
+    headline comparisons, because the spread between them IS the harness's own uncertainty
+    about what a manager could have known, and asserting it in prose would be weaker than
+    printing it.
+
+    `flat_lo`/`flat_hi` are the SAME numbers computed without the season clustering, and they
+    are written into every comparison so that nobody has to take the clustering on faith. The
+    ratio between the two widths is not a constant. Measured on the B3 run it runs from 1.25x
+    on `shuffle - bot` to 3.57x on `real - legacy` under the oracle lineup, depending on how
+    much of a comparison's variance is between seasons rather than between seeds -- so a gate
+    that assumed one number for it was asserting something false. This lets a gate read the
+    real pair, and the artifact's summary computes the range rather than restating it.
     """
     paired, keys = _paired_difference(rows, left, right, field)
     if not paired:
         return None
     m, lo, hi = seat.mean_and_interval(paired, [k[0] for k in keys])
-    return {"n": len(paired), "mean": round(m, 3), "lo": round(lo, 3), "hi": round(hi, 3)}
+    _, flat_lo, flat_hi = seat.mean_and_interval(paired)
+    return {
+        "n": len(paired),
+        "mean": round(m, 3),
+        "lo": round(lo, 3),
+        "hi": round(hi, 3),
+        "flat_lo": round(flat_lo, 3),
+        "flat_hi": round(flat_hi, 3),
+    }
 
 
 def _ablation_verdict(name: str, block: dict[str, Any]) -> str:
     """Does removing this term change anything measurable?
 
     `no_bye` is UNMEASURABLE BY CONSTRUCTION and is labelled so rather than called null. The
-    bootstrap resamples a player's own observed weeks, so a bye week does not exist in the
-    outcome measure at all -- the term cannot help or hurt, and a null result here is a
-    property of the harness rather than of the bye logic.
+    bootstrap resamples a player's own observed weeks, so a bye week never occurs in the
+    outcome measure and the harness cannot PRICE what the term buys. The term itself is
+    demonstrably live -- non-zero on 66.8% of served rows over 330,399 of them, and moving a
+    mean 4.70 of the seat's 16 picks a draft -- so a null here is a property of the harness,
+    not of the bye logic. The structural metric that CAN see byes says the same thing:
+    `no_bye` moves `unfillable_bye_weeks` by +0.04 [-0.08, +0.16] over 300 paired units,
+    which is also null.
+    (`no_need` moves the same metric by -0.45 [-0.68, -0.22], so the metric is not inert --
+    it resolves an effect when there is one to resolve.)
     """
     if name == "no_bye":
         return (
@@ -738,24 +830,30 @@ def _ablation_verdict(name: str, block: dict[str, Any]) -> str:
     )
 
 
-def _secondary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    """The realised-lineup numbers, kept so the hindsight artifact's size stays visible."""
+def _secondary(
+    rows: Sequence[dict[str, Any]], suffix: str, label: str
+) -> dict[str, Any]:
+    """One of the two upper-bound lineups, kept so its distance from the primary is visible.
+
+    Neither is a result. Both are printed beside the primary because the SPREAD between them
+    is how much of any arm's number is an artifact of what the lineup was allowed to know.
+    """
     seasons_of = [r["season"] for r in rows]
     pf, pf_lo, pf_hi = seat.mean_and_interval(
-        [r.get("points_for_realised", 0.0) for r in rows], seasons_of
+        [r.get(f"points_for_{suffix}", 0.0) for r in rows], seasons_of
     )
     ad, ad_lo, ad_hi = seat.mean_and_interval(
-        [r.get("advantage_realised", 0.0) for r in rows], seasons_of
+        [r.get(f"advantage_{suffix}", 0.0) for r in rows], seasons_of
     )
     return {
-        "lineup": "realised (hindsight) -- SECONDARY, not the headline",
+        "lineup": f"{label} -- SECONDARY, not the headline",
         "points_for": {"mean": round(pf, 3), "lo": round(pf_lo, 3), "hi": round(pf_hi, 3)},
         "advantage": {"mean": round(ad, 3), "lo": round(ad_lo, 3), "hi": round(ad_hi, 3)},
     }
 
 
 def _slot_mean(rows: Sequence[dict[str, Any]]) -> dict[str, float]:
-    """Mean points contributed by each starting slot, seat only, ex-ante lineup."""
+    """Mean points by starting slot AND by position, seat only, under the prior lineup."""
     totals: dict[str, float] = {}
     for row in rows:
         for slot, points in (row.get("slot_points") or {}).items():
@@ -893,7 +991,14 @@ def _arm_definition(arm: str) -> str:
         "shuffle": "the same, with the board's value ordering permuted per seed",
         "bot": "the null control: seat played by the room's own bot logic, no overlay",
         "adp": "the SKILL BASELINE: best available by ADP rank, capped, no audible at all",
-        "legacy": "the pre-audible#60 sort: (not grab_now, vorp_rank, not fills_need)",
+        "legacy": (
+            "the PAGE's pre-audible#61 the_call: board-rank slice, "
+            "(-need, urgency, vorp_rank), no effective_score. Like-for-like against real."
+        ),
+        "legacy_recommend": (
+            "the MCP list head's pre-audible#60 sort: "
+            "(not grab_now, vorp_rank, not fills_need). A DIFFERENT SURFACE."
+        ),
         "no_need": "real, with marginal_start_factor forced to 1.0",
         "no_bye": "real, with bye_conflict_penalty forced to 0.0",
         "no_urgency": "real, with next_pick=None so survives_by and the tier are neutralised",
@@ -939,24 +1044,23 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
     THE LEAK GATES ARE G6a AND G6b, AND THE HANDOFF'S G6 IS NEITHER. That is a refuted
     premise and it is worth stating in full, because the number it produces looks alarming.
 
-    B2 was asked for a shuffle arm that "must land at chance against the bots". Measured over
-    300 paired runs it does not -- it beats the field by +42.9 [+25.6, +60.1]. The null
-    control says why. A seat played by the room's OWN bot logic, with no audible board and no
-    overlay at all, lands at -4.5 [-25.8, +16.7]: exactly chance, as symmetry demands, which
-    is what says the measurement machinery is sound.
+    B2 was asked for a shuffle arm that "must land at chance against the bots". It does not.
+    The null control says why: a seat played by the room's OWN bot logic, with no audible board
+    and no overlay at all, lands at chance as symmetry demands, which is what says the
+    measurement machinery is sound. The live numbers are in the artifact and are deliberately
+    not restated here -- an earlier version of this docstring carried five of them and every
+    one went stale within a session.
 
     So the shuffle arm is not a no-skill control. Randomising the board removes audible's
     VALUE ORDERING and leaves its STRUCTURE -- the need logic, the surplus discount, the bye
-    term, the feasibility deadline. That structure is worth about +47 against bots that draft
-    1.8 quarterbacks each in a one-QB league where a second can never start. A shuffled board
-    that still refuses the second quarterback beats them, and it should.
+    term, the feasibility deadline. That structure is worth tens of points against bots that
+    draft a second quarterback in a one-QB league where it can never start. A shuffled board
+    that still refuses that quarterback beats them, and it should. The size is in the
+    artifact's decomposition block and is not restated here for the reason above.
 
-    The decomposition, from the same run:
-
-        machinery (bot in the seat)          -4.5 [-25.8, +16.7]
-        + structure (shuffle - bot)         +47.4
-        + value ordering (real - shuffle)  +103.5 [+80.1, +127.0]
-        = real                             +146.4 [+127.9, +164.9]
+    The decomposition -- machinery, plus structure, plus value ordering, equalling `real` --
+    is computed on every run and printed at the top of every artifact. It is deliberately not
+    restated here for the same reason.
 
     What a leak would look like, and what these two gates therefore test:
 

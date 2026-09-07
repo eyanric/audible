@@ -275,16 +275,31 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
         "OUTCOME MEASURE:",
     ]
     out.extend(wrap60(str(payload.get("outcome_measure", "?"))))
-    out.extend(
-        wrap60(
-            "the lineup is chosen on EXPECTED weekly points and scored "
-            "on realised ones. A lineup chosen knowing the week's "
-            "outcome pays for hoarding, which is not a thing a manager "
-            "can do."
+    # COMPUTED from the arms, for the same reason the clustering ratio below is: a hardcoded
+    # "+96 to +115" was carried here and there is no reason for a number this file can read.
+    gaps = [
+        block["oracle_secondary"]["points_for"]["mean"] - block["points_for"]["mean"]
+        for block in (payload.get("arms") or {}).values()
+        if isinstance(block, Mapping) and "oracle_secondary" in block
+    ]
+    hind = [
+        block["realised_secondary"]["points_for"]["mean"] - block["points_for"]["mean"]
+        for block in (payload.get("arms") or {}).values()
+        if isinstance(block, Mapping) and "realised_secondary" in block
+    ]
+    if gaps and hind:
+        out.extend(
+            wrap60(
+                f"TWO UPPER BOUNDS are printed beside every comparison. "
+                f"An `oracle` lineup chosen on each player's own season "
+                f"mean is worth +{min(gaps):.0f} to +{max(gaps):.0f} "
+                f"points a season over the prior; a `hindsight` lineup "
+                f"chosen weekly is worth +{min(hind):.0f} to "
+                f"+{max(hind):.0f}. Any effect smaller than that spread "
+                f"is inside the harness's own uncertainty about what a "
+                f"manager could have known, and is not a result."
+            )
         )
-    )
-    if payload.get("secondary_measure"):
-        out.append("secondary (hindsight lineup), reported per arm below.")
 
     out.append("")
     if "real_minus_adp" in payload:
@@ -336,19 +351,23 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
         out.append(f"  {name:<11s} {_interval(arms[name]['advantage'])}")
 
     out.append("")
-    out.append("paired comparisons (ex-ante primary; hindsight in brackets):")
+    out.append("paired comparisons. PRIOR is primary; the lines")
+    out.append("under each say what an oracle lineup would have paid:")
     for label, key in (
-        ("real - adp    ", "real_minus_adp"),
-        ("real - legacy ", "real_minus_legacy"),
+        ("real - adp", "real_minus_adp"),
+        ("real - legacy", "real_minus_legacy"),
+        ("legacy - adp", "legacy_minus_adp"),
+        ("real - legacy_rec", "real_minus_legacy_recommend"),
+        ("surface gap", "surface_gap"),
         ("real - shuffle", "real_minus_shuffle"),
-        ("legacy - adp  ", "legacy_minus_adp"),
-        ("shuffle - bot ", "shuffle_minus_bot"),
+        ("shuffle - bot", "shuffle_minus_bot"),
     ):
         if key in payload:
             out.append(f"  {label}: {_interval(payload[key])}")
-            secondary = payload.get(f"{key}_realised")
-            if secondary:
-                out.append(f"    hindsight: {_interval(secondary)}")
+            for name, suffix in (("oracle", "_oracle"), ("hindsight", "_hindsight")):
+                got = payload.get(f"{key}{suffix}")
+                if got:
+                    out.append(f"    {name}: {_interval(got)}")
 
     if payload.get("ablations"):
         out.append("")
@@ -358,16 +377,19 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
             out.extend(wrap60(str(block.get("verdict", "")), indent="    "))
 
     out.append("")
-    out.append("points by starting slot, seat only, ex-ante lineup:")
+    out.append("points by POSITION, seat only, prior lineup. Read this")
+    out.append("and not a by-slot table: RB and WR each name TWO")
+    out.append("starting slots, and a surplus TE started at FLEX lands")
+    out.append("in the FLEX bucket, so by-slot cannot see hoarding.")
     for name in sorted(arms):
         slots = arms[name].get("slot_points") or {}
-        total = sum(slots.values()) or 1.0
+        by_position = {k[4:]: v for k, v in slots.items() if k.startswith("pos:")}
+        total = sum(by_position.values()) or 1.0
         parts = " ".join(
-            f"{slot}:{points / total * 100:.0f}%"
-            for slot, points in sorted(slots.items())
-            if points
+            f"{position}:{points / total * 100:.0f}%"
+            for position, points in sorted(by_position.items())
         )
-        out.append(f"  {name:<11s} {parts}")
+        out.append(f"  {name:<17s} {parts}")
 
     if payload.get("walk_forward"):
         out.append("")
@@ -380,7 +402,7 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
             out.append(f"  {label} ({', '.join(str(x) for x in seasons)}):")
             for key in ("real_minus_adp", "real_minus_legacy", "real_minus_shuffle"):
                 if key in block:
-                    out.append(f"    {key:<20s} {_interval(block[key])}")
+                    out.append(f"    {key:<19s}{_interval(block[key])}")
             if len(seasons) < 3:
                 out.extend(
                     wrap60(
@@ -444,12 +466,27 @@ def summary_block(payload: Mapping[str, Any]) -> list[str]:
 
     out.append("")
     out.append("intervals are clustered on SEASON, not on seed:")
-    out.extend(
-        wrap60(
-            "five markets, not three hundred draws. A flat standard "
-            "error over seeds is 2.5 to 2.9 times too narrow."
-        )
+    # COMPUTED, never written down. Every previous version of this line carried a hardcoded
+    # ratio and every one of them went stale -- the last said "2.5 to 2.9 times", which no
+    # comparison on the run reaches. The ratio is a property of the run, so it is read off the
+    # run: `flat_lo`/`flat_hi` are the same paired differences without the clustering.
+    ratios = [
+        (block["hi"] - block["lo"]) / (block["flat_hi"] - block["flat_lo"])
+        for block in payload.values()
+        if isinstance(block, Mapping)
+        and not isinstance(block.get("lo"), str)
+        and "flat_lo" in block
+        and block["flat_hi"] > block["flat_lo"]
+    ]
+    detail = (
+        f"On this run it widens a comparison by {min(ratios):.2f}x to "
+        f"{max(ratios):.2f}x, depending on how much of that "
+        f"comparison's variance is between seasons rather than "
+        f"between seeds. There is no single ratio."
+        if ratios
+        else "flat intervals are not in this artifact."
     )
+    out.extend(wrap60("five markets, not three hundred draws. " + detail))
 
     out.append("")
     out.append("limits that hold regardless:")

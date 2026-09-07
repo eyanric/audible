@@ -9,18 +9,23 @@ seasons = [2021, 2022, 2023, 2024, 2025]
 seed_start = 0
 seed_count = 60
 
-# Nine arms.
+# Ten arms.
 #   real     -- the thing under test: the cockpit's own the_call path
 #   adp      -- the SKILL BASELINE. Required. Without it no other number is an achievement.
-#   legacy   -- the pre-audible#60 sort, (not grab_now, vorp_rank, not fills_need). The single
-#               most informative comparison available: it says whether the overlay does
-#               anything at all, and in which direction the weekend's change moved it.
+#   legacy   -- the PAGE's pre-audible#61 `the_call`. Like-for-like against `real`, which is
+#               also `the_call`. The single most informative comparison available: it says
+#               whether the overlay does anything, and which way the weekend moved it.
 #   shuffle  -- the leak detector. Required, permanently, on every run.
 #   bot      -- the NULL CONTROL. Required. By symmetry it must land at chance.
 #   no_*     -- one ablation per overlay component. Each identical to `real` except the named
 #               term is disabled.
+#   legacy_recommend -- the MCP list head's pre-#60 sort. A DIFFERENT SURFACE from `real`,
+#               reported separately for exactly that reason. `legacy` used to BE this sort, so
+#               `real - legacy` was a surface comparison wearing an ordering comparison's name;
+#               separating them inverted its sign. The gap itself is reported as `surface_gap`
+#               and is null under the primary lineup.
 arms = [
-    "real", "adp", "legacy", "shuffle", "bot",
+    "real", "adp", "legacy", "legacy_recommend", "shuffle", "bot",
     "no_need", "no_bye", "no_urgency", "no_slice",
 ]
 
