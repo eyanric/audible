@@ -1,4 +1,11 @@
-"""TASK B2/5 -- Audible occupies a seat, and the shuffle arm that says whether to believe it.
+"""Audible occupies a seat, and the arms that say whether to believe any of it.
+
+TEN ARMS live here. `real` is the cockpit's own `the_call` path. `adp` is the skill baseline
+and is required. `bot` is the null control and is required. `shuffle` is the leak detector and
+is required. `legacy` is the page's pre-audible#61 ordering and `legacy_recommend` the MCP list
+head's pre-#60 one -- two different surfaces, reported separately because the choice between
+them is worth more than the comparison it feeds. Four `no_*` ablations disable one overlay term
+each. `leaky-shuffle` is an injection and is never reported.
 
 The room from B1 drafts eight bots. This puts Audible in one of the eight and lets the bots
 respond to what it takes, using the cockpit's own ordering rather than a reimplementation of
@@ -25,9 +32,9 @@ identical board. Neither side has information the other lacks.
 
 AND IT IS ALSO WHY THE HEADLINE NUMBER IS NOT WHAT IT LOOKS LIKE. The bots reach -- they draw
 `rank + mu[position] + N(0, sigma)`, by fitted amounts, the way real drafters do. The seat
-draws nothing, so it collects every player the room reaches past: measured, the seat obtains
-mean ADP rank 63.1 against the opponents' 69.2. ANY noiseless seat wins that room by well over
-a hundred points, which is why the `adp` arm exists and why it is required.
+draws nothing, so it collects every player the room reaches past: measured over 60 drafts,
+the seat obtains mean ADP rank 62.3 against the opponents' 69.1. ANY noiseless seat wins that
+room by well over a hundred points, which is why the `adp` arm exists and why it is required.
 
 
 THE SHUFFLE ARM IS NOT OPTIONAL
@@ -65,7 +72,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -201,6 +208,10 @@ class AudibleSeat:
     # pick landed on an unrelated player while the mirrored id said something else again. It
     # looked like a working harness. The shuffle arm was "winning" by 139 points.
     by_index: dict[str, int]
+    # Which ordering this seat runs. "real" is the cockpit's own `the_call`; "legacy" is
+    # `the_call`'s pre-audible#61 form; "legacy_recommend" is the MCP list head's pre-#60 sort;
+    # the four `no_*` names disable one term each.
+    mode: str = "real"
     calls: int = 0
     # Picks that came from the feasibility deadline rather than from the ordering. Reported,
     # because it is the size of a real finding -- see `choose`.
@@ -220,14 +231,17 @@ class AudibleSeat:
 
         THE DEADLINE IS THE HARNESS'S, NOT AUDIBLE'S, and the distinction matters.
 
-Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
-        in 6.0% of drafts, without a defence in 23.7%, and short of at least one of the two in
-        25.7%. (An earlier version of this docstring said 88%, which was measured before the
-        board stopped being built through `compute_vorp` and was never re-measured.) That is
-        not a bug in The Call: `the_call` ranks on `effective_score`, a kicker's value sits at
-        ADP rank 138 or worse, and it will rarely surface above a startable receiver. It is
-        also not how the tool is used -- the cockpit is open on a desk next to somebody who can
-        see an empty D/ST slot in round fifteen and does something about it.
+        Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker in 10.0%
+        of drafts, without a defence in 23.3%, and short of at least one of the two in 26.7%.
+        Re-measured at HEAD over 60 drafts (five seasons, twelve seeds) with the seat's `unfilled`
+        argument forced empty and the room's deadline left on; at that sample size each figure is
+        +/- several points and it is the ORDER of magnitude that matters. (Two earlier versions of
+        this docstring gave 88% and then 6.0/23.7/25.7 with no conditions attached; neither
+        reproduced, which is why the conditions are now stated beside the numbers.) That is not a
+        bug in The Call: `the_call` ranks on `effective_score`, a kicker's value sits at ADP rank
+        138 or worse, and it will rarely surface above a startable receiver. It is also not how
+        the tool is used -- the cockpit is open on a desk next to somebody who can see an empty
+        D/ST slot in round fifteen and does something about it.
 
         So the harness applies the SAME feasibility deadline the bots get: with as many picks
         left as unfilled starting slots, fill the most specific one, using audible's own
@@ -249,6 +263,25 @@ Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
             for c in pool
         ]
         state_mod._score_rows(self.service, view, served, self.byes)
+
+        # THE ABLATIONS. `_score_rows` has already composed `effective_score` from
+        # `max(0, vorp) * marginal_start_factor - bye_conflict_penalty`; disabling a term means
+        # neutralising it and recomposing from the same three parts, which is exactly what
+        # `ordering.effective_score` does. Recomposing here rather than monkeypatching
+        # `ordering` keeps the ablation inside sim/ and keeps production code untouched.
+        if self.mode in ("no_need", "no_bye"):
+            for row in served:
+                base = max(0.0, float(row.get("vorp") or 0.0))
+                factor = 1.0 if self.mode == "no_need" else float(
+                    row.get("marginal_start_factor") or 1.0
+                )
+                penalty = 0.0 if self.mode == "no_bye" else float(
+                    row.get("bye_conflict_penalty") or 0.0
+                )
+                row["marginal_start_factor"] = round(factor, 4)
+                row["bye_conflict_penalty"] = round(penalty, 3)
+                row["effective_score"] = round(base * factor - penalty, 3)
+
         # The row rebuild is `state._the_call`'s, field for field. It has to be: those rows
         # are built by hand and anything not named here is silently dropped, and the field
         # that got dropped last time was `effective_score` -- The Call then fell back to raw
@@ -267,15 +300,94 @@ Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
         ]
         taken_ids = self.service.session.taken_ids()
         available = [e for e in self.board.entries if e.player_id not in taken_ids]
-        call = urgency.the_call(
-            rows_for_call,
-            next_pick=view.my_next_pick,
-            needs=urgency.roster_needs(
-                state_mod._roster_slots(view), self.service.config.slot_eligibility
-            ),
-            available_entries=available,
-        )
         self.calls += 1
+
+        legacy_pick: int | None = None
+        if self.mode == "legacy_recommend":
+            # `recommend`'s pre-audible#60 sort, verbatim from `mcp.py` at 6bdb2e7^:
+            #     key=lambda p: (not p["grab_now"], p["vorp_rank"], not p["fills_need"])
+            # The third key is DEAD and that is the point: `vorp_rank` is a unique, gapless
+            # integer, so a key placed after it is never compared. Need was computed,
+            # published, and then discarded at the moment of ordering. (In this harness the
+            # rank comes from `board_from_season` below, tie-broken on ADP rank; in production
+            # from `board.py:260` over a `(-vorp, player_id)` total order. Unique either way.)
+            #
+            # This is the MCP list head, NOT the page's answer. It is reported beside
+            # `legacy` rather than as it, because `real` runs `the_call` and comparing a
+            # `the_call` arm against a `recommend` arm is comparing two surfaces. That
+            # conflation is what this arm exists to undo: `legacy` used to BE this sort, so
+            # `real - legacy` was a surface comparison wearing an ordering comparison's name,
+            # and separating them inverted its sign. The size of the surface gap is in the
+            # artifact as `surface_gap` -- null under the prior lineup, resolvably positive
+            # under the oracle one, which is itself a warning about reading either alone.
+            #
+            # The `forced` need-filter that `recommend` applies at slack <= 0 is omitted: it
+            # reads a clock block this harness does not build. It fires only once the clock
+            # slack is exhausted, which is the same corner the harness deadline covers, so
+            # the omission is not expected to matter -- but that is an argument, not a
+            # measurement, and it is the one respect in which this arm is not verbatim.
+            ranked = sorted(
+                served,
+                key=lambda p: (
+                    not p.get("grab_now"), p["vorp_rank"], not p.get("fills_need")
+                ),
+            )
+            legacy_pick = next(
+                (
+                    idx
+                    for row in ranked
+                    if (idx := self.by_index.get(str(row["id"]), -1)) >= 0
+                    and not taken[idx]
+                ),
+                -1,
+            )
+
+        call: dict[str, Any] = {}
+        if self.mode == "legacy":
+            # THE PAGE'S PRE-audible#61 ANSWER, which is the like-for-like comparison against
+            # `real`. Reconstructed from `urgency.py` at d3c3a24^: the shortlist is a raw
+            # board-rank slice `candidates[:TOP_N]` rather than an `effective_score` sort, and
+            # the final key is `(-need, urgency, vorp_rank)` with no `effective` term.
+            #
+            # `effective_score` is dropped from the rows rather than the sort being rewritten,
+            # because `the_call` falls back to 0.0 for a missing key and then BOTH its sorts
+            # collapse to `vorp_rank` -- which is exactly the pre-#61 behaviour, and is the
+            # seam `state._the_call`'s own comment identifies as how the field went missing in
+            # the first place.
+            legacy_rows = [
+                {k: v for k, v in row.items() if k != "effective_score"}
+                for row in rows_for_call[: urgency.TOP_N]
+            ]
+            call = urgency.the_call(
+                legacy_rows,
+                next_pick=view.my_next_pick,
+                needs=urgency.roster_needs(
+                    state_mod._roster_slots(view), self.service.config.slot_eligibility
+                ),
+                available_entries=available,
+            )
+        elif self.mode != "legacy_recommend":
+            # `no_urgency`: `the_call` never reads `grab_now` at all -- that key belongs to
+            # `recommend`. Its only urgency input is `survives_by(adp, next_pick)`, which
+            # drives both the will-last skip and `_urgency_tier`. Handing it `next_pick=None`
+            # makes `survives_by` return None for every row, so nothing is skipped as
+            # likely-to-last and the tier is the constant 1: the term is neutralised without
+            # touching the function.
+            next_pick = None if self.mode == "no_urgency" else view.my_next_pick
+            original_top_n = urgency.TOP_N
+            if self.mode == "no_slice":
+                urgency.TOP_N = NO_SLICE_TOP_N
+            try:
+                call = urgency.the_call(
+                    rows_for_call,
+                    next_pick=next_pick,
+                    needs=urgency.roster_needs(
+                        state_mod._roster_slots(view), self.service.config.slot_eligibility
+                    ),
+                    available_entries=available,
+                )
+            finally:
+                urgency.TOP_N = original_top_n
 
         if unfilled and remaining and len(unfilled) >= remaining:
             allowed = set(room.SLOT_ELIGIBILITY[unfilled[0]])
@@ -305,6 +417,9 @@ Audible's ordering, drafting sixteen picks unassisted, finishes without a kicker
                 )
                 return self.by_index[str(best["id"])]
 
+        if legacy_pick is not None:
+            return legacy_pick
+
         pick = call.get("pick") or {}
         pid = pick.get("id")
         if pid is None:
@@ -321,6 +436,7 @@ def build_seat(
     *,
     seat: int = DEFAULT_SEAT,
     shuffle: random.Random | None = None,
+    mode: str = "real",
 ) -> AudibleSeat:
     """A `CockpitService` holding the season board, with no network and no poll thread.
 
@@ -351,10 +467,22 @@ def build_seat(
         by_index={
             f"ffc{r.rank:04d}": i for i, r in enumerate(season_board.rows)
         },
+        mode=mode,
     )
 
 
-ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp", "leaky-shuffle"})
+# The ablations, each identical to `real` except that one named term is disabled. B3 exists to
+# answer "which of these mechanisms contributes anything measurable", and an ablation whose
+# result is indistinguishable from `real` is a fact about the tool worth knowing regardless of
+# what any sweep would say.
+ABLATIONS: frozenset[str] = frozenset({"no_need", "no_bye", "no_urgency", "no_slice"})
+
+ARMS: frozenset[str] = (
+    frozenset(
+        {"real", "shuffle", "bot", "adp", "legacy", "legacy_recommend", "leaky-shuffle"}
+    )
+    | ABLATIONS
+)
 
 # How far past the ADP baseline an honest ordering could plausibly get, in points-for over a
 # bootstrapped season. The board's values are a MONOTONE TRANSFORM OF ADP RANK, so there is no
@@ -363,13 +491,22 @@ ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp", "leaky-shuffl
 # contain. Measured: an oracle seat that picks whoever actually scored most that season clears
 # the baseline by roughly +330; the honest arm sits at -27 to -35.
 #
-# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it.
+# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it:
+# the real arm's distance from the ADP baseline has read between -16 and +13 across every
+# lineup policy measured, against a ceiling of 150.
 LEAK_CEILING: float = 150.0
 
 # Arms that must all be present for the report to mean anything. `real` is the thing under
 # test, `shuffle` is the leak detector, `bot` is the null that says the machinery is sound,
 # and `adp` is the skill baseline that says whether beating the bots is an achievement.
 REQUIRED_ARMS: frozenset[str] = frozenset({"real", "shuffle", "bot", "adp"})
+
+# How far the `no_slice` ablation opens the shortlist. `urgency.TOP_N` is 12; this is larger
+# than any served pool this harness produces -- measured 59 to 145 rows, mean 117, over 2,835
+# calls -- so the cap is removed rather than widened. (`state.py`'s own "~200 rows" describes
+# the production poll path, not this one.) Restored in a `finally`: it is a module global on
+# production code.
+NO_SLICE_TOP_N: int = 10_000
 
 
 def _adp_greedy(season_board: room.SeasonBoard, fit: room.Fit):
@@ -419,6 +556,16 @@ class ArmResult:
     picks: tuple[Any, ...]
     calls: int
     deadline_picks: int
+    # The two upper bounds, kept so the harness's own uncertainty about what a manager could
+    # have known is visible beside the primary rather than argued about.
+    points_for_season_mean: float = 0.0
+    season_mean_opponent_points: tuple[float, ...] = ()
+    points_for_realised: float = 0.0
+    realised_opponent_points: tuple[float, ...] = ()
+    # Points by starting slot, seat only, under the PRIMARY (ex-ante) lineup. Reported for
+    # every arm in every artifact -- the tight-end result hid for a whole session because
+    # nothing broke the advantage down by slot.
+    slot_points: dict[str, float] = field(default_factory=dict)
 
     @property
     def advantage(self) -> float:
@@ -426,6 +573,24 @@ class ArmResult:
         return self.points_for - (
             sum(self.opponent_points) / len(self.opponent_points)
             if self.opponent_points
+            else 0.0
+        )
+
+    @property
+    def advantage_season_mean(self) -> float:
+        """Under the season-mean lineup: an ORACLE projection. An upper bound, not ex-ante."""
+        return self.points_for_season_mean - (
+            sum(self.season_mean_opponent_points) / len(self.season_mean_opponent_points)
+            if self.season_mean_opponent_points
+            else 0.0
+        )
+
+    @property
+    def advantage_realised(self) -> float:
+        """Under the realised-point lineup: hindsight. The far upper bound."""
+        return self.points_for_realised - (
+            sum(self.realised_opponent_points) / len(self.realised_opponent_points)
+            if self.realised_opponent_points
             else 0.0
         )
 
@@ -441,13 +606,26 @@ def run_arm(
     config: Any,
     state_dir: Path,
     seat: int = DEFAULT_SEAT,
+    prior: Mapping[tuple[str, int], float] | None = None,
 ) -> ArmResult:
     """One draft with Audible in *seat*, then one bootstrapped season scored on it.
 
-    PAIRING. Every stream is derived from *seed* alone: the room uses `seed`, the shuffle
-    permutation uses `seed`, and the bootstrap uses `seed`. So `real` and `shuffle` at seed 7
-    face the identical opponent field and the identical weekly draws, and their difference
-    isolates the arm.
+    PAIRING, stated precisely because the obvious claim is false and three docstrings used to
+    make it. Every stream is derived from *seed* alone, so two arms at seed 7 share the room's
+    latent draws and the same opponent model. They do NOT face the identical realised opponent
+    field: the room is reactive, so a different seat pick changes what is on the board when
+    the next opponent chooses. Measured over 60 (season, seed) pairs, `no_need` differs from
+    `real` on 60 of 60, moving 15 to 62 of the 112 opponent picks; `no_bye` differs on 56 of
+    60, moving 0 to 67.
+
+    Nor are the weekly draws identical across arms. `bootstrap_weeks` consumes the stream in
+    roster order and takes zero draws for a player with no weeks, so a roster that differs at
+    pick 3 shifts every draw after it.
+
+    None of that biases anything -- the draws are i.i.d. and the intervals cluster on season
+    means -- but it costs the variance reduction a truly paired design would give, which the
+    already-wide clustered intervals cannot spare. It is stated here because "identical" is
+    the kind of claim a reader would reasonably rely on.
     """
     if arm not in ARMS:
         raise ValueError(f"unknown arm {arm!r}; expected one of {sorted(ARMS)}")
@@ -463,7 +641,9 @@ def run_arm(
             chooser=_adp_greedy(season_board, fit),
             chooser_seat=seat,
         )
-        return _score_draft(arm, season, seed, seat, picks, season_board, week_table, 16, 0)
+        return _score_draft(
+            arm, season, seed, seat, picks, season_board, week_table, 16, 0, prior
+        )
 
     if arm == "bot":
         # THE NULL CONTROL. Seat 6 played by the room's own bot logic -- no audible board, no
@@ -473,14 +653,20 @@ def run_arm(
         # shuffle minus bot is what audible's structure is worth, real minus shuffle is what
         # its value ordering is worth.
         picks = room.simulate_draft(season_board, fit, seed)
-        return _score_draft(arm, season, seed, seat, picks, season_board, week_table, 0, 0)
+        return _score_draft(
+            arm, season, seed, seat, picks, season_board, week_table, 0, 0, prior
+        )
 
     # `leaky-shuffle` is the injection: a shuffle arm with the shuffle removed, so it reads
     # the real board. `real - shuffle` then collapses to exactly zero, which is the signature
     # G6b exists to catch. It is never a reported arm.
     shuffle_rng = random.Random(seed) if arm == "shuffle" else None
+    # `real`, `shuffle` and `leaky-shuffle` all run the cockpit's own ordering; the board is
+    # what differs. `legacy` and the four ablations differ in the ORDERING and share the board.
+    mode = arm if arm in ABLATIONS or arm.startswith("legacy") else "real"
     holder = build_seat(
-        season_board, config, week_table.byes, state_dir, seat=seat, shuffle=shuffle_rng
+        season_board, config, week_table.byes, state_dir,
+        seat=seat, shuffle=shuffle_rng, mode=mode,
     )
     from audible.draft.live import Pick
 
@@ -537,7 +723,7 @@ def run_arm(
 
     return _score_draft(
         arm, season, seed, seat, picks, season_board, week_table,
-        holder.calls, holder.deadline_picks,
+        holder.calls, holder.deadline_picks, prior,
     )
 
 
@@ -551,6 +737,7 @@ def _score_draft(
     week_table: weekly.SeasonWeekly,
     calls: int,
     deadline_picks: int,
+    prior: Mapping[tuple[str, int], float] | None = None,
 ) -> ArmResult:
     """Score a completed draft. Every seat gets its own bootstrap stream, keyed off the seed.
 
@@ -561,25 +748,72 @@ def _score_draft(
     for p in picks:
         rosters.setdefault(p.seat, []).append(p)
 
-    mine, unresolved = weekly.resolve_roster(rosters[seat], season_board, week_table)
-    mine_points = weekly.points_for(
-        random.Random(seed * 1_000_003 + seat), week_table, mine
+    ranks = positional_ranks(season_board)
+
+    def score(who: Sequence[room.SimPick], stream: int):
+        """All three lineup policies off ONE bootstrap draw per seat.
+
+        `random.Random` is re-seeded identically for each policy, and `bootstrap_weeks`
+        consumes exactly 18 draws per player regardless of content, so the three cannot
+        desynchronise. That is what makes them three readings of one experiment rather than
+        three experiments.
+        """
+        roster, missing = weekly.resolve_roster(who, season_board, week_table)
+        table = weekly.prior_points(prior or {}, roster, ranks)
+        primary, slots = weekly.points_for(
+            random.Random(stream), week_table, roster, lineup="prior", prior=table
+        )
+        oracle, _ = weekly.points_for(
+            random.Random(stream), week_table, roster, lineup="season-mean"
+        )
+        hindsight, _ = weekly.points_for(
+            random.Random(stream), week_table, roster, lineup="realised"
+        )
+        return primary, oracle, hindsight, slots, missing
+
+    mine_points, mine_oracle, mine_realised, slot_points, unresolved = score(
+        rosters[seat], seed * 1_000_003 + seat
     )
     opponents: list[float] = []
+    opponents_oracle: list[float] = []
+    opponents_realised: list[float] = []
     for other in sorted(rosters):
         if other == seat:
             continue
-        roster, _ = weekly.resolve_roster(rosters[other], season_board, week_table)
-        opponents.append(
-            weekly.points_for(random.Random(seed * 1_000_003 + other), week_table, roster)
+        primary, oracle, hindsight, _slots, _missing = score(
+            rosters[other], seed * 1_000_003 + other
         )
+        opponents.append(primary)
+        opponents_oracle.append(oracle)
+        opponents_realised.append(hindsight)
 
     return ArmResult(
         arm=arm, season=season, seed=seed, seat=seat,
         points_for=mine_points, opponent_points=tuple(opponents),
         unresolved=unresolved, picks=tuple(picks), calls=calls,
         deadline_picks=deadline_picks,
+        points_for_season_mean=mine_oracle,
+        season_mean_opponent_points=tuple(opponents_oracle),
+        points_for_realised=mine_realised,
+        realised_opponent_points=tuple(opponents_realised),
+        slot_points=slot_points,
     )
+
+
+def positional_ranks(season_board: room.SeasonBoard) -> dict[str, int]:
+    """gsis-less key -> its rank WITHIN its position on the board. The prior's key.
+
+    Keyed by the same `ffc####` id the rest of the harness speaks, then translated to gsis by
+    the caller through `resolve_roster`'s output order. Positional rather than overall rank
+    because that is the slot a manager is actually filling: RB7 means something across
+    seasons, overall pick 43 does not.
+    """
+    seen: dict[str, int] = {}
+    out: dict[str, int] = {}
+    for row in season_board.rows:
+        seen[row.position] = seen.get(row.position, 0) + 1
+        out[f"ffc{row.rank:04d}"] = seen[row.position]
+    return out
 
 
 # Two-sided 95% t quantiles, indexed by degrees of freedom. Only small df matter here: the
@@ -610,11 +844,25 @@ def mean_and_interval(
     board, one ADP vintage and one set of actuals. Sixty draws from 2023 are sixty views of
     ONE market, so dividing by the square root of 300 counts each season sixty times.
 
-    Measured on the committed run: the real arm reads +146.4 [+127.9, +164.9] flat and
-    +146.4 [+92.6, +200.3] clustered -- 2.9 times wider. The shuffle arm reads
-    +42.9 [+25.6, +60.1] flat and +42.9 [-1.0, +86.7] clustered, which is the difference
-    between "the leak detector is red" and "the leak detector is green". The module docstring
-    already said five vintages remain five; the arithmetic did not.
+    Degrees of freedom are however many season-clusters the caller passes, not always four:
+    the walk-forward splits call this at 2 df and 1 df, where the t quantile is 4.303 and
+    12.706 and the interval is too wide to resolve anything.
+
+    THERE IS NO SINGLE RATIO BETWEEN THE TWO, and an earlier version of this docstring quoted
+    one. It said the flat interval is "2.5 to 2.9 times too narrow", which no arm on the B3
+    run reaches. Measured over its 3,000 main units, clustered width against flat width:
+
+        adp 1.17x   bot 1.26x   legacy 1.90x   legacy_recommend 1.33x
+        no_bye 1.82x   no_need 1.60x   no_slice 2.57x   no_urgency 2.53x
+        real 2.05x   shuffle 1.51x
+
+    The spread is the point. The ratio is a function of how much of an arm's variance sits
+    BETWEEN seasons rather than between seeds, so an arm whose behaviour barely changes with
+    the vintage (`adp`) is barely widened and one that swings with it (`no_slice`) is widened
+    two and a half times. Any fixed multiplier is wrong for every arm.
+
+    `_compare` writes `flat_lo`/`flat_hi` beside `lo`/`hi` in every comparison the artifact
+    reports, so this can be re-derived rather than believed, and so a gate can read both.
 
     So the interval is over SEASON MEANS with a t quantile on (number of seasons - 1) degrees
     of freedom. It is much wider and it is the honest width: the thing that limits this

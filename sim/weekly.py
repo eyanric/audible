@@ -1,8 +1,24 @@
-"""TASK B2/4 -- weekly actuals, optimal lineups, and the bootstrap.
+"""Weekly actuals, optimal lineups, the bootstrap, and the prior the lineup is set on.
 
-The outcome measure for every arm is POINTS-FOR UNDER WEEKLY OPTIMAL LINEUPS. Not simulated
-wins: a head-to-head record adds schedule variance that has nothing to do with drafting, and
+The outcome measure for every arm is POINTS-FOR UNDER A PRIOR LINEUP. Not simulated wins:
+a head-to-head record adds schedule variance that has nothing to do with drafting, and
 spending statistical power on it is spending it on noise.
+
+WHY THE LINEUP POLICY IS THE FIRST THING HERE. A lineup chosen with the week's outcome
+already known pays E[max of k] for holding k players at a position, so hoarding is free in the
+simulation and expensive in a real league. Measured over 40 units (five seasons, eight seeds,
+the `real` arm), decomposed BY POSITION and against the same opponents:
+
+    realised lineup   advantage +101.9   of which tight end +85.4   83.8%
+    prior lineup      advantage +145.8   of which tight end +13.2    9.1%
+
+Same units, same decomposition, one denominator. The seat's rosters are identical in both rows
+-- it drafts 2.73 tight ends against the other seats' 1.38 either way -- so the whole of that
+difference is what the lineup policy was paying for hindsight. An earlier version of this
+paragraph quoted a share of the ADVANTAGE against a share of the seat's TOTAL POINTS and read
+as though the artifact had been eliminated; it has been reduced by an order of magnitude, and
+the remaining 9% is what a manager who could only know the position's historical value would
+have got from the same players.
 
 Three things live here, in the order the harness uses them.
 
@@ -41,18 +57,23 @@ They score zero, but for two DIFFERENT reasons and only one of them is an absenc
 D/ST: `player_stats_<season>` carries no team-defence rows at all. Measured, zero in all five
 seasons. There is nothing to score.
 
-K: kickers DO have rows -- 568 to 570 a season -- and they are scored, to exactly 0.0, because
-`roundtrip.COLUMN_TO_KEY` carries no kicking columns. Summed over every kicker row in a season
-the total is 0.0 for 2021-2024 and 0.6 for 2025. (An earlier version of this docstring said the
-pinned frames do not carry kickers. They do; the scoring vocabulary does not reach them.)
+K: kickers DO have rows -- 568 to 570 a season, of which the 542 to 545 regular-season ones are
+the only ones this module reads -- and they are scored, to exactly 0.0, because
+`roundtrip.COLUMN_TO_KEY` carries no kicking columns. Summed over every scored kicker-week in a
+season the total is 0.0 for 2021-2024 and 0.6 for 2025. (An earlier version of this docstring said
+the pinned frames do not carry kickers. They do; the scoring vocabulary does not reach them.)
 
-So both starting slots score zero. The K slot is FILLED in the matching by a zero-scoring
-kicker, the D/ST slot is left empty; either way the lineup yields 7 scoring slots of 9, which
-every artifact reports as `slots_scored`. The effect is COMMON-MODE across arms -- every arm
-drafts one kicker and one defence, because the room's schedule and deadline make it -- so a
-PAIRED comparison is unaffected. Two arms drafting different kickers is worth 0.6 points a
-season at the very most. The absolute points-for number understates a real league's by roughly
-a kicker and a defence a week, and only the DIFFERENCES between arms are meant to be read.
+So both starting slots score zero, and BOTH ARE FILLED rather than left empty: the K slot by
+a zero-scoring kicker, the D/ST slot by the `unresolved:<overall>` placeholder `resolve_roster`
+emits, which is eligible for it. Neither can displace a scoring player, because only positions
+`K` and `DEF` are eligible for those slots -- verified by removing both slots and getting a
+bit-identical total. Either way the lineup yields 7 scoring slots of 9.
+
+The effect is COMMON-MODE across arms -- every arm drafts one kicker and one defence, because the
+room's schedule and deadline make it -- so a PAIRED comparison is unaffected. Two arms drafting
+different kickers is worth 0.6 points a season at the very most. The absolute points-for number
+understates a real league's by roughly a kicker and a defence a week, and only the DIFFERENCES
+between arms are meant to be read.
 
 
 BYE WEEKS, AND WHY THEY ARE NOT LEAKAGE
@@ -300,6 +321,10 @@ def optimal_week(
     *roster* is (player_key, position). A player with no entry in *week_points* scores zero,
     which is how a bye and an inactive both look in the pinned data: no row.
 
+    `week_points` is whatever the caller is optimising against. Under the prior measure that
+    is `expected_points`, and the returned assignment is then scored on the realised draw by
+    `points_for` -- the lineup and the score come from different vectors on purpose.
+
     EXACT, not greedy. `draft/live.py::place_into_slots` fills the most specific open slot
     first, sorted by season projection, and for these nested FLEX structures that happens to
     be optimal -- measured, 0 disagreements over 14,400 player-weeks -- but "happens to be" is
@@ -403,23 +428,209 @@ def bootstrap_weeks(
     return out
 
 
+def expected_points(
+    weekly: SeasonWeekly, players: Sequence[str]
+) -> dict[str, float]:
+    """Each player's mean over HIS OWN observed weeks.
+
+    NOT A PROJECTION, AND NOT EX-ANTE. This is the exact mean of the pool `bootstrap_weeks`
+    draws from, so a lineup chosen on it is the argmax of the true expected season total --
+    a zero-error oracle. What that is worth against a genuine pre-draft prior is COMPUTED on
+    every run and printed at the top of the artifact, per arm, in points a season. It is
+    consistently an order of magnitude larger than any comparison the artifact reports, which
+    is the reason it is printed there and not asserted here.
+
+    It is kept because it BOUNDS the measurement from above. `PRIOR` bounds it from below and
+    is the primary. Anything that only shows up between the two is inside the harness's own
+    uncertainty about what a manager could have known.
+    """
+    out: dict[str, float] = {}
+    for player in players:
+        weeks = weekly.points.get(player)
+        out[player] = (sum(weeks.values()) / len(weeks)) if weeks else 0.0
+    return out
+
+
+# How far either side of a positional rank the prior pools. Straight from `ffverse/ffsimulator`,
+# which does the same thing for the same reason: one rank in one season is a handful of games,
+# and the pool has to be broad enough to estimate a mean from.
+PRIOR_RANK_BAND: int = 2
+
+
+def prior_table(
+    others: Mapping[int, tuple[SeasonWeekly, Sequence[tuple[str, int]]]],
+) -> dict[tuple[str, int], float]:
+    """(position, positional board rank) -> mean weekly points, from OTHER seasons only.
+
+    THE ONLY GENUINELY PRE-DRAFT EXPECTATION THIS HARNESS CAN BUILD. A manager drafting 2024
+    knows what the RB7 slot has historically been worth; he does not know what Bijan Robinson
+    is about to do. So the prior is fitted on the seasons NOT being scored, keyed on the slot
+    a player occupies rather than on the player, and smoothed over a +/-2 rank band.
+
+    *others* maps season -> (its weekly table, [(gsis_id, positional board rank)]). The caller
+    supplies the mapping because only it knows which season is being held out.
+    """
+    pooled: dict[tuple[str, int], list[float]] = {}
+    for _season, (table, roster) in others.items():
+        for player, rank in roster:
+            weeks = table.points.get(player)
+            if not weeks:
+                continue
+            mean = sum(weeks.values()) / len(weeks)
+            position = table.position.get(player, "")
+            if not position:
+                continue
+            for offset in range(-PRIOR_RANK_BAND, PRIOR_RANK_BAND + 1):
+                pooled.setdefault((position, max(1, rank + offset)), []).append(mean)
+    return {key: sum(v) / len(v) for key, v in pooled.items()}
+
+
+def prior_points(
+    table: Mapping[tuple[str, int], float],
+    roster: Sequence[tuple[str, str]],
+    ranks: Mapping[str, int],
+) -> dict[str, float]:
+    """Expected weekly points for a roster, from the prior table. No season-S information.
+
+    A player whose (position, rank) cell is empty gets 0.0 and will not be started, which is
+    the same treatment a player with no weeks gets. That is conservative in the direction
+    that matters: the prior never invents value it has no evidence for.
+    """
+    return {
+        key: float(table.get((position, ranks.get(key, 10_000)), 0.0))
+        for key, position in roster
+    }
+
+
+# The three lineup policies, from least to most information about the season being scored.
+# `prior` is the PRIMARY: it is the only one that uses no season-S outcome at all.
+LINEUPS: tuple[str, ...] = ("prior", "season-mean", "realised")
+
+
 def points_for(
     rng: random.Random,
     weekly: SeasonWeekly,
     roster: Sequence[tuple[str, str]],
-) -> float:
-    """Points-for over one bootstrapped season, under weekly optimal lineups.
+    *,
+    lineup: str = "prior",
+    prior: Mapping[str, float] | None = None,
+) -> tuple[float, dict[str, float]]:
+    """Points-for over one bootstrapped season. Returns (total, points by starting slot).
+
+    THE LINEUP IS SET FROM A PRIOR BY DEFAULT, AND THAT IS A CORRECTNESS FIX, NOT A CHOICE.
+    The realised-points version picks each week's lineup KNOWING that week's outcome, which no
+    manager can do, and it pays E[max of k] for holding k players at a position. B2 measured
+    the consequence and did not act on it: most of the real arm's advantage sat in the tight
+    end position, because hoarding tight ends is free under hindsight and expensive in a real
+    league. The seat still drafts 2.73 tight ends against the other seats' 1.38, but under the
+    prior lineup that position now carries +13.2 of its +145.8 advantage -- 9%, measured over
+    40 units -- rather than most of it.
+
+    THREE POLICIES, from least to most information about the season being scored. All three
+    are reported on every arm, because the spread between them is the harness's own
+    uncertainty about what a manager could have known, and any effect smaller than that spread
+    is not a result.
+
+    ``lineup="prior"``      -- PRIMARY. The lineup is chosen on a table fitted from the OTHER
+                               four seasons, keyed on (position, positional board rank). No
+                               information about the season being scored enters it at all.
+    ``lineup="season-mean"``-- the lineup is chosen on each player's own season mean. That is
+                               the exact expectation of the bootstrap pool, i.e. a zero-error
+                               oracle projection. Reported as an UPPER BOUND, never as
+                               ex-ante; the artifact computes what it is worth per run.
+    ``lineup="realised"``   -- each week's lineup chosen knowing that week. Reported as the
+                               far upper bound and as the size of the original artifact.
+
+    The per-slot breakdown is returned on every call and reported in every artifact,
+    permanently. The tight-end result hid for a whole session because nothing broke the
+    advantage down by slot.
 
     *roster* is (player_key, position) for the sixteen players a seat drafted. Unresolved
     players -- an off-board pick, a name the crosswalk does not carry -- have no weeks and
-    contribute zero, exactly like a kicker.
+    contribute zero, exactly like a team defence.
     """
-    draws = bootstrap_weeks(rng, weekly, [key for key, _pos in roster])
+    if lineup not in LINEUPS:
+        raise ValueError(f"unknown lineup {lineup!r}; expected one of {LINEUPS}")
+    if lineup == "prior" and prior is None:
+        raise ValueError("the `prior` lineup needs a prior; none was passed")
+
+    keys = [key for key, _pos in roster]
+    position_of = dict(roster)
+    draws = bootstrap_weeks(rng, weekly, keys)
+    by_slot: dict[str, float] = {}
+    # ACCUMULATED PER WEEK, not derived from the season lineup afterwards. The realised policy
+    # re-chooses every week, so there is no single (slot -> player) map to attribute a season
+    # total through -- the previous version took `filled=None` for that policy and emitted NO
+    # by-position rows at all. Any comparison of tight-end share between the prior and the
+    # realised lineup then read the realised side as exactly zero, which is the comparison the
+    # by-position view exists to make.
+    by_position: dict[str, float] = {}
     total = 0.0
+
+    if lineup != "realised":
+        # One lineup for the season, chosen before any week of it is seen. Rolling weekly
+        # re-optimisation was measured and is strictly WORSE here (-46 to -51 points a season
+        # for every arm): `bootstrap_weeks` draws weeks i.i.d., so there is no within-season
+        # signal to learn and any rolling estimate is a noisier estimate of the same number.
+        # Weekly start/sit skill is outside this harness entirely and is not claimed.
+        against = dict(prior or {}) if lineup == "prior" else expected_points(weekly, keys)
+        _, filled = optimal_week(roster, against)
+        for index in range(len(REG_WEEKS)):
+            for slot, player in filled:
+                if player is None:
+                    continue
+                points = draws[player][index] if player in draws else 0.0
+                by_slot[slot] = by_slot.get(slot, 0.0) + points
+                by_position[position_of.get(player, "?")] = (
+                    by_position.get(position_of.get(player, "?"), 0.0) + points
+                )
+                total += points
+        return total, _index_slots(by_slot, by_position)
+
     for index in range(len(REG_WEEKS)):
-        week_points = {key: draws[key][index] for key, _pos in roster}
-        total += optimal_week(roster, week_points)[0]
-    return total
+        week_points = {key: draws[key][index] for key in keys}
+        week_total, filled = optimal_week(roster, week_points)
+        total += week_total
+        for slot, player in filled:
+            if player is None:
+                continue
+            points = week_points.get(player, 0.0)
+            by_slot[slot] = by_slot.get(slot, 0.0) + points
+            by_position[position_of.get(player, "?")] = (
+                by_position.get(position_of.get(player, "?"), 0.0) + points
+            )
+    return total, _index_slots(by_slot, by_position)
+
+
+def _index_slots(
+    by_slot: Mapping[str, float],
+    by_position: Mapping[str, float],
+) -> dict[str, float]:
+    """Split the aggregated slot buckets and add a by-POSITION view beside them.
+
+    THE BY-SLOT TABLE CANNOT SEE HOARDING ON ITS OWN, which is the one thing it was added to
+    make visible. `room.STARTING_SLOTS` names RB and WR twice, so those buckets aggregate two
+    starting slots while QB, TE and FLEX aggregate one -- the `real` arm's printed `RB:40%` is
+    two slots and its `TE:10%` is one, and the two cannot be compared. Worse, a surplus tight
+    end started at FLEX contributes to the FLEX bucket, so a three-TE roster and a one-TE
+    roster print the same `TE` share. Adversarial review constructed exactly that pair.
+
+    So the by-position rows are emitted alongside, prefixed `pos:`. Those are the ones that
+    answer the question: they attribute a started player's points to HIS position wherever he
+    played.
+
+    BOTH VIEWS MUST SUM TO THE SAME TOTAL, and a gate asserts it, because the first version
+    of this function did not. It derived the by-position view from the season lineup by adding
+    `by_slot[slot]` once per player filling that slot -- and `by_slot["RB"]` is the sum of BOTH
+    RB slots, so each of the two running backs was credited with both. RB printed 51% of the
+    seat's points against a true 40%, and WR and QB were understated to match. The two views
+    are now accumulated from the same per-week loop rather than one being reconstructed from
+    the other.
+    """
+    out = {slot: round(points, 3) for slot, points in by_slot.items()}
+    for position, points in by_position.items():
+        out[f"pos:{position}"] = round(points, 3)
+    return out
 
 
 def resolve_roster(

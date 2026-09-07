@@ -1,0 +1,48 @@
+# B3: DIAGNOSTIC, not a sweep. Nine arms, five seasons, sixty seeds, plus a walk-forward split.
+#
+# The question is not "can audible be tuned to win" -- it is "which of three stories explains
+# B2's -15.9". Sweeping before knowing that is hill-climbing on forty market-seat combinations
+# and it will find something that does not transfer.
+[run]
+name = "b3-diagnose"
+seasons = [2021, 2022, 2023, 2024, 2025]
+seed_start = 0
+seed_count = 60
+
+# Ten arms.
+#   real     -- the thing under test: the cockpit's own the_call path
+#   adp      -- the SKILL BASELINE. Required. Without it no other number is an achievement.
+#   legacy   -- the PAGE's pre-audible#61 `the_call`. Like-for-like against `real`, which is
+#               also `the_call`. The single most informative comparison available: it says
+#               whether the overlay does anything, and which way the weekend moved it.
+#   shuffle  -- the leak detector. Required, permanently, on every run.
+#   bot      -- the NULL CONTROL. Required. By symmetry it must land at chance.
+#   no_*     -- one ablation per overlay component. Each identical to `real` except the named
+#               term is disabled.
+#   legacy_recommend -- the MCP list head's pre-#60 sort. A DIFFERENT SURFACE from `real`,
+#               reported separately for exactly that reason. `legacy` used to BE this sort, so
+#               `real - legacy` was a surface comparison wearing an ordering comparison's name;
+#               separating them inverted its sign. The gap itself is reported as `surface_gap`
+#               and is null under the primary lineup.
+arms = [
+    "real", "adp", "legacy", "legacy_recommend", "shuffle", "bot",
+    "no_need", "no_bye", "no_urgency", "no_slice",
+]
+
+seat = 6
+league = "espn_davis_drive"
+fit_seasons = [2021, 2022, 2023, 2024, 2025]
+
+# WALK-FORWARD, reported beside the main split rather than instead of it. The opponent model
+# is fitted on 2021-2023 and then tested on seasons it never saw. An effect that appears
+# in-sample and vanishes out-of-sample is the signature of overfitting, and it belongs on the
+# page rather than in someone's memory.
+#
+# Note the degrees of freedom: intervals cluster on season, so wf-in has 2 df and wf-out has 1.
+# Those intervals are wide by construction and the artifact says so.
+[walk_forward]
+fit = [2021, 2022, 2023]
+test = [2024, 2025]
+
+[gates]
+require_shuffle_at_chance = false
