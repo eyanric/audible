@@ -24,6 +24,12 @@ data/news/
 snapshots/
 *.local
 
+# FFA vintage projections. This repository is PUBLIC and these files are derived from a
+# paid FFA Insider subscription, so the data itself is never committed -- only
+# sim/data/ffa/README.md and the checksum manifest beside it. See that README before
+# adding anything here.
+sim/data/ffa/*.csv
+
 # Personal draft exports (reconstructible from ESPN + the synced state file)
 draft-*-results.md
 
