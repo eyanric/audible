@@ -1,0 +1,19 @@
+# A small run, for the gates and for a first look. ALL FIVE SEASONS, twelve seeds, four arms.
+#
+# It is small in SEEDS and never in seasons, and that is the whole shape of it. Intervals are
+# clustered on season, so SEASONS are the degrees of freedom: two seasons is one df and a t
+# quantile of 12.7, which made `real - shuffle` read +89 [-361, +539] and fail its own G6b
+# gate on a config that was measuring nothing wrong.
+#
+# Thirty seeds, not twelve, for the same reason in the other direction: seeds buy precision on
+# each SEASON MEAN, and at twelve the means were noisy enough that `real - shuffle` came out
+# +64 [-9, +138] and still straddled zero. Five seasons at thirty is 600 units, about 35s.
+[run]
+name = "b2-smoke"
+seasons = [2021, 2022, 2023, 2024, 2025]
+seed_start = 0
+seed_count = 30
+arms = ["real", "shuffle", "bot", "adp"]
+seat = 6
+league = "espn_davis_drive"
+fit_seasons = [2021, 2022, 2023, 2024, 2025]

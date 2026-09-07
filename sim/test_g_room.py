@@ -633,10 +633,14 @@ def test_i1_zero_sigma_alone_does_not_reproduce_the_bad_model(room) -> None:
 def test_i2_a_very_large_sigma_breaks_the_room(room) -> None:
     """Failure injection 2. Blow the noise up and G2 must go red, not merely get worse."""
     R, fit, boards, real, _syn = room
+    # Twenty seeds a season, not four. At four (n=20) `runs of 3+` estimates to +-0.5 and
+    # lands inside the real 8-11 about as often as not, so the assertion below flickered once
+    # B2's refinements added a little clustering back. At twenty (n=100) it reads 7.5 +-0.2,
+    # which is 2.3 standard errors clear of the bound. The gate was right; its sample was not.
     wild = [
         R.sim_stats(R.simulate_draft(boards[s], fit, seed, sigma_scale=8.0))
         for s in R.SEASONS
-        for seed in range(4)
+        for seed in range(20)
     ]
     failures = [c for c in R.compare(wild, list(real.values())) if not c.passes]
     assert failures, "an 8x sigma passed every pre-registered statistic; the gates are inert"

@@ -93,12 +93,13 @@ paragraph is the correction.
 
 CHANGED 3 -- a feasibility deadline. With as many picks left as unfilled starting slots, a
 seat must spend them there, most specific slot first. Zero fitted parameters. Both halves
-earn their place against ``deadline=False``: without it 42.6% of seats finish unable to field
-a legal lineup, usually missing a tight end or a quarterback, and with the schedule off as
-well that is 77.5% and 0-6 seats a draft with no kicker at all. All forty real team-seasons
-could field a lineup. This matters more than it looks: the positional TOTALS were right
-without it and only the allocation across seats was wrong, so no draft-level statistic in the
-pre-registered set could see it.
+earn their place against ``deadline=False``: without it 45.0% of seats finish unable to field
+a legal lineup at the current defaults -- 42.6% with ``refinements=False``, which is where that
+figure was first measured -- usually missing a tight end or a quarterback, and with the
+schedule off as well that is 77.5% and 0-6 seats a draft with no kicker at all. All forty
+real team-seasons could field a lineup. This matters more than it looks: the positional
+TOTALS were right without it and only the allocation across seats was wrong, so no
+draft-level statistic in the pre-registered set could see it.
 
 CHANGED 4 -- the legality filter runs INSIDE the argmin rather than ahead of the draw. With
 per-draft sampling the noise is drawn for the whole board up front, so caps and slot
@@ -141,39 +142,41 @@ a threshold), ``MIN_CELL`` (12, the pooling floor) and ``BUCKETS`` (the four rou
                             one-starting-slot need test plus the deadline, not the cap.
 
 
-WHAT THIS ROOM DOES NOT DO
---------------------------
-Left unfixed on purpose: closing a held-out miss by adding a mechanism is what tuning a gate
-to pass looks like from the inside.
+WHAT B2 CLOSED, AND WHAT IS STILL OPEN
+--------------------------------------
+B1 named six deficiencies and closed none, deliberately. B2 closed the three that were
+structural rather than fitted-to-the-target. Every number below is current.
 
-Found by the held-out check:
+CLOSED:
 
-* It never takes a second kicker or a second defence, so K+DEF inside 128 is exactly 16 in
-  every synthetic draft while the real room ranged 16-17 and hit 17 in three seasons of five.
-  Three of eighty real team-slot-seasons took a second.
-* It under-disperses in a loose season. Sigma is pooled across all five, so 2021 (board 224
-  rows, real spread 27.5) and 2025 (221 rows, 26.8) come out near 20.8 like the rest. Board
-  depth and real spread are rank-monotone across all five seasons and a pooled sigma cannot
-  express that.
-* 2023's first defence went in round 11 against a synthetic band of 12-14. The schedule is
-  pooled across seasons for the same reason sigma is. 2025 is the other season whose first K
-  and first D/ST both came a round early, and it is covered.
+* SECOND SPECIALISTS. 2 of 40 real team-seasons took a second D/ST and 1 of 40 a second K, so
+  ``second_specialist_p`` is {DEF: 0.05, K: 0.025} and K+DEF inside 128 now reads 16.2 with a
+  16/17/18 spread against a real 16-17. It used to be exactly 16 in every draft.
+* OFF-BOARD PICKS. 18 of 640 real picks (2.8%) were players FFC never listed, and the room now
+  takes them at 2.80%. By position the real ones are 7 K, 4 DEF, 3 RB, 3 WR, 1 QB. The
+  (round bucket, position) pair is drawn JOINTLY -- independent marginals manufactured
+  off-board kickers in round 3, because the one real early off-board pick was a running back.
+* SEASON-LEVEL SIGMA. The five per-season residual spreads are 14.5 to 21.9 around 18.1; the
+  sampling sd of a sample sd at n~124 is 1.15, so the TRUE between-season sd is 2.20, or 12%
+  of the mean. A per-draft multiplier from N(1, 0.12) carries it.
 
-Known independently of the held-out check:
+STILL OPEN, and reported on every run:
 
-* It cannot draft anyone who is not on the FFC board, and 18 of 640 real picks (2.8%) were
-  not. By position that is 7 K, 4 DEF, 3 RB, 3 WR, 1 QB -- kickers are the plurality, not
-  defences.
-* THE SPREAD GATE IS COMPARED AGAINST A TRUNCATED TARGET. The real ``pick-ADP spread`` is
-  computed over joined picks only, because an off-board pick has no rank. Give every
-  off-board pick the most conservative rank possible -- board depth + 1 -- and the real range
-  becomes 22.5-37.7 rather than 20.6-27.5, and the synthetic 21.95 FAILS. The pass on that
-  line depends on the truncation, and the fitted sigma is a FLOOR on true market dispersion
-  rather than an estimate of it.
+* 2021 and 2025 pick-ADP spread still miss their held-out band. Those are the two loosest
+  seasons and the season multiplier does not reach them. Held-out is 28/30, up from 24/30.
 * THE GATE'S RESOLUTION ON THE SPECIALIST SCHEDULE IS ABOUT ONE ROUND. Shifting ``pick_mu``
   for K and D/ST by -8 picks -- a full round early -- still passes all six pre-registered
-  statistics; -12 and +8 do not. "Room resembles real" means "within about a round", and no
-  more than that.
+  statistics; -12 and +8 do not. "Room resembles real" means "within about a round".
+
+RESOLVED, AND IT WENT THE OTHER WAY FROM B1'S EXPECTATION. B1 recorded honestly that the
+``pick-ADP spread`` gate was compared against a TRUNCATED target: give every off-board pick
+the most conservative rank available and the real range moved to 22.5-37.7 while the synthetic
+21.95 failed. B1 could not act on it, because its room had no off-board picks at all and the
+two sides were not comparable. B2's room has them at the measured rate, so the comparison is
+symmetric -- and it PASSES, at 26.3 against a real 22.5-36.8. The range moved from B1's
+22.5-37.7 because fixing the Rams D/ST join took 2021 from five off-board picks to four. It is
+printed as G9 on every ``python -m sim.room`` run, and it would be printed the same way had it
+failed.
 
 Two limits that hold regardless and belong in every sim report: no vintage preseason
 projections exist for any season, so this measures ORDERING and never the projections; and
@@ -203,7 +206,7 @@ import statistics as st
 import sys
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -610,6 +613,16 @@ class Fit:
     round_sigma: dict[str, float]
     round_n: dict[str, int]
     seasons: tuple[int, ...]
+    # B2 refinements. Each is measured; see `fit_room` for how, and the module docstring for
+    # what each one closes and what it deliberately does not.
+    second_specialist_p: dict[str, float]
+    offboard_per_draft: tuple[int, ...]
+    offboard_bucket_p: dict[str, float]
+    offboard_position_p: dict[str, float]
+    offboard_cells: tuple[tuple[str, str], ...]
+    season_sigma: dict[int, float]
+    season_sigma_mean: float
+    season_sigma_tau: float
 
     def sigma_for(self, position: str, expected_pick: float) -> float:
         bucket = bucket_of(round_of(expected_pick))
@@ -689,6 +702,7 @@ def fit_room(
 
     joined: list[JoinedPick] = []
     offboard: Counter[str] = Counter()
+    offboard_rows: list[tuple[int, int, str]] = []
     total = 0
     per_team: dict[tuple[int, int], Counter[str]] = {}
 
@@ -702,6 +716,7 @@ def fit_room(
             row = index.get(pick_join_key(pick, nicks))
             if row is None:
                 offboard[pick.position] += 1
+                offboard_rows.append((season, pick.round, pick.position))
                 continue
             joined.append(
                 JoinedPick(
@@ -790,6 +805,72 @@ def fit_room(
             cap_hist.setdefault(pos, {}).setdefault(n, 0)
             cap_hist[pos][n] += 1
 
+    # --- B2 refinement 1: the second specialist ------------------------------------------
+    # Measured, not assumed: 2 of 40 team-seasons took a second defence and 1 of 40 a second
+    # kicker. B1 could not produce either, so K+DEF inside 128 was exactly 16 in every
+    # synthetic draft while the real room ranged 16-17. This is the rate, and the rate alone
+    # -- nothing here is set to make the count come out at any particular number.
+    second_specialist_p: dict[str, float] = {}
+    for pos in scheduled:
+        hist = cap_hist.get(pos, {})
+        team_seasons = sum(hist.values())
+        seconds = sum(n for count, n in hist.items() if count >= 2)
+        second_specialist_p[pos] = seconds / team_seasons if team_seasons else 0.0
+
+    # --- B2 refinement 2: off-board picks ------------------------------------------------
+    # 18 of 640 real picks were players FFC never listed. B1's room could not draft them at
+    # all, so every synthetic draft consumed 128 board rows where the real room consumed
+    # 110-127. The per-draft COUNTS are resampled empirically rather than fitted to a
+    # distribution -- five observations do not identify one, and the observed spread (1 to 7)
+    # is most of what there is to know.
+    per_draft_counts: dict[int, int] = dict.fromkeys(seasons, 0)
+    bucket_counts: Counter[str] = Counter()
+    position_counts: Counter[str] = Counter()
+    for season, rnd, pos in offboard_rows:
+        per_draft_counts[season] += 1
+        bucket_counts[bucket_of(rnd)] += 1
+        position_counts[pos] += 1
+    offboard_per_draft = tuple(per_draft_counts[s] for s in seasons)
+    total_off = sum(bucket_counts.values()) or 1
+    offboard_bucket_p = {b: n / total_off for b, n in bucket_counts.items()}
+    offboard_position_p = {p: n / total_off for p, n in position_counts.items()}
+    # The JOINT distribution, and it has to be joint. Drawing bucket and position from their
+    # marginals independently manufactures combinations that never occur: the one real
+    # off-board pick in rounds 1-4 was a running back (J.K. Dobbins, 2021), and kickers are
+    # 39% of the position marginal, so independent draws produced off-board KICKERS in round
+    # 3 and drove the synthetic first-K round's 5th percentile down to 4.0 against a real
+    # 11-13. Eighteen observations is few, but it is the shape that matters here, not the
+    # resolution.
+    offboard_cells = tuple(
+        (bucket_of(rnd), pos) for _season, rnd, pos in offboard_rows
+    )
+
+    # --- B2 refinement 3: season-level sigma ---------------------------------------------
+    # Is there such a thing as a loose year? The five per-season residual spreads are 14.5 to
+    # 21.9 around a mean of 18.1, but a sample sd is itself noisy -- at n~124 its own sd is
+    # about sigma/sqrt(2n) = 1.15. Subtracting that in variance leaves a TRUE between-season
+    # sd of 2.20, i.e. 12% of the mean. That is the number `tau` carries.
+    #
+    # Board depth correlates with it at +0.78, which on five points is not significant
+    # (p~0.12) and is NOT used as a predictor. A per-draft multiplier drawn from
+    # N(1, tau) adds the dispersion the seasons actually show without claiming to know which
+    # season is which.
+    season_res: dict[int, list[float]] = {}
+    for jp in joined:
+        season_res.setdefault(jp.season, []).append(jp.delta - mu[jp.position])
+    season_sigma = {s: _sd(v) for s, v in season_res.items()}
+    season_sigma_mean = st.mean(season_sigma.values()) if season_sigma else 0.0
+    observed_sd = _sd(list(season_sigma.values()))
+    sampling_sd = (
+        st.mean([season_sigma[s] / (2 * len(season_res[s])) ** 0.5 for s in season_sigma])
+        if season_sigma
+        else 0.0
+    )
+    true_var = observed_sd**2 - sampling_sd**2
+    season_sigma_tau = (
+        (max(0.0, true_var) ** 0.5) / season_sigma_mean if season_sigma_mean else 0.0
+    )
+
     return Fit(
         mu=mu, sigma=sigma, cell_n=cell_n, pooled=tuple(pooled),
         scheduled=scheduled, pick_mu=pick_mu, pick_sd=pick_sd,
@@ -799,10 +880,36 @@ def fit_room(
         caps=caps, cap_hist=cap_hist,
         joined=len(joined), total=total, offboard=dict(offboard), position_n=position_n,
         round_sigma=round_sigma, round_n=round_n, seasons=tuple(seasons),
+        second_specialist_p=second_specialist_p,
+        offboard_per_draft=offboard_per_draft,
+        offboard_bucket_p=offboard_bucket_p,
+        offboard_position_p=offboard_position_p,
+        offboard_cells=offboard_cells,
+        season_sigma=season_sigma,
+        season_sigma_mean=season_sigma_mean,
+        season_sigma_tau=season_sigma_tau,
     )
 
 
 # --- the room ---------------------------------------------------------------------------
+
+
+def _weighted(rng: random.Random, items: Sequence[str], weights: Sequence[float]) -> str:
+    """One item, drawn in proportion to *weights*. One `random()` call, always.
+
+    Written out rather than using `random.choices` so the number of draws taken from the
+    stream is fixed and a seed reproduces byte-for-byte regardless of the weights.
+    """
+    total = sum(weights)
+    if total <= 0:
+        return items[0]
+    target = rng.random() * total
+    running = 0.0
+    for item, weight in zip(items, weights, strict=True):
+        running += weight
+        if target < running:
+            return item
+    return items[-1]
 
 
 def slot_on_clock(pick_no: int, teams: int = TEAMS) -> int:
@@ -864,11 +971,15 @@ class SimPick:
     rank: int
     position: str
     name: str
+    # True for a player who was never on the board. `rank` is 0 and means nothing for these,
+    # which is why every consumer of `rank` has to filter on this rather than on `rank > 0`.
+    offboard: bool = False
 
     def as_row(self) -> dict[str, Any]:
         return {
             "overall": self.overall, "round": self.round, "seat": self.seat,
             "rank": self.rank, "position": self.position, "name": self.name,
+            "offboard": self.offboard,
         }
 
 
@@ -883,7 +994,11 @@ def simulate_draft(
     sampler: str = "per-draft",
     schedule_specialists: bool = True,
     deadline: bool = True,
+    refinements: bool = True,
     check_leakage: bool = True,
+    chooser: Callable[..., int] | None = None,
+    chooser_seat: int | None = None,
+    observer: Callable[[SimPick, int], None] | None = None,
 ) -> tuple[SimPick, ...]:
     """One synthetic draft. Same seed, same board, same fit -> byte-identical picks.
 
@@ -911,6 +1026,30 @@ def simulate_draft(
     alongside its verdict. The VERDICT itself is always computed at ``sigma_scale=1.0``,
     ``sampler="per-draft"``, ``schedule_specialists=True``, ``deadline=True``; anything run at
     other settings is labelled as an ablation where it is printed.
+
+    THE SEAT HOOK, which is what B2 adds. *chooser* is asked for one board index whenever
+    *chooser_seat* is on the clock, and *observer* is told about every pick as it lands so an
+    outside model can follow the draft. Both default to None and the room then behaves exactly
+    as B1 validated it.
+
+    A chooser returning -1, or an index already taken, falls through to the bot cascade rather
+    than raising. That is deliberate: an ordering that has no legal answer at pick 128 is a
+    finding about the ordering, not a reason to abandon the draft, and the fall-through is
+    counted rather than hidden -- ``ArmResult.calls`` against 16 says how often it answered.
+
+    WHAT THE PAIRING ACTUALLY GIVES, stated precisely because the obvious claim is false. At
+    the default ``sampler="per-draft"`` every draw for the BOARD VALUES and for the SPECIALIST
+    SCHEDULES is taken before the pick loop begins, so those are identical across arms on one
+    seed. The off-board plan's EXECUTION is not: ``_weighted`` is called inside the loop when a
+    planned pick is re-targeted. And the room is REACTIVE by design, so the opponents' realised
+    picks diverge from the seat's first pick onward -- measured, 300 of 300 (season, seed)
+    pairs have a differing opponent field and about 66 of 112 opponent picks change.
+
+    So the pairing is on LATENT randomness, not on the realised field. That is still real
+    variance reduction, and it is why arms are compared paired. But "identical opponent field"
+    would be false, and ``advantage`` conflates acquisition with denial: the real arm's own
+    roster is about +137 better than the null control's while it also leaves the opponents
+    about 14 worse, so roughly 9% of the gap is denial rather than acquisition.
     """
     if check_leakage:
         assert_pre_draft(board)
@@ -928,8 +1067,18 @@ def simulate_draft(
 
     scheduled = fit.scheduled if schedule_specialists else frozenset()
     mu = [fit.mu.get(r.position, 0.0) for r in rows]
+
+    # B2 refinement 3. One draw, before anything else, so a draft is a loose year or a tight
+    # one rather than always the average of five. Floored well above zero: a non-positive
+    # multiplier would invert the noise, and N(1, 0.12) reaches 0.1 at 7.5 sigma.
+    season_mult = 1.0
+    if refinements and fit.season_sigma_tau > 0.0:
+        season_mult = max(0.1, rng.normalvariate(1.0, fit.season_sigma_tau))
+
     sig = [
-        fit.sigma_for(r.position, fit.expected_pick(r.position, r.rank)) * sigma_scale
+        fit.sigma_for(r.position, fit.expected_pick(r.position, r.rank))
+        * sigma_scale
+        * season_mult
         for r in rows
     ]
 
@@ -954,6 +1103,47 @@ def simulate_draft(
                 for pos in order
             }
         )
+
+    # B2 refinement 1. Which seats will take a second specialist, and when. Drawn per seat
+    # per scheduled position at the measured rate (2 of 40 team-seasons for D/ST, 1 of 40 for
+    # K), and the second target is drawn from the same fitted schedule as the first, so a
+    # second kicker arrives late like a first one does.
+    wants_second: list[dict[str, float | None]] = [{} for _ in range(teams)]
+    if refinements:
+        for seat_i in range(teams):
+            for pos in order:
+                p_second = fit.second_specialist_p.get(pos, 0.0)
+                take = rng.random() < p_second
+                when = (
+                    rng.normalvariate(fit.pick_mu[pos], fit.pick_sd[pos] * sigma_scale)
+                    if take
+                    else None
+                )
+                wants_second[seat_i][pos] = when
+
+    # B2 refinement 2. Which picks go to a player who was never on the board. Counts are
+    # resampled from the five observed per-draft counts (1, 2, 4, 4, 7) rather than fitted to
+    # a distribution -- five observations do not identify one. Rounds and positions come from
+    # the observed marginals: 16 of 18 real off-board picks fell in rounds 13-16, and kickers
+    # are the plurality at 7 of 18.
+    offboard_plan: dict[int, str] = {}
+    positions = sorted(fit.offboard_position_p)
+    if refinements and fit.offboard_per_draft and fit.offboard_cells:
+        want = fit.offboard_per_draft[int(rng.random() * len(fit.offboard_per_draft))]
+        cells = fit.offboard_cells
+        for _ in range(want):
+            # Retry on collision rather than dropping the pick. `setdefault` alone lost 28%
+            # of the plan to duplicate spots and to picks the deadline later refused, which
+            # put the realised rate at 2.03% against a real 2.81%.
+            for _attempt in range(8):
+                bucket, position = cells[int(rng.random() * len(cells))]
+                lo, hi = next((lo, hi) for name, lo, hi in BUCKETS if name == bucket)
+                lo_pick = (lo - 1) * teams + 1
+                hi_pick = min(teams * rounds, hi * teams)
+                spot = lo_pick + int(rng.random() * (hi_pick - lo_pick + 1))
+                if spot not in offboard_plan:
+                    offboard_plan[spot] = position
+                    break
 
     caps = fit.caps
     taken = bytearray(n)
@@ -981,16 +1171,119 @@ def simulate_draft(
                 best, best_score = i, score
         return best
 
+    def _supply_allows_second(position: str) -> bool:
+        """True while taking a second of *position* would still leave one for everybody.
+
+        A structural rule with no fitted parameter, and it exists because the board is
+        genuinely thin: 2024's FFC board lists eight defences for eight seats, so one seat
+        taking a second is the difference between every seat fielding a lineup and one seat
+        being unable to. The real room never faced this -- a real manager can always stream a
+        defence off waivers -- so the constraint belongs to the board, not to the behaviour.
+        """
+        left = sum(
+            1
+            for i in range(n)
+            if not taken[i] and rows[i].position == position
+        )
+        owed = sum(1 for r in rosters if r.counts[position] == 0)
+        return left > owed
+
     for overall in range(1, teams * rounds + 1):
         seat = slot_on_clock(overall, teams)
         roster = rosters[seat - 1]
         remaining = picks_left[seat]
 
+        def _target(pos: str, _seat: int = seat, _roster: _Roster = roster) -> float | None:
+            """When this seat intends to fill *pos*, or None if it does not owe one.
+
+            Owing a FIRST specialist is the starting slot being empty. Owing a SECOND is the
+            per-seat Bernoulli drawn at setup, and it is deliberately NOT routed through
+            `_Roster.needs` -- the deadline reads the same slots and must never be able to
+            force a second kicker onto a seat.
+            """
+            if _roster.needs(pos):
+                return targets[_seat - 1][pos]
+            if _roster.counts[pos] == 1 and _supply_allows_second(pos):
+                return wants_second[_seat - 1].get(pos)
+            return None
+
         due = sorted(
-            (pos for pos in order if roster.needs(pos) and targets[seat - 1][pos] <= overall),
-            key=lambda p: targets[seat - 1][p],
+            (
+                pos
+                for pos in order
+                if (when := _target(pos)) is not None and when <= overall
+            ),
+            key=lambda p: _target(p) or 0.0,
         )
         unfilled = roster.unfilled()
+
+        # An off-board pick spends the pick without consuming a board row, which is the whole
+        # point of it -- the real room left 1 to 7 board players on the table every draft.
+        # It yields to the deadline: a seat one pick from being unable to field a lineup
+        # takes the slot it owes, exactly as it would with the plan absent.
+        # THE SEAT TAKES ITS OFF-BOARD PICKS LIKE EVERY OTHER SEAT. The chooser branch used
+        # to `continue` before `offboard_plan` was consulted, so the seat's phantoms were
+        # silently discarded and it finished with 14.96 scoreable players against an
+        # opponent's 14.53. Measured, that construction advantage was worth +15.0
+        # [+10.3, +19.8] of the arm's reported edge -- about a tenth of it, taken from
+        # nowhere. The plan is now applied first, for every seat, chooser or not.
+        planned = offboard_plan.get(overall)
+        if chooser is not None and seat == chooser_seat and planned is None:
+            picked = chooser(
+                overall, taken, rows,
+                remaining=remaining, unfilled=unfilled, counts=dict(roster.counts),
+            )
+            if picked is not None and picked >= 0 and not taken[picked]:
+                taken[picked] = 1
+                row = rows[picked]
+                roster.add(row.position)
+                picks_left[seat] = remaining - 1
+                made = SimPick(
+                    overall=overall, round=(overall - 1) // teams + 1, seat=seat,
+                    rank=row.rank, position=row.position, name=row.name,
+                )
+                picks.append(made)
+                if observer is not None:
+                    observer(made, picked)
+                continue
+
+        if planned is not None:
+            # EVERY off-board specialist in the real record was that team's FIRST at the
+            # position -- 7 kickers and 4 defences, eleven of eleven, no exceptions. The
+            # other seven off-board picks were bench depth (a team's 3rd to 6th back, 5th to
+            # 7th receiver, 2nd quarterback). So an off-board kicker fills the slot rather
+            # than adding a second; a seat that already has one takes bench depth instead.
+            if planned in scheduled and not roster.needs(planned):
+                bench = [q for q in positions if q not in scheduled]
+                if bench:
+                    planned = _weighted(
+                        rng, bench, [fit.offboard_position_p[q] for q in bench]
+                    )
+            blocks_deadline = bool(deadline and len(unfilled) >= remaining and unfilled)
+            fills = planned in SLOT_ELIGIBILITY[unfilled[0]] if unfilled else False
+            if blocks_deadline and not fills:
+                # The deadline wins, but it re-targets rather than rejects. A real off-board
+                # pick in round 15 usually IS the lineup-filling pick -- Cameron Dicker at
+                # 116 was team 4's first kicker -- so dropping the plan here both lost the
+                # rate and lost the shape. Retarget to whatever fills the owed slot.
+                owed = sorted(SLOT_ELIGIBILITY[unfilled[0]])
+                planned = _weighted(
+                    rng, owed, [fit.offboard_position_p.get(q, 0.0) + 1e-9 for q in owed]
+                )
+                fills = True
+            legal = roster.counts[planned] < caps.get(planned, rounds)
+            if legal and (not blocks_deadline or fills):
+                roster.add(planned)
+                picks_left[seat] = remaining - 1
+                made = SimPick(
+                    overall=overall, round=(overall - 1) // teams + 1, seat=seat,
+                    rank=0, position=planned, name=f"off-board {planned}",
+                    offboard=True,
+                )
+                picks.append(made)
+                if observer is not None:
+                    observer(made, -1)
+                continue
 
         best = -1
         if deadline and len(unfilled) >= remaining and unfilled:
@@ -1000,7 +1293,20 @@ def simulate_draft(
             # slots too, 34.8% of synthetic seats finished unable to field a legal lineup --
             # usually no tight end or no quarterback -- which none of forty real
             # team-seasons did, and which no draft-level statistic can see.
-            best = _best(roster, frozenset(SLOT_ELIGIBILITY[unfilled[0]]))
+            #
+            # EVERY unfilled slot is tried, not just the first. Trying only `unfilled[0]`
+            # was a real defect, latent until B2 let a second specialist be taken: 2024's
+            # board carries eight defences for eight seats, so a single second D/ST empties
+            # the pool, and a seat owing both D/ST and K would then fail to find a defence
+            # and silently spend the pick on a receiver instead of taking the kicker that
+            # WAS still there. Measured at 2 seats in 2000 with the other three B2 changes
+            # in place and only this loop reverted; reverting the loop alone from the B1 room
+            # gives 0, because a second specialist is what empties the pool. The number
+            # belongs to the set of four, not to this loop by itself.
+            for slot in unfilled:
+                best = _best(roster, frozenset(SLOT_ELIGIBILITY[slot]))
+                if best >= 0:
+                    break
         if best < 0 and due:
             best = _best(roster, frozenset({due[0]}))
         if best < 0:
@@ -1019,12 +1325,13 @@ def simulate_draft(
         row = rows[best]
         roster.add(row.position)
         picks_left[seat] = remaining - 1
-        picks.append(
-            SimPick(
-                overall=overall, round=(overall - 1) // teams + 1, seat=seat,
-                rank=row.rank, position=row.position, name=row.name,
-            )
+        made = SimPick(
+            overall=overall, round=(overall - 1) // teams + 1, seat=seat,
+            rank=row.rank, position=row.position, name=row.name,
         )
+        picks.append(made)
+        if observer is not None:
+            observer(made, best)
     return tuple(picks)
 
 
@@ -1125,9 +1432,48 @@ def real_stats(season: int, identity: dict[str, tuple[str, str]], nicks: dict[st
 
 
 def sim_stats(picks: Sequence[SimPick]) -> Stats:
+    """Every pick counts toward the positional statistics; only board picks have a delta.
+
+    This mirrors `real_stats` exactly: a real off-board pick is a pick like any other for
+    "which round did the first kicker go", and has no (pick - ADP rank) at all because it has
+    no rank. Treating an off-board pick's `rank` of 0 as a real rank would report a delta of
+    +120 and blow the spread apart.
+    """
     rows = [(p.overall, p.round, p.position) for p in picks]
-    deltas = [float(p.overall - p.rank) for p in picks]
+    deltas = [float(p.overall - p.rank) for p in picks if not p.offboard]
     return stats_of(rows, deltas)
+
+
+def untruncated_spread_real(
+    season: int, identity: dict[str, tuple[str, str]], nicks: dict[str, str]
+) -> float:
+    """G9. The pick-ADP spread with off-board picks given the most conservative rank there is.
+
+    The gated `delta_spread` is computed over JOINED picks only, because a player FFC never
+    listed has no rank. That is a truncation, and B1 recorded honestly that it flatters the
+    room: give every off-board pick a rank of `board depth + 1` -- the most generous
+    assumption available, since the only thing known about him is that he was worse than
+    everyone on the board -- and the real range moves from 20.6-27.5 to something wider.
+
+    B1 could not act on that, because its room had no off-board picks at all and the two
+    sides were not comparable. B2's room has them at the measured rate, so the comparison is
+    now symmetric and the verdict is reportable either way.
+    """
+    board = load_board(season)
+    index = board.by_key()
+    floor = len(board.rows) + 1
+    deltas: list[float] = []
+    for pick in load_real_draft(season, identity):
+        row = index.get(pick_join_key(pick, nicks))
+        rank = row.rank if row is not None else floor
+        deltas.append(float(pick.overall - rank))
+    return _sd(deltas)
+
+
+def untruncated_spread_sim(picks: Sequence[SimPick], board: SeasonBoard) -> float:
+    """The same quantity for a synthetic draft. Same floor, same rule, no special cases."""
+    floor = len(board.rows) + 1
+    return _sd([float(p.overall - (floor if p.offboard else p.rank)) for p in picks])
 
 
 def adp_only_stats(board: SeasonBoard) -> Stats:
@@ -1454,6 +1800,46 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
     out.append(
         "  look like top-60 players, so seats take them early and the cap of 2 starts to bind.)"
     )
+
+    out.append("")
+    out.append("G9 -- the pick-ADP spread against an UNTRUNCATED target")
+    out.append(
+        "  Every off-board pick given rank = board depth + 1, the most conservative"
+    )
+    out.append(
+        "  assumption available, on BOTH sides. B1 could not run this because its room had"
+    )
+    out.append("  no off-board picks; B2's has them at the measured rate.")
+    real_un = [untruncated_spread_real(s, identity, nicks) for s in SEASONS]
+    syn_un = [
+        untruncated_spread_sim(simulate_draft(boards[s], fit, seed), boards[s])
+        for s in SEASONS
+        for seed in range(seeds)
+    ]
+    syn_mean = st.mean(syn_un)
+    lo, hi = min(real_un), max(real_un)
+    ok = lo <= syn_mean <= hi
+    out.append(
+        f"  untruncated spread  synth={syn_mean:6.2f}  real={lo:.1f}-{hi:.1f}  "
+        f"{'pass' if ok else 'FAIL'}"
+    )
+    out.append(
+        "  real by season: "
+        + "; ".join(f"{s}={v:.1f}" for s, v in zip(SEASONS, real_un, strict=True))
+    )
+    out.append(
+        f"  for comparison, the truncated pair: synth="
+        f"{st.mean([x.delta_spread for x in synthetic]):.2f}  "
+        f"real={min(r.delta_spread for r in real):.1f}-"
+        f"{max(r.delta_spread for r in real):.1f}"
+    )
+    if not ok:
+        out.append(
+            "  THIS IS A REPORTED FAILURE, not a tuned pass. The truncated statistic is the"
+        )
+        out.append(
+            "  pre-registered one and it passes; this one does not, and both are printed."
+        )
     return out, verdict
 
 
