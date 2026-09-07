@@ -1,0 +1,72 @@
+{
+ "checks_by_family": {
+  "exec": 10,
+  "order": 374,
+  "seat": 43,
+  "sync": 13
+ },
+ "checks_executed": 440,
+ "distinct_kinds": [
+  "seat_conflict_seen",
+  "sync_stale_blip",
+  "sync_stale_shrink"
+ ],
+ "mode": "SURVEY (violations do not stop the run)",
+ "sweep": {
+  "arms": [
+   "real"
+  ],
+  "drafts": 20,
+  "picks_seen": 314,
+  "seasons": [
+   2021,
+   2022,
+   2023,
+   2024,
+   2025
+  ],
+  "seeds": [
+   0,
+   1,
+   2,
+   3
+  ]
+ },
+ "violation_count": 3,
+ "violations": [
+  {
+   "detail": "a pin that disagrees with the live seat is reported ONLY by `log.error` in service.py. No field the server can publish carries `seat_conflict`, `derived_slot` or `pinned_slot`, so the cockpit renders a seat it already knows is contested and says nothing. On 2026-09-07 that log line fired once per poll for hours and the served seat stayed wrong.",
+   "family": "seat",
+   "kind": "seat_conflict_seen",
+   "repro": {
+    "looked_for": [
+     "derived_slot",
+     "pinned_slot",
+     "seat_conflict",
+     "slot_conflict"
+    ]
+   }
+  },
+  {
+   "detail": "a single `pre_draft` poll cleared `drafting_since`, discarding every second of accumulated silence. The next `drafting` poll re-anchors the clock to now, so a flap more often than the silence window makes `picks_stale` permanently unreachable. `_NOT_RUNNING` contains 'pre_draft' and that is the DEFAULT `espn_draft_status` returns for any body that does not assert inProgress.",
+   "family": "sync",
+   "kind": "sync_stale_blip",
+   "repro": {
+    "after_blip": null,
+    "anchored": 1788819307.258638,
+    "rearmed": 1788819307.2586532,
+    "sequence": "apply"
+   }
+  },
+  {
+   "detail": "an emptied slate followed by the same three picks returning reset the pick clock with NO new pick made (empty -> None, refill -> 1788819307.2595317). The shrink itself is refused, but `session.picks` is overwritten unconditionally, so the refill is measured against an empty baseline. On ESPN an emptied slate almost always arrives WITH status pre_draft, which trips the blip in the same tick.",
+   "family": "sync",
+   "kind": "sync_stale_shrink",
+   "repro": {
+    "after_empty": null,
+    "after_refill": 1788819307.2595317,
+    "sequence": "apply"
+   }
+  }
+ ]
+}
