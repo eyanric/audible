@@ -127,6 +127,38 @@ SCHEDULE_COLUMNS: tuple[str, ...] = ("season", "week", "team", "game_id")
 # scoring vocabulary carries no kicking columns. See the module docstring for which is which.
 UNSCOREABLE: frozenset[str] = frozenset({"K", "DEF"})
 
+# THE KICKER HALF OF THAT IS FIXABLE AND THE DEFENCE HALF IS NOT, which is worth stating
+# precisely because a handoff claimed both would start scoring together.
+#
+# `player_stats` DOES carry kicking columns -- measured, every pinned season has `fg_made_0_19`
+# through `fg_made_60_` and `pat_made`, and 542-545 regular-season kicker rows. What it does
+# not carry is any
+# TEAM-DEFENCE row at all: `position` is never DST or DEF in any season. So a kicker can be
+# scored on both the projection side and the outcome side, and a defence can be scored on
+# neither.
+#
+# OFF BY DEFAULT, ON FOR B5, and the default is what keeps B4 reproducible rather than a
+# judgement that zero is right. A drafted kicker is worth 158-170 points a season under 6012's
+# table (top-8 mean; K1 reaches 171-189), so leaving it off does not make kickers cheap -- it
+# makes them FREE, and a board that projects a kicker it will never be paid for spends a real
+# pick on him. That is the exact failure `ffa.ZERO_POSITIONS` exists to prevent for defences,
+# and it applied to kickers too until `b5-vintage.toml` turned this on. B4's committed numbers
+# were produced with it off and stay reproducible from B4's own config; the artifact records
+# which setting produced which run.
+#
+# `fgm_60p` has no key in the league's scoring vocabulary -- 6012's table stops at `fgm_50p` --
+# so a 60-yard make is paid at the 50+ rate rather than being silently dropped.
+KICKER_COLUMNS: dict[str, str] = {
+    "fg_made_0_19": "fgm_0_19",
+    "fg_made_20_29": "fgm_20_29",
+    "fg_made_30_39": "fgm_30_39",
+    "fg_made_40_49": "fgm_40_49",
+    "fg_made_50_59": "fgm_50p",
+    "fg_made_60_": "fgm_50p",
+    "pat_made": "xpm",
+    "fg_missed": "fgmiss",
+}
+
 REG_WEEKS: tuple[int, ...] = tuple(range(1, 19))
 
 
@@ -192,11 +224,14 @@ def byes_from_schedule(frame: Any) -> dict[str, int]:
     return out
 
 
-def weekly_points(season: int) -> SeasonWeekly:
+def weekly_points(season: int, *, score_kickers: bool = False) -> SeasonWeekly:
     """Every regular-season player-week, scored under 6012's historical rulebook.
 
     Regular season only. The pinned frames carry weeks 19-22 and scoring them would hand
     every playoff participant three or four extra games.
+
+    *score_kickers* pays the kicking columns `player_stats` has always carried. See
+    `KICKER_COLUMNS` for why it is off by default and why defences cannot follow.
     """
     import polars as pl
 
@@ -222,6 +257,11 @@ def weekly_points(season: int) -> SeasonWeekly:
 
         stats = {key: float(row.get(col) or 0.0) for col, key in COLUMN_TO_KEY.items()}
         stats["pass_yd"] = bucket25(float(row.get("passing_yards") or 0.0))
+        if score_kickers:
+            # ACCUMULATED, not assigned: `fg_made_50_59` and `fg_made_60_` share one key and a
+            # plain assignment would let the longer bucket overwrite the shorter one.
+            for col, key in KICKER_COLUMNS.items():
+                stats[key] = stats.get(key, 0.0) + float(row.get(col) or 0.0)
         pts = score_stat_line(stats, weights)
         pts += RETURN_YARD_POINTS * (
             bucket25(float(row.get("punt_return_yards") or 0.0))

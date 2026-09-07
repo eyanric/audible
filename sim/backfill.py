@@ -112,10 +112,37 @@ CANCELLED: dict[int, tuple[int, str]] = {
 }
 
 
+# THE SEVENTEENTH GAME. The NFL played a 16-game, 17-week regular season through 2020 and a
+# 17-game, 18-week one from 2021. The constants above describe the LATER era only, so every
+# check built on them rejects a COMPLETE pre-2021 season as truncated: measured, 2019 and 2020
+# both fetch cleanly -- 17,362 and 17,602 rows, 32 teams, 256 games, weeks 1-17 -- and both were
+# reported as "REG weeks missing 18", "short by 16" and "32 teams not on 17 games".
+#
+# That is a defect in the GATE and not in the data, and it matters beyond tidiness: the failure
+# mode is a session concluding a season is unavailable upstream when it is merely being
+# measured against the wrong era. A prior handoff carried exactly that conclusion about
+# `player_stats_2020`.
+#
+# The era is a property of the season and nothing else, so it is read from the season rather
+# than passed in.
+EXPANSION_SEASON: int = 2021
+EARLY_REG_WEEKS: tuple[int, ...] = tuple(range(1, 18))
+EARLY_REG_GAMES: int = 256
+EARLY_TEAM_GAMES: int = 16
+
+
+def era(season: int) -> tuple[tuple[int, ...], int, int]:
+    """(regular-season weeks, total games, games per team) for *season*'s own era."""
+    if season < EXPANSION_SEASON:
+        return EARLY_REG_WEEKS, EARLY_REG_GAMES, EARLY_TEAM_GAMES
+    return REG_WEEKS, REG_GAMES, TEAM_GAMES
+
+
 def expected_reg_games(season: int) -> tuple[int, str]:
     """Games the regular season should carry, and why it is not simply 272."""
     missing, reason = CANCELLED.get(season, (0, ""))
-    return REG_GAMES - missing, reason
+    _weeks, games, _per_team = era(season)
+    return games - missing, reason
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,12 +219,13 @@ def inspect_frame(frame: Any, season: int) -> SeasonReport:
         tuple(sorted({int(w) for w in post["week"].unique().to_list()})) if post.height else ()
     )
 
-    absent = [w for w in REG_WEEKS if w not in reg_weeks]
+    want_weeks, _want_games, want_team_games = era(season)
+    absent = [w for w in want_weeks if w not in reg_weeks]
     if absent:
         problems.append(
             f"season {season}: REG weeks missing {', '.join(str(w) for w in absent)}"
         )
-    extra = [w for w in reg_weeks if w not in REG_WEEKS]
+    extra = [w for w in reg_weeks if w not in want_weeks]
     if extra:
         problems.append(
             f"season {season}: unexpected REG week(s) {', '.join(str(w) for w in extra)}"
@@ -222,13 +250,13 @@ def inspect_frame(frame: Any, season: int) -> SeasonReport:
     short = [
         (str(t), int(g))
         for t, g in zip(per_team["team"].to_list(), per_team["games"].to_list(), strict=True)
-        if g != TEAM_GAMES
+        if g != want_team_games
     ]
     allowed_short = CANCELLED.get(season, (0, ""))[0] * 2
     if len(short) != allowed_short:
         detail = ", ".join(f"{t}={g}" for t, g in short) or "none"
         problems.append(
-            f"season {season}: {len(short)} team(s) not on {TEAM_GAMES} games "
+            f"season {season}: {len(short)} team(s) not on {want_team_games} games "
             f"({detail}), expected {allowed_short}"
         )
 

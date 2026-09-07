@@ -55,7 +55,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from . import projection, room
+from . import ffa, projection, room
+
+# The projection a board is built from. `walkforward` is B4's, computed here from prior
+# seasons. `ffa` is B5's: the market's own vintage preseason numbers.
+WALKFORWARD: str = "walkforward"
+FFA_SOURCE: str = "ffa"
+SOURCES: tuple[str, ...] = (WALKFORWARD, FFA_SOURCE)
 
 # The orderings a season's boards can be read in. Each maps an arm name to the `DraftEntry`
 # field its draft preference sorts on, ascending.
@@ -80,7 +86,32 @@ HINDSIGHT_ORDERS: dict[str, str] = {
 # weeks to a full season, so ordering on totals demotes exactly the players it restores.
 TOTAL_ORDERS: dict[str, str] = {"hindsight_total": "vorp_rank"}
 
-ALL_BOARD_ARMS: tuple[str, ...] = (*PROJECTED_ORDERS, *HINDSIGHT_ORDERS, *TOTAL_ORDERS)
+# B5. A THIRD PARTY'S REPLACEMENT TRANSFORM over the same projection, read straight off FFA's
+# own `points_vor` rather than computed here. It is not a field on our `DraftEntry` and cannot
+# be, which is the point: `audible_transform` and `ffa_vor` are two implementations of one
+# idea over one input, so their difference is the implementation and nothing else.
+#
+# It splits a question no earlier session could split. Both at or below `adp` says
+# replacement-level thinking does not pay in this format and audible's version is fine. FFA
+# ahead of `audible_transform` says the idea works and OUR VERSION IS WEAKER -- a concrete,
+# fixable defect, and the most actionable outcome available.
+#
+# Available only when the run's projection source is `ffa`; `runner.load_config` refuses it
+# otherwise rather than letting it quietly order on nothing.
+FFA_ORDERS: dict[str, str] = {
+    # THE LIKE-FOR-LIKE ARM. FFA's baseline DEPTH applied to OUR points under OUR rulebook, so
+    # the only thing that differs from `audible_transform` is how deep the baseline sits.
+    "ffa_baseline": "ffa_baseline",
+    # FFA's PUBLISHED column, kept because it was asked for and reported as CONFOUNDED: FFA
+    # scores 2024 and 2025 at half a point a reception and this league pays zero, so roughly
+    # forty per cent of `audible_transform - ffa_vor` is the scoring table rather than the
+    # transform. `sim/ffa.ffa_baseline_ranks` carries the measurement.
+    "ffa_vor": "points_vor",
+}
+
+ALL_BOARD_ARMS: tuple[str, ...] = (
+    *PROJECTED_ORDERS, *HINDSIGHT_ORDERS, *TOTAL_ORDERS, *FFA_ORDERS
+)
 
 # Arms whose board is built from the drafted season's own outcome. Labelled a leak everywhere,
 # excluded from `assert_pre_draft`, and reported as the CEILING rather than as a result.
@@ -116,6 +147,11 @@ class SeasonBoards:
     provenance: tuple[str, ...]
     replacement: Mapping[str, float]
     vs_adp: Mapping[str, Any]
+    # Which projection built these boards, and which scoring terms it could not supply. Both
+    # go in the artifact: a run that silently changed projection source or silently dropped a
+    # scoring term would otherwise be indistinguishable from one that did not.
+    source: str = WALKFORWARD
+    unsupplied: tuple[str, ...] = ()
 
 
 def _order_by(board: Any, field: str, by_index: Mapping[str, int]) -> tuple[int, ...]:
@@ -147,17 +183,65 @@ def _order_by(board: Any, field: str, by_index: Mapping[str, int]) -> tuple[int,
     return tuple(out)
 
 
-def build(season: int, config: Any) -> SeasonBoards:
-    """Build every B4 ordering for *season*. Expensive; the runner does it once per season."""
+def _order_by_values(
+    values: Mapping[str, float], by_index: Mapping[str, int]
+) -> tuple[int, ...]:
+    """Room-board indices ordered by an EXTERNAL value, highest first.
+
+    The counterpart to `_order_by` for a value that is not a field on our `DraftEntry` --
+    FFA's own `points_vor`. Two things it must get right, both of them the same trap
+    `_order_by` documents:
+
+    A player the external source does not price sorts LAST rather than being dropped. Dropping
+    him would hand this arm a smaller universe than every other arm, and a comparison between
+    two different universes is not a comparison. The tie-break is the player id, so the order
+    is total and the artifact digest reproduces.
+    """
+    ranked = sorted(
+        by_index,
+        key=lambda pid: (pid not in values, -values.get(pid, 0.0), pid),
+    )
+    return tuple(by_index[pid] for pid in ranked)
+
+
+def build(
+    season: int,
+    config: Any,
+    *,
+    source: str = WALKFORWARD,
+    deltas: dict[str, float] | None = None,
+) -> SeasonBoards:
+    """Build every board ordering for *season*. Expensive; the runner does it once per season.
+
+    *source* selects the PROJECTION and nothing else. `walkforward` is B4's: built here from
+    prior seasons, and the input B4 measured the transform against. `ffa` is B5's: the market's
+    own vintage preseason numbers from `sim/ffa.py`. Arms 1 and 2 read two orderings off ONE
+    board either way, so G4 holds under both and the arms stay comparable within a run.
+
+    *deltas* are scoring corrections applied to the config the BOARD is built with, so the
+    board is ordered under the same rulebook the outcome is scored under. See
+    `ffa.with_deltas` for why that is a correction and not a preference.
+    """
     from audible.draft.board import build_board_from_lines
     from audible.value.replacement import compute_vorp
 
     season_board = room.load_board(season)
     by_index = {f"ffc{r.rank:04d}": i for i, r in enumerate(season_board.rows)}
 
-    projected = projection.project(season, config)
-    # G1, enforced at the one place every board arm passes through rather than only in a test.
-    projection.assert_pre_draft(projected)
+    config = ffa.with_deltas(config, deltas)
+    if source == FFA_SOURCE:
+        projected = ffa.build(season, config, adp_market=config.adp_market)
+    elif source == WALKFORWARD:
+        projected = projection.project(season, config)
+        # G1, enforced at the one place every board arm passes through rather than only in a
+        # test. The FFA path has its own pre-draft gates -- vintage, 2026, scoring -- inside
+        # `ffa.build`, and they run before a line is constructed.
+        projection.assert_pre_draft(projected)
+    else:
+        raise ValueError(
+            f"unknown projection source {source!r}; expected one of "
+            f"{[WALKFORWARD, FFA_SOURCE]}"
+        )
     board = build_board_from_lines(config, list(projected.lines))
 
     hindsight_lines = projection.actual_lines(season, config)
@@ -169,6 +253,15 @@ def build(season: int, config: Any) -> SeasonBoards:
         arm: _order_by(board, field, by_index) for arm, field in PROJECTED_ORDERS.items()
     }
     arm_digest = dict.fromkeys(PROJECTED_ORDERS, projected.digest())
+    if source == FFA_SOURCE:
+        values = {"ffa_baseline": projected.ffa_baseline, "ffa_vor": projected.ffa_vor}
+        for arm in FFA_ORDERS:
+            orders[arm] = _order_by_values(values[arm], by_index)
+            # The stat-line digest is SHARED with arms 1 and 2 -- that is the claim, and G4
+            # reads it -- but it cannot see a change to the value column these arms order on,
+            # so the value digest is appended. A review negated every `points_vor` and watched
+            # the shared digest sit still while the top five turned over.
+            arm_digest[arm] = f"{projected.digest()}/{projected.value_digest()}"
     for arm, field in HINDSIGHT_ORDERS.items():
         orders[arm] = _order_by(hindsight, field, by_index)
         arm_digest[arm] = hindsight_lines.digest()
@@ -193,15 +286,20 @@ def build(season: int, config: Any) -> SeasonBoards:
         projected_digest=projected.digest(),
         hindsight_digest=hindsight_lines.digest(),
         arm_digest=arm_digest,
-        fit_seasons=projected.fit_seasons,
-        role_seasons=projected.role_seasons,
+        # The FFA projection has no fitted history and no rookie branch -- it is read off a
+        # file, not walked forward -- so these read empty for that source rather than being
+        # given a plausible-looking value they do not have.
+        fit_seasons=getattr(projected, "fit_seasons", ()),
+        role_seasons=getattr(projected, "role_seasons", ()),
         matched=projected.matched,
-        rookies=projected.rookies,
+        rookies=getattr(projected, "rookies", 0),
         unmatched=projected.unmatched,
         pool=projected.pool,
         provenance=projected.provenance,
         replacement={pos: round(level.points, 3) for pos, level in sorted(levels.items())},
         vs_adp=disagreement(orders, season_board),
+        source=source,
+        unsupplied=getattr(projected, "unsupplied", ()),
     )
 
 

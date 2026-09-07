@@ -59,7 +59,7 @@ from typing import Any
 # `boards` is aliased because `execute` already binds that name to the room's per-season ADP
 # boards, and two different things called `boards` inside one function is how a wrong one gets
 # passed to a chooser -- which is exactly the B2 defect that cost a session.
-from . import LIVE_CACHE, SIM_CACHE, accuracy, artifact, room, seat, weekly
+from . import LIVE_CACHE, SIM_CACHE, accuracy, artifact, room, roundtrip, seat, weekly
 from . import boards as b4boards
 
 REPO = Path(__file__).resolve().parents[1]
@@ -85,6 +85,19 @@ class RunConfig:
     # something a reader remembers to check.
     wf_fit: tuple[int, ...] = ()
     wf_test: tuple[int, ...] = ()
+    # B5. Which projection the board arms are built from -- `walkforward` (B4's, computed from
+    # prior seasons) or `ffa` (the market's own vintage preseason numbers). It changes the
+    # PROJECTION and nothing else: the seat, the room, the pool and the scorer are identical.
+    projection: str = b4boards.WALKFORWARD
+    # Score the BOARD under the rulebook the historical seasons were actually played under.
+    # `sim/weekly.py` already does this for the OUTCOME; without it here the board prices
+    # receptions the outcome is not paid for. Off by default so B4's committed numbers are
+    # reproducible from its own config.
+    historical_deltas: bool = False
+    # Pay the kicking columns `player_stats` has always carried. Off by default: it is a second
+    # experiment rather than a bug fix, it moves every arm's total by roughly +130 a season,
+    # and B4's committed numbers were produced without it. See `weekly.KICKER_COLUMNS`.
+    score_kickers: bool = False
     raw: dict[str, Any] = field(default_factory=dict)
 
     def splits(self) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
@@ -186,6 +199,23 @@ def load_config(path: Path) -> RunConfig:
             f"PREFLIGHT: {path} names season(s) {unknown_seasons}, which the room is not "
             f"fitted for. Nothing is substituted for a season that has no pinned inputs."
         )
+    source = str(run.get("projection", b4boards.WALKFORWARD))
+    if source not in b4boards.SOURCES:
+        raise SystemExit(
+            f"PREFLIGHT: {path} sets projection = {source!r}; expected one of "
+            f"{list(b4boards.SOURCES)}."
+        )
+    # An arm that reads FFA's own value column cannot order anything when the board was not
+    # built from FFA's projection. Refused here rather than ordering on an empty mapping,
+    # which would silently degrade to the player-id tie-break -- the exact failure that made
+    # `weekly.prior_points` choose lineups by tie-break for two whole sessions.
+    ffa_only = sorted(set(arms) & set(b4boards.FFA_ORDERS))
+    if ffa_only and source != b4boards.FFA_SOURCE:
+        raise SystemExit(
+            f"PREFLIGHT: {path} runs arm(s) {ffa_only}, which read FFA's own value column, "
+            f"but sets projection = {source!r}. That arm would have no values to order on and "
+            f"would fall through to the player-id tie-break."
+        )
     try:
         seat_no = int(run["seat"])
     except (TypeError, ValueError):
@@ -201,6 +231,9 @@ def load_config(path: Path) -> RunConfig:
         fit_seasons=tuple(int(x) for x in run.get("fit_seasons", room.SEASONS)),
         wf_fit=wf_fit,
         wf_test=wf_test,
+        projection=source,
+        historical_deltas=bool(run.get("historical_deltas", False)),
+        score_kickers=bool(run.get("score_kickers", False)),
         raw=blob,
     )
 
@@ -478,7 +511,7 @@ def execute(
 
     every = sorted({s for _l, _f, run in config.splits() for s in run})
     boards = {s: room.load_board(s) for s in every}
-    weeks = {s: weekly.weekly_points(s) for s in every}
+    weeks = {s: weekly.weekly_points(s, score_kickers=config.score_kickers) for s in every}
     league = weekly.league_config() if config.league == weekly.LEAGUE_KEY else _league(config)
 
     # THE PRIOR, fitted leave-one-season-out. For every season a run scores, the expectation
@@ -495,14 +528,21 @@ def execute(
     # league, so hoisting them changes no number.
     season_boards: dict[int, Any] = {}
     if any(a in seat.BOARD_ARMS for a in config.arms):
+        deltas = roundtrip.HISTORICAL_DELTAS if config.historical_deltas else None
         for season in every:
-            season_boards[season] = b4boards.build(season, league)
+            season_boards[season] = b4boards.build(
+                season, league, source=config.projection, deltas=deltas
+            )
             built = season_boards[season]
             log.info(
-                "boards %d: fit=%s role=%s matched=%d rookies=%d unmatched=%d digest=%s",
-                season, list(built.fit_seasons), list(built.role_seasons),
-                built.matched, built.rookies, built.unmatched, built.projected_digest,
+                "boards %d: source=%s fit=%s role=%s matched=%d rookies=%d unmatched=%d "
+                "pool=%d digest=%s",
+                season, built.source, list(built.fit_seasons), list(built.role_seasons),
+                built.matched, built.rookies, built.unmatched, built.pool,
+                built.projected_digest,
             )
+            if built.unsupplied:
+                log.info("boards %d: unsupplied scoring terms %s", season, list(built.unsupplied))
 
     pending = list(iter_units(config, done))
     for index, (split, arm, season, seed) in enumerate(pending, start=1):
@@ -659,6 +699,8 @@ def build_payload(
             "positions_drafted": _positions_drafted(mine),
         }
 
+    decomposition = _headline_decomposition(arms)
+
     shuffle_rows = [r for r in rows if r["arm"] == "shuffle"]
     sh, sh_lo, sh_hi = seat.mean_and_interval(
         [r["advantage"] for r in shuffle_rows], [r["season"] for r in shuffle_rows]
@@ -682,6 +724,18 @@ def build_payload(
         "pins": pins,
         "fit": artifact.fit_block(fit),
         "arms": arms,
+        # TASK 5, PERMANENTLY. Every headline broken down by POSITION and by SLOT, with the
+        # two views reconciled against each other and against the arm's own points-for gap.
+        # B4's measured transform gain was RB +91.7, WR +57.9, TE +11.6 and QB -49.0: its
+        # starting quarterback was WORSE, and the whole gain was two bench slots moving off
+        # unstartable quarterbacks. "Replacement level is worth +116" and "not drafting two
+        # dead quarterbacks is worth +116" were the same sentence, and only this block makes
+        # them distinguishable. A prior session double-counted RB at 51% against a true 40%
+        # because nothing asserted the two views agreed.
+        "by_position": decomposition["by_position"],
+        "by_slot": decomposition["by_slot"],
+        "by_position_total": decomposition["by_position_total"],
+        "by_slot_total": decomposition["by_slot_total"],
         "shuffle": {
             "n": len(shuffle_rows),
             "advantage": round(sh, 2),
@@ -782,14 +836,20 @@ def build_payload(
     payload["leak_decomposition"] = _decomposition(
         arms, _paired_difference(rows, "real", "shuffle")[0]
     )
+    # AFTER every comparison is on the payload, because it reads their means.
+    payload["decomposition_residual"] = _decomposition_residual(
+        payload, decomposition["by_slot_total"]
+    )
     payload["board_vs_adp"] = board_vs_adp(config)
     if season_boards:
-        payload["projection"] = _projection_block(season_boards, league)
+        payload["projection"] = _projection_block(season_boards, league, config)
         payload["ceiling"] = _ceiling_block(payload)
     return payload
 
 
-def _projection_block(season_boards: dict[int, Any], league: Any) -> dict[str, Any]:
+def _projection_block(
+    season_boards: dict[int, Any], league: Any, config: RunConfig
+) -> dict[str, Any]:
     """G1, G2, G3 and G4 in one block, written into every artifact that runs a board arm.
 
     G4 IS SATISFIED BY CONSTRUCTION AND ASSERTED ANYWAY. `points_greedy` and
@@ -813,6 +873,12 @@ def _projection_block(season_boards: dict[int, Any], league: Any) -> dict[str, A
             "provenance": list(built.provenance),
             "replacement_level": dict(built.replacement),
             "vs_adp": dict(built.vs_adp),
+            # B5. Which projection built this board, and every scoring term that projection
+            # could not supply. Both are recorded because a run that silently changed source,
+            # or silently dropped a term the league pays for, would otherwise look identical
+            # to one that did neither.
+            "source": built.source,
+            "unsupplied": list(built.unsupplied),
         }
     out: dict[str, Any] = {
         "pre_registration": (
@@ -827,6 +893,12 @@ def _projection_block(season_boards: dict[int, Any], league: Any) -> dict[str, A
         "usable_seasons": list(b4boards.projection.USABLE),
         "leak_arms": sorted(b4boards.LEAK_ARMS),
         "seasons": seasons,
+        # B5. The projection under the board arms, and whether the board was scored under the
+        # rulebook the historical seasons were actually played under. Both change every board
+        # number and neither is visible anywhere else in the artifact.
+        "projection_source": config.projection,
+        "historical_deltas": config.historical_deltas,
+        "score_kickers": config.score_kickers,
     }
     if league is not None:
         # OVER `projection.USABLE`, not over the run's seasons. A run configured for two
@@ -899,6 +971,18 @@ _B4_COMPARISONS: tuple[tuple[str, str, str], ...] = (
     # observed weeks to a full season, so the per-game reading is the one that matches the
     # scorer and the gap is what a season-total ceiling was understating itself by.
     ("hindsight_board", "hindsight_total", "per_game_minus_total_ceiling"),
+    # B5'S THIRD HEADLINE. `audible_transform` and `ffa_vor` order the SAME projected stat
+    # lines by two implementations of one idea, so this difference is the implementation and
+    # nothing else. It is the comparison that says whether a null `transform_minus_points`
+    # means "replacement level does not pay in this format" or "ours is the weaker version",
+    # and no earlier session could separate those.
+    ("audible_transform", "ffa_baseline", "transform_minus_ffa_baseline"),
+    ("ffa_baseline", "adp", "ffa_baseline_minus_adp"),
+    ("ffa_baseline", "points_greedy", "ffa_baseline_minus_points"),
+    # The confounded published-column arm, kept on the page rather than dropped for coming out
+    # awkward. Its gap against `transform_minus_ffa_baseline` IS the scoring contamination.
+    ("audible_transform", "ffa_vor", "transform_minus_ffa_vor"),
+    ("ffa_vor", "adp", "ffa_vor_minus_adp"),
 )
 
 _COMPARISONS: tuple[tuple[str, str, str], ...] = (
@@ -938,10 +1022,17 @@ def _compare(
     paired, keys = _paired_difference(rows, left, right, field)
     if not paired:
         return None
-    m, lo, hi = seat.mean_and_interval(paired, [k[0] for k in keys])
+    seasons = [k[0] for k in keys]
+    m, lo, hi = seat.mean_and_interval(paired, seasons)
     _, flat_lo, flat_hi = seat.mean_and_interval(paired)
     return {
         "n": len(paired),
+        # HOW MANY CLUSTERS THE INTERVAL ACTUALLY USED. Written because a gate asserting the
+        # clustering had no field to read and could never pass: it looked for a `clusters` key
+        # nothing produced. The degrees of freedom are this minus one, and the t quantile
+        # follows from that, so a run that quietly lost a season is visible here rather than
+        # only in a wider interval nobody can attribute.
+        "clusters": len(set(seasons)),
         "mean": round(m, 3),
         "lo": round(lo, 3),
         "hi": round(hi, 3),
@@ -1145,6 +1236,79 @@ def _paired_difference(
     return [a[k] - b[k] for k in keys], keys
 
 
+def _headline_decomposition(arms: dict[str, Any]) -> dict[str, Any]:
+    """Per-position and per-slot decomposition of every headline comparison.
+
+    BOTH VIEWS, because neither is sufficient alone and the artifact must not have to choose.
+    RB and WR each name TWO starting slots and a surplus tight end started at FLEX lands in the
+    FLEX bucket, so a by-slot table cannot see positional hoarding; a by-position table cannot
+    see which slot the points arrived in. They must nonetheless sum to the SAME total, and
+    `by_position_total` / `by_slot_total` are written so a gate can assert exactly that.
+
+    THE TOTALS ARE POINTS-FOR GAPS AND NOT THE HEADLINE INTERVAL'S MEAN. `slot_points` sums to
+    an arm's points-for; the headline is a paired difference in ADVANTAGE, which subtracts the
+    field. The two agree to within the field term and the residual is reported rather than
+    quietly absorbed -- B4's decomposition summed to 112.2 against a headline of 116.1.
+    """
+    pairs = (
+        ("transform_minus_points", "audible_transform", "points_greedy"),
+        ("transform_minus_adp", "audible_transform", "adp"),
+        ("transform_minus_ffa_baseline", "audible_transform", "ffa_baseline"),
+        ("ffa_baseline_minus_points", "ffa_baseline", "points_greedy"),
+        ("ceiling_minus_adp", "hindsight_board", "adp"),
+    )
+    by_position: dict[str, dict[str, float]] = {}
+    by_slot: dict[str, dict[str, float]] = {}
+    position_total: dict[str, float] = {}
+    slot_total: dict[str, float] = {}
+    for label, left, right in pairs:
+        if left not in arms or right not in arms:
+            continue
+        lhs = arms[left].get("slot_points") or {}
+        rhs = arms[right].get("slot_points") or {}
+        positions = {
+            key[4:]: round(lhs.get(key, 0.0) - rhs.get(key, 0.0), 3)
+            for key in sorted(set(lhs) | set(rhs))
+            if key.startswith("pos:")
+        }
+        slots = {
+            key: round(lhs.get(key, 0.0) - rhs.get(key, 0.0), 3)
+            for key in sorted(set(lhs) | set(rhs))
+            if not key.startswith("pos:")
+        }
+        by_position[label] = positions
+        by_slot[label] = slots
+        position_total[label] = round(sum(positions.values()), 3)
+        slot_total[label] = round(sum(slots.values()), 3)
+    return {
+        "by_position": by_position,
+        "by_slot": by_slot,
+        "by_position_total": position_total,
+        "by_slot_total": slot_total,
+    }
+
+
+def _decomposition_residual(
+    payload: dict[str, Any], totals: dict[str, float]
+) -> dict[str, float]:
+    """Headline mean minus what the decomposition sums to, per comparison.
+
+    THE TWO ARE NOT THE SAME QUANTITY and the gap is small enough to be mistaken for rounding.
+    `slot_points` sums to an arm's POINTS-FOR; a headline is a paired difference in ADVANTAGE,
+    which subtracts the field average, and the field contains the seat. Measured on B4 the gap
+    is -3.854 against a headline of +116.054 -- 3.3% -- so it is real and it is not noise.
+    An earlier draft of this block claimed the residual was "reported rather than quietly
+    absorbed" while reporting it nowhere; this is that field.
+    """
+    out: dict[str, float] = {}
+    for label, total in totals.items():
+        block = payload.get(label)
+        if block is None or isinstance(block.get("mean"), str):
+            continue
+        out[label] = round(float(block["mean"]) - total, 3)
+    return out
+
+
 def _arm_definition(arm: str) -> str:
     return {
         "real": "audible's board, ordered by the cockpit's own the_call",
@@ -1190,6 +1354,16 @@ def _arm_definition(arm: str) -> str:
         "hindsight_points": (
             "B4 LABELLED LEAK: the realised lines ranked by RAW POINTS. Against "
             "hindsight_board it prices the transform with the projection error removed"
+        ),
+        "ffa_baseline": (
+            "B5: FFA's replacement-baseline DEPTH applied to OUR points under OUR rulebook. "
+            "Only the depth crosses over, so audible_transform - ffa_baseline is the "
+            "implementation of the idea and nothing else"
+        ),
+        "ffa_vor": (
+            "B5 CONFOUNDED, reported as such: FFA's PUBLISHED points_vor, which is scored "
+            "under FFA's own rulebook (half a point a reception in 2024-2025, where this "
+            "league pays zero). Use ffa_baseline for the like-for-like comparison"
         ),
     }[arm]
 
