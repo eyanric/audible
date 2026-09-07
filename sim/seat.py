@@ -213,6 +213,9 @@ class AudibleSeat:
     # the four `no_*` names disable one term each.
     mode: str = "real"
     calls: int = 0
+    # B6's per-pick invariant watcher, or None. Set by `run_arm` when a watch is attached;
+    # nothing else in this class consults it, so an unwatched arm is byte-identical.
+    watch: Any = None
     # Picks that came from the feasibility deadline rather than from the ordering. Reported,
     # because it is the size of a real finding -- see `choose`.
     deadline_picks: int = 0
@@ -301,6 +304,24 @@ class AudibleSeat:
         taken_ids = self.service.session.taken_ids()
         available = [e for e in self.board.entries if e.player_id not in taken_ids]
         self.calls += 1
+
+        # B6. The sort keys this ordering will compare, recorded for the dead-key invariant.
+        # Captured HERE, at the sort itself, rather than assumed by the checker: a harness that
+        # knows what the sort is supposed to be cannot notice it changing.
+        if self.watch is not None:
+            if self.mode == "legacy_recommend":
+                self.watch.sort_keys = [
+                    (not p.get("grab_now"), p["vorp_rank"], not p.get("fills_need"))
+                    for p in served
+                ]
+                self.watch.signal_keys = {0: "grab_now", 2: "fills_need"}
+            else:
+                # `the_call` ranks on `effective_score` then `vorp_rank`; the scalar already
+                # composes need and byes, and the rank is a deliberate terminal tiebreak.
+                self.watch.sort_keys = [
+                    (-float(p.get("effective_score") or 0.0), p["vorp_rank"]) for p in served
+                ]
+                self.watch.signal_keys = {0: "effective_score"}
 
         legacy_pick: int | None = None
         if self.mode == "legacy_recommend":
@@ -602,6 +623,22 @@ class ArmResult:
         )
 
 
+def _watched(chooser: Any, watch: Any) -> Any:
+    """B6. Attach the per-pick invariant checker, or hand the chooser back untouched.
+
+    `watch is None` is the default and the whole point of it: every arm B1-B5 measures runs
+    through exactly the code it ran before, so attaching invariants cannot move a single
+    committed number. When a watch IS attached the wrapper only OBSERVES -- it returns the
+    chooser's own answer unchanged -- so the draft a violation reproduces from is the same
+    draft that would have happened without it.
+    """
+    if watch is None:
+        return chooser
+    from .inv_order import watched
+
+    return watched(chooser, watch)
+
+
 def run_arm(
     arm: str,
     season: int,
@@ -615,6 +652,7 @@ def run_arm(
     seat: int = DEFAULT_SEAT,
     prior: Mapping[tuple[str, int], float] | None = None,
     orders: Mapping[str, Sequence[int]] | None = None,
+    watch: Any | None = None,
 ) -> ArmResult:
     """One draft with Audible in *seat*, then one bootstrapped season scored on it.
 
@@ -649,7 +687,7 @@ def run_arm(
             )
         picks = room.simulate_draft(
             season_board, fit, seed,
-            chooser=boards.greedy(orders[arm], season_board, fit),
+            chooser=_watched(boards.greedy(orders[arm], season_board, fit), watch),
             chooser_seat=seat,
         )
         return _score_draft(
@@ -664,11 +702,23 @@ def run_arm(
         # of the bots it lands -- and it does not. See the module docstring.
         picks = room.simulate_draft(
             season_board, fit, seed,
-            chooser=_adp_greedy(season_board, fit),
+            chooser=_watched(_adp_greedy(season_board, fit), watch),
             chooser_seat=seat,
         )
         return _score_draft(
             arm, season, seed, seat, picks, season_board, week_table, 16, 0, prior
+        )
+
+    if arm == "bot" and watch is not None:
+        # THE NULL CONTROL HAS NO CHOOSER, so there is no decision to watch: `simulate_draft`
+        # is called without one and the seat is played by the room's own bot logic. A watch
+        # attached here would see zero picks and then judge an EMPTY roster, reporting a
+        # spurious `order_legal_lineup` violation against an arm that never made a decision.
+        # An adversarial review found exactly that. Refused loudly rather than silently
+        # producing a finding the arm cannot avoid.
+        raise ValueError(
+            "the `bot` arm plays through the room's own logic and exposes no chooser, so "
+            "there is no decision point for an invariant to watch. Watch `real` instead."
         )
 
     if arm == "bot":
@@ -694,6 +744,8 @@ def run_arm(
         season_board, config, week_table.byes, state_dir,
         seat=seat, shuffle=shuffle_rng, mode=mode,
     )
+    # B6. The seat records its own sort keys onto the watch, at the sort. None when unwatched.
+    holder.watch = watch
     from audible.draft.live import Pick
 
     rows = season_board.rows
@@ -742,7 +794,7 @@ def run_arm(
         season_board,
         fit,
         seed,
-        chooser=chooser,
+        chooser=_watched(chooser, watch),
         chooser_seat=seat,
         observer=observe,
     )
