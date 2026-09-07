@@ -37,8 +37,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-REPO = Path(__file__).resolve().parents[1]
-CACHE = REPO / "data" / "cache"
+from . import SIM_CACHE
+
+# sim's own root, not the cockpit's -- see sim/__init__.py. `--cache` still overrides, so
+# pointing a READ at the live root stays possible and stays harmless; nothing here writes.
+CACHE = SIM_CACHE
 SEASONS = (2021, 2022, 2023, 2024, 2025)
 
 
@@ -274,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--cache", type=Path, default=None,
-        help="cache root to inspect (default: <repo>/data/cache)",
+        help="cache root to inspect (default: <repo>/data/sim-cache)",
     )
     args = parser.parse_args(argv)
     if args.cache is not None:

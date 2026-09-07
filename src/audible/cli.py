@@ -84,6 +84,43 @@ def _print_structure(
               f"draft_rounds={cfg.draft_rounds} all match).")
 
 
+def _print_seat(cfg: LeagueConfig, derived: int | None, checked: bool) -> None:
+    """Say what happened to the seat check -- including that it did not happen.
+
+    A null derivation is a PASS: the pin exists precisely to carry the seat when the platform
+    is silent, so silence must never be reported as drift. But until this line existed, a pass
+    that CONFIRMED the seat and a pass that never COMPARED it printed byte-identical text and
+    both exited 0. Measured 2026-09-06 against the live leagues: `diff` of the two full runs
+    reported zero differing bytes. A check that cannot be seen to have run is not a check.
+
+    ESPN only. The Sleeper path derives no seat, so a seat line there would be a claim about
+    something never computed.
+    """
+    if not checked:
+        print(f"[{cfg.key}] draft seat NOT CHECKED -- the derivation never ran.")
+    elif derived is None:
+        # Two different failures share this branch and must not share a sentence: a league
+        # with a pin has something to fall back on, a league without one has nothing.
+        carried = (
+            f"The pinned seat {cfg.draft_slot} is UNVERIFIED: it is being carried, not "
+            f"confirmed. This is a pass, not a confirmation."
+            if cfg.draft_slot is not None else
+            "NOTHING IS PINNED EITHER, so this league has no seat from any source -- "
+            "`serve` will start with my_slot null and every timing term goes null with it."
+        )
+        print(f"[{cfg.key}] !! draft seat NOT CHECKED -- ESPN derived no seat (the "
+              f"authenticated SWID matches no team in this league, or the commissioner has "
+              f"not set a pick order). {carried}")
+    elif cfg.draft_slot is None:
+        print(f"[{cfg.key}] draft seat: ESPN derives {derived}; nothing is pinned, so "
+              f"`serve` has no seat to fall back on when sync is down.")
+    elif cfg.draft_slot == derived:
+        print(f"[{cfg.key}] draft seat VERIFIED: pinned {cfg.draft_slot} == the seat ESPN "
+              f"derives from the live pick order.")
+    # The disagreeing case needs nothing here: it is a drift row, so _print_structure has
+    # already printed `draft_slot config=<pin> live=<derived>` and the command exits 1.
+
+
 def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
     """ESPN's weights are position-scoped, so the comparison has to be too.
 
@@ -98,6 +135,8 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
         drift = espn.verify_scoring(cfg)
         live_rec = espn.live_reception_points(cfg)
         structure = espn.verify_structure(cfg)
+        # Read inside the `with`: the adapter carries this, and it closes on the way out.
+        derived_slot, slot_checked = espn.derived_slot, espn.derived_slot_checked
 
     checked = len(STAT_ID_TO_KEY) * len(cfg.positions & TRANSLATED_POSITIONS)
     _print_drift(cfg, drift, f"{checked} position-scoped weights match")
@@ -128,7 +167,10 @@ def cmd_verify_scoring_espn(cfg: LeagueConfig) -> int:
                   f"(RB stays {rb_rec} by design, not drift).")
 
     _print_structure(cfg, structure)
+    _print_seat(cfg, derived_slot, slot_checked)
     print(f"\n[{cfg.key}] known gap -- {SPECIALIST_GAP}")
+    # UNCHANGED, deliberately: a seat ESPN cannot derive still exits 0. _print_seat makes that
+    # pass legible; it does not turn it into a failure.
     return 1 if (drift or mismatch or structure) else 0
 
 

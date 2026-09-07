@@ -42,13 +42,17 @@ Run it:
     uv run --extra nflverse python -m sim.backfill --check    # inspect, fetch nothing
     uv run --extra nflverse python -m sim.backfill --seasons 2021 --force
 
-The cache it writes to is the one the repo it runs from owns -- ``<repo>/data/cache/nflverse``
-(gitignored). Running this from the main checkout is what puts the files next to the live
-2025 pin. That is safe for `player_stats_<season>`, which are new keys, but note that ANY
-loader run from there rewrites the key it fetches: re-fetching `schedules_2026` in a
+The cache it writes to is ``<repo>/data/sim-cache/nflverse`` (gitignored), NOT the cockpit's
+``data/cache``. Importing the ``sim`` package is what moves it, so this must be run as a
+MODULE -- ``python -m sim.backfill``, never ``python sim/backfill.py``, which would skip
+``sim/__init__.py`` and write the live root. The ``__main__`` block below refuses the second
+form rather than trusting anyone to remember.
+
+Why it matters: ANY loader run against a root rewrites the key it fetches, and a refetch is
+never a no-op just because the data "should" be the same. Re-fetching `schedules_2026` in a
 worktree produced a file with a different sha256 from the live pin (eight betting-odds
-columns had changed upstream), so a refresh is never a no-op just because the data "should"
-be the same.
+columns had changed upstream). `unpin()` below also DELETES a parquet and rewrites the
+manifest, and its `pre_existing` guard only spares keys that were already on disk.
 """
 
 from __future__ import annotations
@@ -440,4 +444,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # `python sim/backfill.py` does NOT import sim/__init__.py, so the cache-root rebind that
+    # keeps this away from the live cockpit root never happens and every pin and every unpin
+    # lands in data/cache. Measured 2026-09-06: run that way with AUDIBLE_SIM_CACHE pointed at
+    # the live root, the guard in __init__ never fired and --check read the live pin. Refusing
+    # is the fix; a warning would be read once and ignored.
+    if __package__ in (None, ""):
+        raise SystemExit(
+            "sim.backfill must run as a MODULE, not as a script. Run:\n"
+            "    uv run --extra nflverse python -m sim.backfill\n"
+            "Running `python sim/backfill.py` skips sim/__init__.py, which is what points the "
+            "cache at data/sim-cache -- so it would pin into, and unpin out of, the live "
+            "cockpit cache instead."
+        )
     sys.exit(main())

@@ -35,6 +35,7 @@ import pytest
 
 pl = pytest.importorskip("polars", reason="the backfill gates read parquet")
 
+from . import SIM_CACHE  # noqa: E402
 from .adp_join import BoardPlayer, crosswalk_index, normalize, resolve_board  # noqa: E402
 from .backfill import (  # noqa: E402
     REG_GAMES,
@@ -44,7 +45,11 @@ from .backfill import (  # noqa: E402
 )
 from .synthetic import season_frame  # noqa: E402
 
-CACHE = Path(__file__).resolve().parents[1] / "data" / "cache"
+# sim's own root, not the cockpit's. This MUST track sim/__init__.py's SIM_CACHE: `_pinned`
+# below skips with "run `python -m sim.backfill` first", and that command now pins into
+# data/sim-cache -- so reading data/cache here would make the instruction unsatisfiable and
+# these five gates permanently un-greenable.
+CACHE = SIM_CACHE
 SEASON = 2024
 
 

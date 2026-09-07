@@ -411,6 +411,12 @@ class EspnAdapter:
         # many players were scored by us versus handed back from ESPN's own projection.
         self.pool_size: int = 0
         self.source_counts: dict[str, int] = {}
+        # The seat the last `derived_draft_slot` call resolved, and whether it ran at all.
+        # `verify_structure` cannot report this through its return value -- a null derivation
+        # is deliberately NOT drift, so it contributes no row -- which left "the seat agrees"
+        # and "the seat was never checked" printing identical text. See `derived_draft_slot`.
+        self.derived_slot: int | None = None
+        self.derived_slot_checked: bool = False
         # Conditional-request state for the draft poll (see get_draft_detail).
         self._draft_etag: str | None = None
         self._draft_last: dict[str, Any] | None = None
@@ -1065,14 +1071,24 @@ class EspnAdapter:
 
         Takes an already-fetched draft bundle when the caller has one -- ``verify_structure``
         does -- so asking for the seat costs no additional round trip.
+
+        Records the answer on ``self.derived_slot`` / ``self.derived_slot_checked`` as it
+        goes. That is the ONLY way a caller can tell a seat that agreed from a seat that was
+        never derived: both contribute no drift row, so both leave ``verify_structure``
+        returning the same empty list. Reporting it out of band keeps the drift contract
+        (non-empty means exit 1) intact while letting the output say which one happened.
         """
         from ..draft.sync import espn_my_team_id, espn_slot_by_team
 
         bundle = self.get_draft_detail(config) if payload is None else payload
         team_id = espn_my_team_id(bundle.get("teams") or [], self.swid)
-        if team_id is None:
-            return None
-        return espn_slot_by_team(bundle.get("settings") or {}).get(team_id)
+        slot = (
+            None if team_id is None
+            else espn_slot_by_team(bundle.get("settings") or {}).get(team_id)
+        )
+        self.derived_slot = slot
+        self.derived_slot_checked = True
+        return slot
 
     @staticmethod
     def _draft_rounds_from(settings: Mapping[str, Any]) -> int:

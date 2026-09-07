@@ -14,6 +14,10 @@ build/
 # Secrets & runtime data
 .env
 data/cache/
+# sim's own cache root -- see sim/__init__.py. Same reason as data/cache/: re-fetchable
+# frames plus per-machine payloads. It exists so a sim run can never write the root a live
+# cockpit is serving from.
+data/sim-cache/
 # News store. Collected, not re-fetchable (Rotowire serves five items), and it is
 # per-machine history rather than anything the repo should carry.
 data/news/
