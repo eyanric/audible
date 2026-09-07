@@ -20,7 +20,7 @@ scalar `recommend` does and the bye term was wired.
 ## THE ONLY DRAFT LEFT IS NOW READABLE, CONFIGURED, AND SERVED
 
 **ESPN league `73131979` = "Green Hope Dog Walkers". Tuesday 2026-09-08, 19:00 ET. Snake,
-8 teams, 16 rounds, seat 1.** Config is `leagues/espn_green_hope.toml`; the cockpit manifests
+8 teams, 16 rounds, seat 6.** Config is `leagues/espn_green_hope.toml`; the cockpit manifests
 are in haven on `feat/audible-cockpit-green-hope`.
 
 It lives on a **SECOND ESPN account**, and the two accounts are strictly disjoint. Measured
@@ -336,10 +336,18 @@ the config was stale, so `verify-scoring espn_danger_zone` exited 1 on it. **Clo
 2026-09-06**: the TOML pins 6 and eyanric/haven#376 drops the override, in that order --
 dropping it first would have moved the cockpit silently to seat 5.
 
-Seat 1 of 8, which is what `espn_green_hope` pins, is where a wrong pin is **least** visible:
-it never has an opponent pick before its own turn to contradict it. That is exactly why the
-seat there was derived (teamId 2, `pickOrder [2,9,6,7,4,1,5,8]` -> seat 1) rather than taken
-on trust, and why it is asserted rather than assumed.
+Seat 1 of 8, which `espn_green_hope` pinned until 2026-09-07, is where a wrong pin is
+**least** visible: it never has an opponent pick before its own turn to contradict it. That is
+exactly why the seat there was derived (teamId 2, `pickOrder [2,9,6,7,4,1,5,8]` -> seat 1)
+rather than taken on trust, and why it is asserted rather than assumed.
+
+**And the assertion earned its keep on 2026-09-07: the pin is now 6.** The commissioner
+RE-DREW the order -- `pickOrder` is now `[9,6,1,4,7,2,5,8]`, putting the same teamId 2 in
+seat 6. Identity never moved; only the order did. `verify-scoring espn_green_hope` reported
+`draft_slot   config=1      live=6` and exited 1. A derived seat that agreed and a derived
+seat that was never computed printed identically until audible#64, so this is precisely the
+class of drift that used to pass in silence. An order that moved once can move again: the
+derived seat is a **pre-flight item on draft day**, not a thing settled by a commit.
 
 ## League A drifted again, in-season, and the new guard is what found it
 
@@ -835,9 +843,12 @@ statement is `if not opponent_picks: return 1.0`. It does not divide by that num
 divisor is `slope = 1.0 + 0.3 * opponent_picks`, never zero), so there is no exception and
 nothing that looks broken from outside.
 
-**`survival()` goes quiet at back-to-back turns and 73131979 is the worst case for it.** Seat 1 of
-8 picks in PAIRS — **1, 16/17, 32/33, 48/49** — so `opponent_picks` is 0 at every turn after the
-first and it returns 1.0 for everyone at exactly the moment two picks are on the clock.
+**`survival()` goes quiet at back-to-back turns.** Seat 1 of 8 picks in PAIRS — **1, 16/17,
+32/33, 48/49** — so `opponent_picks` is 0 at every turn after the first and it returns 1.0 for
+everyone at exactly the moment two picks are on the clock. 73131979 was that worst case until
+the 2026-09-07 re-draw; **at seat 6 it is not** — the turns are 6, 11, 22, 27, 38, 43, … with
+gaps of 4 and 10 opponent picks, so `opponent_picks` is never 0. The defect is unchanged and
+still real for any seat that draws a wheel pair; it simply no longer bites this league.
 `draft/urgency.py` bypasses it with visible subtraction rather than fixing it. **Fix or delete
 it** — but it is separate work from onboarding the league.
 
@@ -924,12 +935,13 @@ the derived-vs-pinned seat assertion, and the haven cockpit manifests (PR open, 
 7. **Correct League A's config**: 7 IDP weights and `draft_rounds` 19 -> 20. In-season only
    now, but the guard keeps shouting.
 8. **`survival()` goes quiet at back-to-back turns, and seat 1 of 8 is its worst case.**
-   73131979 picks in PAIRS -- 1, 16/17, 32/33, 48/49 -- so `opponent_picks_until_horizon` is 0
-   at every turn after the first and `survival()` returns 1.0 for everyone at exactly the
-   moment two picks are on the clock. `draft/urgency.py` bypasses it with visible ADP
-   subtraction, so nothing on Tuesday depends on it. **Fix or delete it** -- separate work,
-   deliberately not touched here.
-9. **`recommend` has no notion of roster balance, and seat 1 of 8 hits that too.** It returns
+   NO LONGER THIS LEAGUE, as of the 2026-09-07 re-draw: 73131979 is seat 6, whose turns are
+   6, 11, 22, 27, 38, 43, ... with gaps of 4 and 10, so `opponent_picks_until_horizon` is
+   never 0. The defect stands for any seat that draws a wheel pair -- `survival()` returns
+   1.0 for everyone at exactly the moment two picks are on the clock -- and
+   `draft/urgency.py` bypasses it with visible ADP subtraction either way, so nothing on
+   Tuesday depends on it. **Fix or delete it** -- separate work, deliberately not touched.
+9. **`recommend` has no notion of roster balance.** It returns
    five rows; read all five. When you already hold three startable bodies at a position, take
    the best row that is not that position. Deliberately not patched -- the right fix is
    marginal value against my own roster, which changes what the board recommends.
