@@ -84,19 +84,36 @@ def board_from_season(
 ) -> Any:
     """An `audible.draft.board.DraftBoard` over the season's FFC rows.
 
-    Points are a linear function of ADP rank -- rank 1 gets TOP_POINTS, the last row gets
-    BOTTOM_POINTS -- and VORP comes from the real `compute_vorp`, so replacement level is
-    derived from the league config exactly as it is in production.
+    THE BOARD'S VALUE ORDER IS THE MARKET'S ORDER, and that is a deliberate refusal to invent
+    projections. Value is linear in ADP rank -- rank 1 gets TOP_POINTS, the last row gets
+    BOTTOM_POINTS -- and `vorp` carries the same number, so the board ranks players exactly as
+    the market did. What the arms then differ on is audible's OVERLAY: need, marginal start
+    factor, bye conflict, urgency, the whole of `effective_score` and The Call's sort. That is
+    what B2 can measure and it is all B2 can measure.
 
-    *shuffle*, when given, permutes which POINTS go to which player before VORP is computed.
-    Positions, byes, ADP and eligibility are untouched; only the value ordering moves. That is
-    the whole of the shuffle arm, and keeping it to one argument is what makes it credible
-    that the two arms differ in nothing else.
+    WHY `compute_vorp` IS NOT USED HERE, since not using the real value engine deserves an
+    argument. It was, in the first version, over exactly this linear points curve. Measured,
+    the result was a positional artifact and not a small one:
+
+        replacement level from a linear-in-ADP-rank curve, 2024:
+          TE 48.4   DEF 0.0   K 61.8   WR 147.3   RB 155.6   QB 224.4
+        top three by VORP: Travis Kelce, Sam LaPorta, Mark Andrews
+
+    Tight ends are sparse and spread deep in ADP, so a linear curve puts TE replacement at
+    48 while WR sits at 147, and three tight ends rank above Christian McCaffrey. The seat then
+    drafted FIVE of them. None of that is audible's doing -- it belongs entirely to the shape
+    of the curve fed to a replacement engine that was built to consume real projections, and
+    there are none for any of these seasons. Manufacturing one and then measuring the ordering
+    on top of it would be measuring the manufacture.
+
+    So replacement is uniform here and the board is the market. `compute_vorp` stays exercised
+    where it has real projections, which is production.
+
+    *shuffle*, when given, permutes which value goes to which player. Positions, byes, ADP and
+    eligibility are untouched; only the value ordering moves. Keeping the arm to one argument
+    is what makes it credible that the two differ in nothing else.
     """
     from audible.draft.board import DraftBoard, DraftEntry
-    from audible.models.player import PlayerProjection
-    from audible.value.replacement import compute_vorp
-    from audible.value.scarcity import scarcity_values
 
     rows = season_board.rows
     n = len(rows)
@@ -105,25 +122,10 @@ def board_from_season(
     if shuffle is not None:
         shuffle.shuffle(points)
 
-    projections = [
-        PlayerProjection(
-            player_id=f"ffc{r.rank:04d}",
-            name=r.name,
-            primary_position=r.position,
-            eligible_positions=frozenset({r.position}),
-            team=r.team or None,
-            points=pts,
-        )
-        for r, pts in zip(rows, points, strict=True)
-    ]
-    vorp_entries, _levels = compute_vorp(projections, config)
-    scarcity = scarcity_values(projections, config)
-
-    vorp_by_id = {e.projection.player_id: e.vorp for e in vorp_entries}
-    ranked = sorted(vorp_by_id, key=lambda pid: (-vorp_by_id[pid], pid))
-    vorp_rank = {pid: i + 1 for i, pid in enumerate(ranked)}
-    adp_sorted = sorted(rows, key=lambda r: r.adp)
-    adp_rank = {f"ffc{r.rank:04d}": i + 1 for i, r in enumerate(adp_sorted)}
+    order = sorted(range(n), key=lambda i: (-points[i], rows[i].rank))
+    value_rank = [0] * n
+    for place, i in enumerate(order, start=1):
+        value_rank[i] = place
 
     entries = [
         DraftEntry(
@@ -137,19 +139,19 @@ def board_from_season(
             modeled_xfp=0.0,
             carried=0.0,
             consensus=pts,
-            vorp=vorp_by_id[f"ffc{r.rank:04d}"],
-            vorp_rank=vorp_rank[f"ffc{r.rank:04d}"],
-            consensus_rank=vorp_rank[f"ffc{r.rank:04d}"],
-            opp_rank=vorp_rank[f"ffc{r.rank:04d}"],
+            vorp=pts,
+            vorp_rank=value_rank[i],
+            consensus_rank=value_rank[i],
+            opp_rank=value_rank[i],
             deviation=False,
-            scarcity=scarcity.get(f"ffc{r.rank:04d}", 0.0),
-            scarcity_rank=vorp_rank[f"ffc{r.rank:04d}"],
+            scarcity=pts,
+            scarcity_rank=value_rank[i],
             adp=r.adp,
-            adp_rank=adp_rank[f"ffc{r.rank:04d}"],
+            adp_rank=r.rank,
             value=0,
             flags=(),
         )
-        for r, pts in zip(rows, points, strict=True)
+        for i, (r, pts) in enumerate(zip(rows, points, strict=True))
     ]
     return DraftBoard(
         league_key=f"sim_{season_board.season}",
@@ -191,9 +193,38 @@ class AudibleSeat:
     # looked like a working harness. The shuffle arm was "winning" by 139 points.
     by_index: dict[str, int]
     calls: int = 0
+    # Picks that came from the feasibility deadline rather than from the ordering. Reported,
+    # because it is the size of a real finding -- see `choose`.
+    deadline_picks: int = 0
 
-    def choose(self, overall: int, taken: Sequence[int], rows: Sequence[Any]) -> int:
-        """The board index Audible would take. Returns -1 when it has no legal answer."""
+    def choose(
+        self,
+        overall: int,
+        taken: Sequence[int],
+        rows: Sequence[Any],
+        *,
+        remaining: int = 0,
+        unfilled: Sequence[str] = (),
+    ) -> int:
+        """The board index Audible would take. Returns -1 when it has no legal answer.
+
+        THE DEADLINE IS THE HARNESS'S, NOT AUDIBLE'S, and the distinction matters.
+
+        Audible's ordering, left to draft sixteen picks unassisted, finishes without a kicker
+        or a defence 88% of the time. That is not a bug in The Call: `the_call` ranks on
+        `effective_score`, a kicker's value sits at ADP rank 138 or worse, and it will never
+        surface above a startable receiver. It is also not how the tool is used -- the cockpit
+        is open on a desk next to somebody who can see an empty K slot in round fifteen and
+        does something about it.
+
+        So the harness applies the SAME feasibility deadline the bots get: with as many picks
+        left as unfilled starting slots, fill the most specific one, using audible's own
+        ordering restricted to that slot. Giving the bots an endgame rule and denying it to
+        the seat would be a strawman in the other direction.
+
+        `deadline_picks` counts how often it fired, and the artifact reports it, so the
+        finding stays visible instead of being absorbed into a number that looks fine.
+        """
         from audible.draft import urgency
         from audible.server import state as state_mod
 
@@ -233,6 +264,35 @@ class AudibleSeat:
             available_entries=available,
         )
         self.calls += 1
+
+        if unfilled and remaining and len(unfilled) >= remaining:
+            allowed = set(room.SLOT_ELIGIBILITY[unfilled[0]])
+            forced = [
+                row for row in rows_for_call
+                if row["position"] in allowed
+                and (idx := self.by_index.get(str(row["id"]), -1)) >= 0
+                and not taken[idx]
+            ]
+            if not forced:
+                # The served pool is a top-60 slice plus per-position depth, so a kicker can
+                # be absent from it entirely. Fall back to the whole available board, still
+                # in audible's own value order.
+                forced_entries = [
+                    e for e in available
+                    if e.position in allowed
+                    and (idx := self.by_index.get(e.player_id, -1)) >= 0
+                    and not taken[idx]
+                ]
+                if forced_entries:
+                    self.deadline_picks += 1
+                    return self.by_index[forced_entries[0].player_id]
+            else:
+                self.deadline_picks += 1
+                best = min(
+                    forced, key=lambda r: -float(r.get("effective_score") or 0.0)
+                )
+                return self.by_index[str(best["id"])]
+
         pick = call.get("pick") or {}
         pid = pick.get("id")
         if pid is None:
@@ -293,6 +353,7 @@ class ArmResult:
     unresolved: int
     picks: tuple[Any, ...]
     calls: int
+    deadline_picks: int
 
     @property
     def advantage(self) -> float:
@@ -323,9 +384,22 @@ def run_arm(
     face the identical opponent field and the identical weekly draws, and their difference
     isolates the arm.
     """
-    if arm not in ("real", "shuffle", "leaky-shuffle"):
+    if arm not in ("real", "shuffle", "bot", "leaky-shuffle"):
         raise ValueError(f"unknown arm {arm!r}")
 
+    if arm == "bot":
+        # THE NULL CONTROL. Seat 6 played by the room's own bot logic -- no audible board, no
+        # the_call, no overlay. By symmetry its advantage over the other seven must be zero,
+        # and measuring that it IS zero is what says the measurement machinery is sound before
+        # any arm's number is believed. It is also the baseline the other two are read against:
+        # shuffle minus bot is what audible's structure is worth, real minus shuffle is what
+        # its value ordering is worth.
+        picks = room.simulate_draft(season_board, fit, seed)
+        return _score_draft(arm, season, seed, seat, picks, season_board, week_table, 0, 0)
+
+    # `leaky-shuffle` is the injection: a shuffle arm with the shuffle removed, so it reads
+    # the real board. `real - shuffle` then collapses to exactly zero, which is the signature
+    # G6b exists to catch. It is never a reported arm.
     shuffle_rng = random.Random(seed) if arm == "shuffle" else None
     holder = build_seat(
         season_board, config, week_table.byes, state_dir, seat=seat, shuffle=shuffle_rng
@@ -334,8 +408,17 @@ def run_arm(
 
     rows = season_board.rows
 
-    def chooser(overall: int, taken: Sequence[int], rows: Sequence[Any]) -> int:
-        return holder.choose(overall, taken, rows)
+    def chooser(
+        overall: int,
+        taken: Sequence[int],
+        rows_: Sequence[Any],
+        *,
+        remaining: int = 0,
+        unfilled: Sequence[str] = (),
+    ) -> int:
+        return holder.choose(
+            overall, taken, rows_, remaining=remaining, unfilled=unfilled
+        )
 
     def observe(pick: room.SimPick, board_index: int) -> None:
         """Mirror every pick into the cockpit, and invalidate the memoised view.
@@ -369,13 +452,36 @@ def run_arm(
         observer=observe,
     )
 
-    rng = random.Random(seed)
+    return _score_draft(
+        arm, season, seed, seat, picks, season_board, week_table,
+        holder.calls, holder.deadline_picks,
+    )
+
+
+def _score_draft(
+    arm: str,
+    season: int,
+    seed: int,
+    seat: int,
+    picks: Sequence[room.SimPick],
+    season_board: room.SeasonBoard,
+    week_table: weekly.SeasonWeekly,
+    calls: int,
+    deadline_picks: int,
+) -> ArmResult:
+    """Score a completed draft. Every seat gets its own bootstrap stream, keyed off the seed.
+
+    The streams are `seed * 1_000_003 + seat`, so arm A and arm B at the same seed give seat 6
+    the identical weekly draws and the difference between them is the draft and nothing else.
+    """
     rosters: dict[int, list[room.SimPick]] = {}
     for p in picks:
         rosters.setdefault(p.seat, []).append(p)
 
     mine, unresolved = weekly.resolve_roster(rosters[seat], season_board, week_table)
-    mine_points = weekly.points_for(random.Random(seed * 1_000_003), week_table, mine)
+    mine_points = weekly.points_for(
+        random.Random(seed * 1_000_003 + seat), week_table, mine
+    )
     opponents: list[float] = []
     for other in sorted(rosters):
         if other == seat:
@@ -384,12 +490,12 @@ def run_arm(
         opponents.append(
             weekly.points_for(random.Random(seed * 1_000_003 + other), week_table, roster)
         )
-    del rng
 
     return ArmResult(
         arm=arm, season=season, seed=seed, seat=seat,
         points_for=mine_points, opponent_points=tuple(opponents),
-        unresolved=unresolved, picks=tuple(picks), calls=holder.calls,
+        unresolved=unresolved, picks=tuple(picks), calls=calls,
+        deadline_picks=deadline_picks,
     )
 
 

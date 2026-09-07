@@ -93,11 +93,25 @@ def test_an_unpinned_seat_reports_the_derivation_as_both(
 
 
 def test_seat_drift_reaches_the_log_when_the_pin_disagrees(
-    detail: dict[str, Any], espn_config: LeagueConfig, caplog: pytest.LogCaptureFixture
+    detail: dict[str, Any],
+    espn_config: LeagueConfig,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
 ) -> None:
-    """The error CockpitService has always carried, and could never reach."""
+    """The error CockpitService has always carried, and could never reach.
+
+    `state_dir=tmp_path` is load-bearing, not tidiness. This was the only one of 34
+    CockpitService constructions in tests/ that omitted it, so it fell back to
+    DEFAULT_CACHE_DIR -- the live cockpit cache -- and `poll_once()` calls `save()`. Every
+    default test run therefore rewrote data/cache/draft-state-espn_davis_drive.json with this
+    test's synthetic state. It is the exact hazard sim/__init__.py exists to prevent, living
+    in the fast suite where sim's guard cannot reach.
+    """
     service = CockpitService(
-        espn_config, slot_override=2, sync=_sync(detail, espn_config, slot_override=2)
+        espn_config,
+        slot_override=2,
+        sync=_sync(detail, espn_config, slot_override=2),
+        state_dir=tmp_path,
     )
     with caplog.at_level(logging.ERROR, logger="audible.cockpit"):
         service.poll_once()

@@ -1,0 +1,8 @@
+# Artifacts are committed; run scaffolding is not.
+#
+# A checkpoint is per-machine, per-interrupted-run state whose only job is to let one run
+# resume. Committing it would put a half-finished sweep in git and invite a resume against a
+# checkout that never wrote it. The log is wall-clock noise and would make every artifact
+# diff unreadable.
+*.checkpoint.jsonl
+*.log

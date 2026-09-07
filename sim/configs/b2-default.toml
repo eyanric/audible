@@ -1,0 +1,19 @@
+# The real run. Five seasons, sixty seeds, both arms -- 600 units.
+#
+# Sixty seeds a season is chosen against measured cost, not taste: one unit is about 0.15s, so
+# 600 units is a couple of minutes. The binding constraint on precision is NOT seeds. Five ADP
+# vintages and five real rooms remain five however many seeds are drawn, because the bootstrap
+# multiplies OUTCOME samples and never MARKET samples.
+[run]
+name = "b2-default"
+seasons = [2021, 2022, 2023, 2024, 2025]
+seed_start = 0
+seed_count = 60
+# Three arms. `bot` is the NULL CONTROL -- seat 6 played by the room's own logic, which by
+# symmetry must score exactly the field average. It is what says the machinery is sound, and
+# it is the baseline the other two are read against: shuffle minus bot is what audible's
+# STRUCTURE is worth, real minus shuffle is what its VALUE ORDERING is worth.
+arms = ["real", "shuffle", "bot"]
+seat = 6
+league = "espn_davis_drive"
+fit_seasons = [2021, 2022, 2023, 2024, 2025]

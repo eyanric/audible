@@ -1,0 +1,616 @@
+# run: b2-default
+# seasons: 2021, 2022, 2023, 2024, 2025
+# seeds: 60  seat: 6
+# units: 900  wall: 48.8s
+#
+# structural (lower is better):
+#   bot:
+#     unfillable bye weeks: 2.51
+#     wasted roster slots:  0.71
+#     positional surplus:   5.70
+#     illegal lineups:      0
+#     deadline picks /16:   0.00
+#   real:
+#     unfillable bye weeks: 2.42
+#     wasted roster slots:  0.00
+#     positional surplus:   5.00
+#     illegal lineups:      0
+#     deadline picks /16:   0.37
+#   shuffle:
+#     unfillable bye weeks: 2.49
+#     wasted roster slots:  0.05
+#     positional surplus:   5.00
+#     illegal lineups:      0
+#     deadline picks /16:   0.26
+#
+# points-for, weekly optimal lineups (7 of 9 slots):
+#   bot: 1802 [1783, 1822]
+#   real: 1940 [1923, 1956]
+#   shuffle: 1849 [1832, 1865]
+#
+# advantage over the opponent field, paired:
+#   bot: -4.5 [-25.8, +16.7]
+#   real: +146.4 [+127.9, +164.9]
+#   shuffle: +42.9 [+25.6, +60.1]
+#   real - shuffle: +103.5 [+80.1, +127.0]
+#
+# where the advantage comes from:
+#   machinery (bot in seat): -4.5
+#   + structure:             +47.4
+#   + value ordering:        +103.5
+#   = real:                  +146.4
+#
+# shuffle control (the leak detector):
+#   at chance: NO
+#   advantage: +42.9 [+25.6, +60.1]
+#   SHUFFLE IS WINNING -- assume a leak until this is
+#   explained
+#   READ THE DECOMPOSITION ABOVE. The null control -- a bot in
+#   the same seat -- lands at chance, so the machinery is
+#   sound. The shuffle arm keeps audible's structure and only
+#   loses its value ordering.
+#
+# limits that hold regardless:
+#   no vintage preseason projections exist for any season, so
+#   this measures ORDERING and never the projections.
+#   bots fitted to ADP are not people. They do not stack,
+#   reach for their own players, or panic.
+#   the bootstrap multiplies OUTCOME samples, not MARKET
+#   samples. Five ADP vintages remain five.
+{
+  "arms": {
+    "bot": {
+      "advantage": {
+        "hi": 16.732,
+        "lo": -25.792,
+        "mean": -4.53
+      },
+      "definition": "the null control: seat played by the room's own bot logic, no overlay",
+      "n": 300,
+      "points_for": {
+        "hi": 1821.906,
+        "lo": 1783.021,
+        "mean": 1802.464
+      },
+      "structural": {
+        "deadline_picks": 0.0,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.7,
+        "unfillable_bye_weeks": 2.51,
+        "unresolved_players": 1.4733,
+        "wasted_roster_slots": 0.71
+      }
+    },
+    "real": {
+      "advantage": {
+        "hi": 164.884,
+        "lo": 127.925,
+        "mean": 146.405
+      },
+      "definition": "audible's board, ordered by the cockpit's own the_call",
+      "n": 300,
+      "points_for": {
+        "hi": 1956.461,
+        "lo": 1922.967,
+        "mean": 1939.714
+      },
+      "structural": {
+        "deadline_picks": 0.3667,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0,
+        "unfillable_bye_weeks": 2.4167,
+        "unresolved_players": 1.04,
+        "wasted_roster_slots": 0.0033
+      }
+    },
+    "shuffle": {
+      "advantage": {
+        "hi": 60.128,
+        "lo": 25.627,
+        "mean": 42.877
+      },
+      "definition": "the same, with the board's value ordering permuted per seed",
+      "n": 300,
+      "points_for": {
+        "hi": 1864.77,
+        "lo": 1832.445,
+        "mean": 1848.608
+      },
+      "structural": {
+        "deadline_picks": 0.2633,
+        "illegal_lineups": 0,
+        "positional_surplus": 5.0033,
+        "unfillable_bye_weeks": 2.4867,
+        "unresolved_players": 1.0967,
+        "wasted_roster_slots": 0.0467
+      }
+    }
+  },
+  "code_sha": "13faf6540579c6b6a9d0ecbedc2e2353c132abee-dirty",
+  "config_hash": "3fe27036551e49a06f2c767bf265213b9d7bfeb8b97604c6836b59db00bba85e",
+  "content_digest": "5e7411051fc40ef2c78d589f04c057dc59d10dc82a469144bdd72a3e5f3707c3",
+  "fit": {
+    "cap_hist": {
+      "DEF": {
+        "1": 38,
+        "2": 2
+      },
+      "K": {
+        "1": 39,
+        "2": 1
+      },
+      "QB": {
+        "1": 16,
+        "2": 23,
+        "3": 1
+      },
+      "RB": {
+        "2": 1,
+        "3": 2,
+        "4": 8,
+        "5": 16,
+        "6": 11,
+        "7": 2
+      },
+      "TE": {
+        "1": 29,
+        "2": 10,
+        "3": 1
+      },
+      "WR": {
+        "4": 3,
+        "5": 9,
+        "6": 15,
+        "7": 11,
+        "8": 2
+      }
+    },
+    "caps": {
+      "DEF": 2,
+      "K": 2,
+      "QB": 3,
+      "RB": 7,
+      "TE": 3,
+      "WR": 8
+    },
+    "cell_n": {
+      "DEF": {
+        "r1-4": 0,
+        "r13-16": 23,
+        "r5-8": 1,
+        "r9-12": 14
+      },
+      "K": {
+        "r1-4": 0,
+        "r13-16": 21,
+        "r5-8": 0,
+        "r9-12": 13
+      },
+      "QB": {
+        "r1-4": 9,
+        "r13-16": 14,
+        "r5-8": 21,
+        "r9-12": 20
+      },
+      "RB": {
+        "r1-4": 76,
+        "r13-16": 20,
+        "r5-8": 51,
+        "r9-12": 50
+      },
+      "TE": {
+        "r1-4": 9,
+        "r13-16": 10,
+        "r5-8": 14,
+        "r9-12": 19
+      },
+      "WR": {
+        "r1-4": 76,
+        "r13-16": 35,
+        "r5-8": 69,
+        "r9-12": 57
+      }
+    },
+    "joined": 622,
+    "mu": {
+      "DEF": -44.684211,
+      "K": -54.382353,
+      "QB": 6.34375,
+      "RB": 0.766497,
+      "TE": -3.576923,
+      "WR": -4.565401
+    },
+    "offboard_cells": [
+      [
+        "r1-4",
+        "RB"
+      ],
+      [
+        "r9-12",
+        "RB"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "WR"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "WR"
+      ],
+      [
+        "r13-16",
+        "WR"
+      ],
+      [
+        "r13-16",
+        "QB"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "RB"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "DEF"
+      ],
+      [
+        "r13-16",
+        "K"
+      ],
+      [
+        "r13-16",
+        "K"
+      ]
+    ],
+    "offboard_per_draft": [
+      4,
+      2,
+      7,
+      4,
+      1
+    ],
+    "pick_mu": {
+      "DEF": 105.657895,
+      "K": 107.411765
+    },
+    "pick_sd": {
+      "DEF": 10.008618,
+      "K": 12.424164
+    },
+    "pooled": [
+      "TE/r1-4 n=9",
+      "TE/r13-16 n=10",
+      "QB/r1-4 n=9",
+      "K/r1-4 n=0",
+      "K/r5-8 n=0",
+      "DEF/r1-4 n=0",
+      "DEF/r5-8 n=1"
+    ],
+    "round_sigma": {
+      "r1-4": 7.064908,
+      "r13-16": 23.834147,
+      "r5-8": 13.523227,
+      "r9-12": 22.786994
+    },
+    "scheduled": [
+      "DEF",
+      "K"
+    ],
+    "season_sigma": {
+      "2021": 21.875689,
+      "2022": 16.909868,
+      "2023": 14.540207,
+      "2024": 17.537365,
+      "2025": 19.557514
+    },
+    "season_sigma_mean": 18.084129,
+    "season_sigma_tau": 0.121699,
+    "seasons": [
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "second_specialist_p": {
+      "DEF": 0.05,
+      "K": 0.025
+    },
+    "sigma": {
+      "DEF": {
+        "r1-4": 24.462759,
+        "r13-16": 17.300305,
+        "r5-8": 24.462759,
+        "r9-12": 13.849777
+      },
+      "K": {
+        "r1-4": 20.632662,
+        "r13-16": 23.06365,
+        "r5-8": 20.632662,
+        "r9-12": 10.673198
+      },
+      "QB": {
+        "r1-4": 14.500236,
+        "r13-16": 12.555184,
+        "r5-8": 11.101878,
+        "r9-12": 19.182023
+      },
+      "RB": {
+        "r1-4": 7.24496,
+        "r13-16": 32.905015,
+        "r5-8": 11.832679,
+        "r9-12": 21.801734
+      },
+      "TE": {
+        "r1-4": 17.824299,
+        "r13-16": 17.824299,
+        "r5-8": 14.723298,
+        "r9-12": 19.119684
+      },
+      "WR": {
+        "r1-4": 6.784933,
+        "r13-16": 24.625754,
+        "r5-8": 11.891549,
+        "r9-12": 18.485118
+      }
+    },
+    "supply_avail": {
+      "DEF": 11,
+      "QB": 83,
+      "RB": 228,
+      "TE": 60,
+      "WR": 258
+    },
+    "supply_drafted": {
+      "DEF": 42,
+      "K": 41,
+      "QB": 65,
+      "RB": 200,
+      "TE": 52,
+      "WR": 240
+    },
+    "supply_ratio": {
+      "DEF": 3.818182,
+      "K": "inf",
+      "QB": 0.783133,
+      "RB": 0.877193,
+      "TE": 0.866667,
+      "WR": 0.930233
+    },
+    "total": 640
+  },
+  "fit_seasons": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "generated_at": "2026-09-07T04:38:30",
+  "league": "espn_davis_drive",
+  "leak_decomposition": {
+    "machinery_bot_in_seat": -4.53,
+    "reading": "machinery at chance; the shuffle arm keeps audible's structure and only loses its value ordering, which is why it beats bots that draft a second unstartable QB",
+    "structure_shuffle_minus_bot": 47.407,
+    "total_real": 146.405,
+    "value_ordering_real_minus_shuffle": 103.527
+  },
+  "outcome_measure": "points-for under weekly optimal lineups",
+  "pins": {
+    "espn_draft_6012_2021.json": {
+      "bytes": "8595",
+      "root": "live",
+      "sha256": "6fbb4934590058196bfe9c873f34f83d261c66693ec348710b303475c5074323"
+    },
+    "espn_draft_6012_2022.json": {
+      "bytes": "8612",
+      "root": "live",
+      "sha256": "7299779c765128a6c3c4107f966a19bb2f62717c3c9b2e02d599122e551222cc"
+    },
+    "espn_draft_6012_2023.json": {
+      "bytes": "8619",
+      "root": "live",
+      "sha256": "530dbbaea3430d9ebb712c78541838812faf158211ef39e8ce9a4044535e2fce"
+    },
+    "espn_draft_6012_2024.json": {
+      "bytes": "8630",
+      "root": "live",
+      "sha256": "1aa7203cfc99c06e1f9fbbb7d3fdac79da0df8620541377b984dc666aa72bdc1"
+    },
+    "espn_draft_6012_2025.json": {
+      "bytes": "8633",
+      "root": "live",
+      "sha256": "92cc92355e230c6f468bfe272e78e8791010eeaf709eec32a3faa56ddca2a7a1"
+    },
+    "ffc_adp_standard_8_2021.json": {
+      "bytes": "42520",
+      "root": "live",
+      "sha256": "bc4f223086af4ede30bb4201bbcd5b5625cac6e10f5dcc3a226ad06c5c35371e"
+    },
+    "ffc_adp_standard_8_2022.json": {
+      "bytes": "36974",
+      "root": "live",
+      "sha256": "41d83d28fddefc66e78b5d07b6b4f1c18f6057a870c962d35221b5c73919f0a0"
+    },
+    "ffc_adp_standard_8_2023.json": {
+      "bytes": "36300",
+      "root": "live",
+      "sha256": "373e6b9181782b4922052c6dba0a57de07155b85629e3c0a819ba1b5112dd051"
+    },
+    "ffc_adp_standard_8_2024.json": {
+      "bytes": "33895",
+      "root": "live",
+      "sha256": "40b484d6589e88cafb3eb5341e32599d0c05e6e250c68c70461ef54bf2853965"
+    },
+    "ffc_adp_standard_8_2025.json": {
+      "bytes": "41792",
+      "root": "live",
+      "sha256": "7f8def1f2723e2dbbb63af6134be4eb8806902d65fa56a806e874906fbce2235"
+    },
+    "leagues/espn_davis_drive.toml": {
+      "bytes": "5413",
+      "root": "repo",
+      "sha256": "3332d32290a5d38218bf7214165f3b6a3636edc4a0897aad6833d183753629b6"
+    },
+    "nflverse/ff_playerids.parquet": {
+      "bytes": "980435",
+      "root": "live",
+      "sha256": "cb6e3a53f4e645073fc382b08e767c1dc0bdd35829ffdeffcf7e7a9013d485a7"
+    },
+    "nflverse/player_stats_2021.parquet": {
+      "bytes": "652541",
+      "root": "sim",
+      "sha256": "e264feb54380794f98b33da62d4eb62ec34d33e7c324ec0b293edd0c504fe6c8"
+    },
+    "nflverse/player_stats_2022.parquet": {
+      "bytes": "653799",
+      "root": "sim",
+      "sha256": "b6a86865760bb11eb86bad0d3f51380a1d25287e74eaa2fae5c0ded99c21ba20"
+    },
+    "nflverse/player_stats_2023.parquet": {
+      "bytes": "653537",
+      "root": "sim",
+      "sha256": "dc712abfb4f650be151ae11d3cc3aeb896b9c4cc2c9cf74a236604930c96ba51"
+    },
+    "nflverse/player_stats_2024.parquet": {
+      "bytes": "655058",
+      "root": "sim",
+      "sha256": "9f828ff37574728e7c1815f9283d98401d436820e4c648cd985509149023b9c3"
+    },
+    "nflverse/player_stats_2025.parquet": {
+      "bytes": "659683",
+      "root": "sim",
+      "sha256": "782c689a762e93508b9b6e11f1f9002bc7cde12aa0bfb0a6058aa00896bb9ae9"
+    },
+    "nflverse/teams.parquet": {
+      "bytes": "12024",
+      "root": "live",
+      "sha256": "1d1d105ff0b0fca8806bfa047c96ef001d150c0bcbba481db5babbafa1f36636"
+    }
+  },
+  "real_minus_shuffle": {
+    "hi": 126.99,
+    "lo": 80.065,
+    "mean": 103.527,
+    "n": 300
+  },
+  "require_shuffle_at_chance": false,
+  "run": "b2-default",
+  "schema_version": 1,
+  "seasons": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "seat": 6,
+  "seed_count": 60,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59
+  ],
+  "shuffle": {
+    "advantage": 42.88,
+    "at_chance": false,
+    "hi": 60.13,
+    "lo": 25.63,
+    "n": 300,
+    "reading": "SHUFFLE IS WINNING -- assume a leak until this is explained"
+  },
+  "slots_scored": "7 of 9 (K and DEF have no scoreable rows)",
+  "timing": {
+    "wall_s": 48.81
+  },
+  "units": 900
+}

@@ -993,7 +993,7 @@ def simulate_draft(
     deadline: bool = True,
     refinements: bool = True,
     check_leakage: bool = True,
-    chooser: Callable[[int, Sequence[int], Sequence[BoardRow]], int] | None = None,
+    chooser: Callable[..., int] | None = None,
     chooser_seat: int | None = None,
     observer: Callable[[SimPick, int], None] | None = None,
 ) -> tuple[SimPick, ...]:
@@ -1211,7 +1211,7 @@ def simulate_draft(
         # It yields to the deadline: a seat one pick from being unable to field a lineup
         # takes the slot it owes, exactly as it would with the plan absent.
         if chooser is not None and seat == chooser_seat:
-            picked = chooser(overall, taken, rows)
+            picked = chooser(overall, taken, rows, remaining=remaining, unfilled=unfilled)
             if picked is not None and picked >= 0 and not taken[picked]:
                 taken[picked] = 1
                 row = rows[picked]

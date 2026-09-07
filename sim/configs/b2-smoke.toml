@@ -1,0 +1,23 @@
+# A small run, for the gates and for a first look. Two seasons, fifty seeds, three arms.
+# Every parameter the run uses is here; the runner takes nothing from anywhere else.
+[run]
+name = "b2-smoke"
+seasons = [2023, 2024]
+seed_start = 0
+# Fifty. Eight was not enough for this config to pass its own G6b gate -- `real - shuffle`
+# read +32 [-82, +147] and included zero, which is exactly what the gate is for. A smoke
+# config that cannot resolve the gate it runs is not a smoke test, it is a coin flip. Three
+# arms x two seasons x fifty seeds = 300 units, about 45 seconds.
+seed_count = 50
+arms = ["real", "shuffle", "bot"]
+# Seat 6 of 8. Green Hope's live seat, derived from draftSettings.pickOrder, and the seat that
+# matters on Tuesday. A mid-board seat also has a wheel and neighbours on both sides.
+seat = 6
+# 6012's rulebook is the one the historical seasons were actually played under. sim/weekly.py
+# applies HISTORICAL_DELTAS on top, because 6012 paid zero per reception in 2021-2025 and the
+# committed TOML's 0.5 describes 2026.
+league = "espn_davis_drive"
+# Seasons the OPPONENT MODEL is fitted from. All five: the room is validated on all five and
+# a run that drafts 2024 still wants the fit that was gated. B3's walk-forward split is what
+# changes this, and it changes it here rather than in code.
+fit_seasons = [2021, 2022, 2023, 2024, 2025]
