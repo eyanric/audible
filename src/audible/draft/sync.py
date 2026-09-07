@@ -24,6 +24,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..config.schema import LeagueConfig, Platform
 from .identity import (
+    SOURCE_CONFIG_PIN,
     SOURCE_OVERRIDE,
     SOURCE_PICK_ORDER,
     SOURCE_UNRESOLVED,
@@ -74,6 +75,7 @@ class SleeperSync:
         config: LeagueConfig,
         *,
         slot_override: int | None = None,
+        slot_fallback: int | None = None,
         user_name: str | None = None,
         adapter: Any | None = None,
     ) -> None:
@@ -81,7 +83,11 @@ class SleeperSync:
 
         self._config = config
         self._adapter = adapter if adapter is not None else SleeperAdapter()
+        # Two tiers, not one. `slot_override` is an operator's --slot and still outranks the
+        # platform; `slot_fallback` is the league's draft_slot and is used ONLY when the
+        # derivation returns nothing. See identity.resolve_slot.
         self._slot_override = slot_override
+        self._slot_fallback = slot_fallback
         self._user_name = user_name
         self._user_id: str | None = None
 
@@ -105,7 +111,10 @@ class SleeperSync:
                 self._adapter.get_users(self._config.league_id), self._user_name
             )
         rosters = self._adapter.get_rosters(self._config.league_id) if self._user_id else []
-        return resolve_slot(draft, rosters, self._user_id, override=self._slot_override)
+        return resolve_slot(
+            draft, rosters, self._user_id,
+            override=self._slot_override, fallback=self._slot_fallback,
+        )
 
     def poll(self, draft_id: str | None, *, want_meta: bool, slot_locked: bool) -> DraftUpdate:
         if draft_id is None:
@@ -338,6 +347,7 @@ class EspnSync:
         config: LeagueConfig,
         *,
         slot_override: int | None = None,
+        slot_fallback: int | None = None,
         adapter: Any | None = None,
         bridge: EspnIdBridge | None = None,
     ) -> None:
@@ -346,6 +356,7 @@ class EspnSync:
         self._config = config
         self._adapter = adapter if adapter is not None else EspnAdapter.for_league(config)
         self._slot_override = slot_override
+        self._slot_fallback = slot_fallback
         self._bridge = bridge if bridge is not None else EspnIdBridge(
             adapter=self._adapter, config=config
         )
@@ -371,20 +382,27 @@ class EspnSync:
         # the only configuration that needs guarding.
         team_id = espn_my_team_id(payload.get("teams") or [], self._adapter.swid)
         derived = slot_by_team.get(team_id) if team_id is not None else None
+        pinned = (
+            self._slot_override if self._slot_override is not None else self._slot_fallback
+        )
+        uid = str(team_id) if team_id is not None else None
 
+        # PRECEDENCE, and it inverted on 2026-09-07: an operator's --slot still wins, but the
+        # LIVE pick order now beats the config pin. See `resolve_slot` for why. ESPN re-reads
+        # `draftSettings.pickOrder` every poll, so a commissioner who reshuffles mid-week is
+        # now followed rather than argued with.
         if self._slot_override is not None:
-            return Identity(
-                str(team_id) if team_id is not None else None,
-                team_id,
-                self._slot_override,
-                SOURCE_OVERRIDE,
-                derived_slot=derived,
-            )
+            return Identity(uid, team_id, self._slot_override, SOURCE_OVERRIDE,
+                            derived_slot=derived, pinned_slot=pinned)
+        if derived is not None:
+            return Identity(uid, team_id, derived, SOURCE_PICK_ORDER,
+                            derived_slot=derived, pinned_slot=pinned)
+        if self._slot_fallback is not None:
+            return Identity(uid, team_id, self._slot_fallback, SOURCE_CONFIG_PIN,
+                            derived_slot=derived, pinned_slot=pinned)
         if team_id is None:
             return Identity(None, None, None, SOURCE_UNRESOLVED)
-        if derived is None:
-            return Identity(str(team_id), team_id, None, SOURCE_UNRESOLVED)
-        return Identity(str(team_id), team_id, derived, SOURCE_PICK_ORDER, derived_slot=derived)
+        return Identity(uid, team_id, None, SOURCE_UNRESOLVED)
 
     def poll(self, draft_id: str | None, *, want_meta: bool, slot_locked: bool) -> DraftUpdate:
         # want_meta and slot_locked are ignored on purpose: one request already carries state,
@@ -414,11 +432,16 @@ class EspnSync:
 
 
 def build_sync(
-    config: LeagueConfig, *, slot_override: int | None = None, user_name: str | None = None
+    config: LeagueConfig,
+    *,
+    slot_override: int | None = None,
+    slot_fallback: int | None = None,
+    user_name: str | None = None,
 ) -> DraftSync:
     """The draft sync for *config*'s platform."""
     if config.platform is Platform.SLEEPER:
-        return SleeperSync(config, slot_override=slot_override, user_name=user_name)
+        return SleeperSync(config, slot_override=slot_override,
+                           slot_fallback=slot_fallback, user_name=user_name)
     if config.platform is Platform.ESPN:
-        return EspnSync(config, slot_override=slot_override)
+        return EspnSync(config, slot_override=slot_override, slot_fallback=slot_fallback)
     raise ValueError(f"no draft sync for platform {config.platform!r}")

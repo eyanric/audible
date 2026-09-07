@@ -85,7 +85,13 @@ def test_a_nonsense_seat_is_rejected_by_the_schema(espn_config: LeagueConfig, ba
 # my_slot: unresolved and drop every timing term out of `recommend`. The suite
 # had no opinion about the one line the whole fix depends on.
 #
-# These two kill that mutant. They drive the real `serve()` and capture what it
+# THAT LINE IS GONE as of 2026-09-07, and the reason is worth recording: collapsing
+# --slot and config.draft_slot into ONE argument is what made a config value
+# outrank a live one. serve() now hands over two channels -- slot_override for the
+# operator's flag, slot_fallback for the league config -- and these tests gate the
+# routing, not just the value. See identity.resolve_slot for the precedence.
+#
+# These two kill both mutants. They drive the real `serve()` and capture what it
 # hands the service, with uvicorn and the app factory stubbed so nothing binds a
 # port or touches the network.
 
@@ -95,11 +101,13 @@ class _CapturedService:
 
     last: dict = {}
 
-    def __init__(self, config, *, draft_id=None, slot_override=None, user_name=None):
+    def __init__(self, config, *, draft_id=None, slot_override=None,
+                 slot_fallback=None, user_name=None):
         type(self).last = {
             "config": config,
             "draft_id": draft_id,
             "slot_override": slot_override,
+            "slot_fallback": slot_fallback,
             "user_name": user_name,
         }
 
@@ -118,16 +126,34 @@ def _drive_serve(monkeypatch, config, **kwargs) -> dict:
     return _CapturedService.last
 
 
-def test_serve_pins_the_seat_from_config_when_no_slot_flag(monkeypatch, espn_config) -> None:
-    """The cluster passes no --slot. This is the line that saves it."""
+def test_serve_carries_the_config_seat_as_a_FALLBACK_not_an_override(
+    monkeypatch, espn_config
+) -> None:
+    """The cluster passes no --slot. This is still the line that saves it -- but it must
+    land in the fallback channel, because a config seat must not outrank a live one.
+
+    Kills BOTH mutants now. `seat = slot` (dropping the config seat entirely) leaves
+    slot_fallback None. Routing it back into slot_override -- what serve() did until
+    2026-09-07 -- makes the config beat the platform, which is how Green Hope served seat 1
+    for hours after the commissioner moved it to 6.
+    """
     captured = _drive_serve(monkeypatch, espn_config)
-    assert captured["slot_override"] == ERIC_SEAT, (
+    assert captured["slot_fallback"] == ERIC_SEAT, (
         "serve() did not read draft_slot from the league config -- the deployed "
         "cockpit would report my_slot: unresolved and drop every timing term"
+    )
+    assert captured["slot_override"] is None, (
+        "serve() routed the CONFIG seat into the operator override channel; a config "
+        "value would then beat the live pick order, which is the 2026-09-07 defect"
     )
 
 
 def test_an_explicit_slot_flag_still_beats_the_config_pin(monkeypatch, espn_config) -> None:
-    """The pin is a fallback, not an override of the operator."""
+    """The pin is a fallback, not an override of the operator.
+
+    Both channels are handed over: the flag as the override that wins, the config seat as
+    the fallback that is still there if the operator's seat and the platform both vanish.
+    """
     captured = _drive_serve(monkeypatch, espn_config, slot=3)
     assert captured["slot_override"] == 3
+    assert captured["slot_fallback"] == ERIC_SEAT

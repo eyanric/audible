@@ -20,9 +20,16 @@ from dataclasses import dataclass
 from typing import Any
 
 # Where a resolved slot came from, so the UI can be honest about how much to trust it.
+#
+# THREE HUMAN-VISIBLE STATES, and they are three because two could not be told apart. Until
+# 2026-09-07 a config pin and an operator's `--slot` both reported "override", so the served
+# value could not say whether the live answer had been DELIBERATELY overridden or was merely
+# ABSENT. That is the same defect #64 fixed in `verify-scoring`: a value you cannot trace to
+# its source is not a value you can act on.
 SOURCE_DRAFT_ORDER = "draft_order"  # Sleeper, authoritative once the draft opens
 SOURCE_PICK_ORDER = "pick_order"  # ESPN draftSettings.pickOrder, re-read every poll
-SOURCE_OVERRIDE = "override"
+SOURCE_OVERRIDE = "override"  # an operator's explicit --slot; deliberately beats the platform
+SOURCE_CONFIG_PIN = "config_pin"  # the league's draft_slot, CARRIED because nothing derived
 SOURCE_UNRESOLVED = "unresolved"
 
 
@@ -41,6 +48,13 @@ class Identity:
     # them. None means the platform could not say (no SWID match, no pick order yet), which
     # is NOT a disagreement -- silence never contradicts a pin.
     derived_slot: int | None = None
+    # The human-supplied seat that was available this poll -- an operator's `--slot` or the
+    # league's `draft_slot`, whichever was in play. Kept BESIDE the decision for the same
+    # reason `derived_slot` is: once the live derivation started winning, `slot` stopped being
+    # the pin, so comparing `slot` against the platform would have compared the platform with
+    # itself and made the disagreement unrepresentable all over again -- in the other
+    # direction. None means nothing was pinned at all.
+    pinned_slot: int | None = None
 
     @property
     def resolved(self) -> bool:
@@ -48,12 +62,18 @@ class Identity:
 
     @property
     def seat_conflict(self) -> bool:
-        """The pin and the platform both answered, and they disagree."""
+        """A human-supplied seat and the platform both answered, and they disagree.
+
+        Deliberately independent of which one WON. A pin that loses to the live derivation is
+        still a pin that is wrong, and the operator still has to know: on 2026-09-07 the Green
+        Hope commissioner re-drew the pick order, and the config kept saying 1 while ESPN said
+        6. Reporting only when the pin wins would report only the case where nothing needs
+        deciding.
+        """
         return (
-            self.source == SOURCE_OVERRIDE
+            self.pinned_slot is not None
             and self.derived_slot is not None
-            and self.slot is not None
-            and self.derived_slot != self.slot
+            and self.pinned_slot != self.derived_slot
         )
 
 
@@ -84,12 +104,26 @@ def resolve_slot(
     user_id: str | None,
     *,
     override: int | None = None,
+    fallback: int | None = None,
 ) -> Identity:
     """Work out which draft slot is mine.
 
-    An explicit *override* always wins -- it is how rehearsal against someone else's completed
-    draft works. Otherwise the slot comes from ``draft_order``, and only from ``draft_order``:
-    if it is absent the answer is "unresolved", never a guess off the placeholder map.
+    THREE TIERS, and the middle one moved on 2026-09-07:
+
+    1. an explicit *override* -- an operator's ``--slot``. Still wins outright: it is how
+       rehearsal against someone else's completed draft works, and an operator who types a
+       seat has said something the tool has no business second-guessing.
+    2. the LIVE derivation from ``draft_order``.
+    3. *fallback* -- the league config's ``draft_slot``.
+
+    Tier 3 used to be tier 1, and that was the defect. ``schema.py`` documents the pin as the
+    thing that keeps the timing term alive when sync cannot answer -- a FALLBACK -- but it was
+    wired to outrank the platform, so a config value beat a live one. Green Hope proved the
+    cost: the commissioner re-drew the pick order, ESPN said seat 6, the config said 1, and
+    the cockpit served 1 for hours while logging the disagreement it was ignoring.
+
+    A fallback that beats a live answer is not a fallback. Silence still never contradicts a
+    pin -- when the derivation returns None the pin is carried, which is its actual job.
     """
     roster_id = roster_id_for_user(rosters, user_id) if user_id else None
 
@@ -99,11 +133,17 @@ def resolve_slot(
     order = draft.get("draft_order") or {}
     raw = order.get(user_id) if user_id else None
     derived = int(raw) if raw is not None else None
+    pinned = override if override is not None else fallback
 
     if override is not None:
-        return Identity(user_id, roster_id, override, SOURCE_OVERRIDE, derived_slot=derived)
+        return Identity(user_id, roster_id, override, SOURCE_OVERRIDE,
+                        derived_slot=derived, pinned_slot=pinned)
     if derived is not None:
-        return Identity(user_id, roster_id, derived, SOURCE_DRAFT_ORDER, derived_slot=derived)
+        return Identity(user_id, roster_id, derived, SOURCE_DRAFT_ORDER,
+                        derived_slot=derived, pinned_slot=pinned)
+    if fallback is not None:
+        return Identity(user_id, roster_id, fallback, SOURCE_CONFIG_PIN,
+                        derived_slot=derived, pinned_slot=pinned)
     return Identity(user_id, roster_id, None, SOURCE_UNRESOLVED)
 
 

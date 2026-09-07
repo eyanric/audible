@@ -28,7 +28,7 @@ from typing import Any
 from ..adapters.cache import DEFAULT_CACHE_DIR
 from ..config.schema import LeagueConfig
 from .board import DraftBoard, build_board
-from .identity import SOURCE_DRAFT_ORDER, SOURCE_UNRESOLVED
+from .identity import SOURCE_DRAFT_ORDER, SOURCE_OVERRIDE, SOURCE_UNRESOLVED
 from .live import LiveView, Pick, compute_view, my_slot_on_clock
 from .sync import DraftSync, DraftUpdate, build_sync
 from .usage import UsageTable, load_usage
@@ -236,6 +236,7 @@ class CockpitService:
         *,
         draft_id: str | None = None,
         slot_override: int | None = None,
+        slot_fallback: int | None = None,
         user_name: str | None = None,
         state_dir: Path | None = None,
         poll_interval_s: float = POLL_INTERVAL_S,
@@ -243,7 +244,11 @@ class CockpitService:
         sync: DraftSync | None = None,
     ) -> None:
         self.config = config
+        # `slot_override` is an operator's --slot and outranks the platform. `slot_fallback`
+        # is the league's draft_slot, carried ONLY when the derivation says nothing. They were
+        # one parameter until 2026-09-07, which is how a config pin came to beat a live seat.
         self._slot_override = slot_override
+        self._slot_fallback = slot_fallback
         self._user_name = user_name
         self._poll_interval_s = poll_interval_s
         self._top = top
@@ -364,10 +369,19 @@ class CockpitService:
             # branch was unreachable on every league that pins a seat. `derived_slot` is what
             # the platform said independently, so the two can now actually differ.
             if update.identity.seat_conflict:
+                # Says WHICH ONE WON, because the answer changed on 2026-09-07 and an operator
+                # reading this log has to know whether the tool corrected itself or is still
+                # serving the stale number.
+                winner = (
+                    "the pin is winning -- an explicit --slot outranks the platform"
+                    if update.identity.source == SOURCE_OVERRIDE else
+                    "the platform is winning; the config pin is stale and should be corrected"
+                )
                 log.error(
-                    "SEAT DRIFT: pinned slot %s but the platform says %s. The pin is winning; "
-                    "verify the draft room before trusting any timing number.",
-                    update.identity.slot, update.identity.derived_slot,
+                    "SEAT DRIFT: pinned slot %s but the platform says %s. Serving %s (%s) -- "
+                    "%s. Verify the draft room before trusting any timing number.",
+                    update.identity.pinned_slot, update.identity.derived_slot,
+                    update.identity.slot, update.identity.source, winner,
                 )
             session.user_id = update.identity.user_id
             session.roster_id = update.identity.roster_id
@@ -458,7 +472,8 @@ class CockpitService:
             raise RuntimeError("poll loop already started")  # one loop, exactly one
         if self._sync is None:
             self._sync = build_sync(
-                self.config, slot_override=self._slot_override, user_name=self._user_name
+                self.config, slot_override=self._slot_override,
+                slot_fallback=self._slot_fallback, user_name=self._user_name,
             )
         self._thread = threading.Thread(target=self._run, name="audible-poll", daemon=True)
         self._thread.start()
