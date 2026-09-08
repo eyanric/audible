@@ -212,7 +212,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from . import LIVE_CACHE, SIM_CACHE
+from . import LIVE_CACHE, SIM_CACHE, markets
 from .adp_join import DEF_POSITIONS, normalize
 
 SEASONS: tuple[int, ...] = (2021, 2022, 2023, 2024, 2025)
@@ -230,6 +230,14 @@ PICKS: int = TEAMS * ROUNDS
 # `meta.teams` reads 12 in all five pinned files whose names say 8. Named, because the round
 # rescaling in the docstring depends on it and a silent change would move every offset.
 ADP_TEAMS: int = 12
+
+# The key space for a draftable board row: `ffc0001` is board row 1, whatever market the
+# board came from. The literal is HISTORICAL and deliberately not renamed. It is written into
+# every committed artifact and every checkpoint, so renaming it would invalidate every run
+# this repo has recorded while changing no behaviour. Named here so the inline copies in
+# `boards.py` and `seat.py` have something to point at, and so a reader of an MFL artifact
+# does not read `ffc` as provenance -- provenance is on the board, not in the id.
+DRAFTABLE_PREFIX: str = "ffc"
 
 # Starting slots, from both ESPN league configs, and identical in the two. There is no "need
 # shift" in this module; these drive two things only -- whether a seat still OWES a scheduled
@@ -272,7 +280,9 @@ MIN_CELL: int = 12
 
 # Sources allowed to reach a board. The allowlist IS the leakage gate (G5): anything derived
 # from a completed season is absent by construction rather than by review.
-PRE_DRAFT_SOURCES: frozenset[str] = frozenset({"ffc_adp", "ff_playerids", "espn_ranks"})
+PRE_DRAFT_SOURCES: frozenset[str] = frozenset(
+    {"ffc_adp", "ff_playerids", "espn_ranks", "mfl_adp"}
+)
 
 # A position is drafted off the BOARD while the board supplies at least as many of it as the
 # room takes, and on a SCHEDULE once the room takes MORE of it than the board's first 128
@@ -297,6 +307,21 @@ PRE_DRAFT_SOURCES: frozenset[str] = frozenset({"ffc_adp", "ff_playerids", "espn_
 # nothing is conditioned on, and 1.0 is a meaning rather than a threshold. The correlations
 # are still computed and still reported, as diagnostics, with that caveat attached.
 SUPPLY_RATIO_CUT: float = 1.0
+
+# THE SCHEDULED SET B1 VALIDATED. `fit_room` derives the scheduled set per market from the
+# supply ratio; this is what that derivation produced on the market B1 was gated against, and
+# `runner.gate_failures` refuses an artifact whose derived set is wider.
+#
+# It is not a duplicate of the derivation, it is the ACCEPTANCE CRITERION for it. B8 measured a
+# market -- MFL at eight teams -- where RB (1.047) and WR (1.111) cross the cut, which puts the
+# two deepest skill positions on the schedule and takes them off the board `_best` picks from.
+# The room still runs; it just is not the room any earlier result was measured in.
+#
+# It also exposes what the cut's own comment claims is not true of it. That comment argues 1.0
+# "is a meaning rather than a threshold" on a factor of 2.25 of clearance -- and that clearance
+# is an FFC fact. At 1.047 the cut is doing real work, and a market that lands there needs the
+# question reopened rather than the number read.
+B1_SCHEDULED: frozenset[str] = frozenset({"DEF", "K"})
 
 def kickoff(season: int) -> date:
     """The season's first regular-season game: the Thursday after Labor Day.
@@ -383,12 +408,21 @@ class SeasonBoard:
 
 
 def load_board(season: int) -> SeasonBoard:
-    """The FFC ADP board for *season*, ranked by ADP.
+    """The ACTIVE MARKET's ADP board for *season*, ranked by ADP.
 
-    Rank is derived from a sort rather than read off the file. FFC ships the list in ADP
-    order already, but a rank that comes from the sort cannot silently disagree with the ADP
-    it is meant to summarise.
+    Rank is derived from a sort rather than read off the file, whichever market it is. Both
+    sources ship their lists in order already, but a rank that comes from the sort cannot
+    silently disagree with the number it is meant to summarise.
+
+    THE MARKET IS A MODULE-LEVEL SELECTION RATHER THAN A PARAMETER, and that is a deliberate
+    trade. `fit_room` calls this function itself, and there are forty-odd call sites across
+    `sim/`; threading a market through all of them would touch far more code than the global
+    does, for a value that is constant for the length of a run. `markets.use()` scopes it for a
+    test and restores it on the way out. See `sim/markets.py`.
     """
+    market = markets.active()
+    if market.source == markets.MFL:
+        return _load_mfl_board(season, market)
     path, root = resolve_input(f"ffc_adp_standard_8_{season}.json")
     blob = json.loads(path.read_text(encoding="utf-8"))
     meta = blob.get("meta") or {}
@@ -408,6 +442,43 @@ def load_board(season: int) -> SeasonBoard:
     end = str(meta.get("end_date") or "")
     asof = date.fromisoformat(end) if end else date(season, 12, 31)
     return SeasonBoard(season=season, rows=rows, provenance=("ffc_adp",), asof=asof, roots=(root,))
+
+
+def _load_mfl_board(season: int, market: markets.Market) -> SeasonBoard:
+    """One season's MFL board, in the same `BoardRow` shape every arm already reads.
+
+    `asof` IS A LOWER BOUND AND NOT A MEASUREMENT. FFC publishes `meta.end_date` and the FFC
+    branch above reads it; MFL publishes no window end at all, and its `timestamp` field is
+    when the response was generated -- it reads as today on a 2019 request. So `PERIOD=AUG15`
+    gives 15 August as a window START, which is what `assert_pre_draft` is handed, and the
+    pre-draft property is carried by a CONTENT check instead: `sim/test_g_b8.py` looks for the
+    following year's draft class on each season's board, which is the same evidence the FFA
+    vintage gate uses. Leagues drafting after kickoff would sit inside this window; redraft
+    leagues overwhelmingly draft in August, and that bound is an argument rather than a
+    measurement, which is why the content check is the one that gates.
+    """
+    from .mfl import MflParams, board_rows
+
+    params = MflParams(**market.params)
+    draftable = frozenset(p for slot in STARTING_SLOTS for p in SLOT_ELIGIBILITY[slot])
+    rows = tuple(board_rows(season, params, draftable))
+    if len(rows) < PICKS:
+        raise ValueError(
+            f"{market.name} {season}: the board holds {len(rows)} draftable players and a "
+            f"{TEAMS}x{ROUNDS} draft takes {PICKS}. A room that runs out of board is not a room."
+        )
+    # BOTH FILES, because the board is built from both. `board_rows` reads the ADP pin and the
+    # player catalogue through two independent `resolve_input` calls, and reporting only the
+    # first would let a board half-read from the live root claim it came from sim's -- which is
+    # the one thing `resolve_input`'s own docstring says must never happen.
+    roots = tuple(sorted({resolve_input(name)[1] for name in market.pins(season)}))
+    return SeasonBoard(
+        season=season,
+        rows=rows,
+        provenance=(market.provenance,),
+        asof=market.asof(season),
+        roots=roots,
+    )
 
 
 def assert_pre_draft(board: SeasonBoard) -> None:

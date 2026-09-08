@@ -153,7 +153,24 @@ REG_WEEKS: tuple[int, ...] = tuple(range(1, 19))
 # August fantasy draft.
 # Everything else must name a season strictly earlier than the one being projected.
 SEASONLESS_SOURCES: frozenset[str] = frozenset({"ff_playerids"})
-SAME_SEASON_SOURCES: tuple[str, ...] = ("ffc_adp_standard_8_",)
+def same_season_sources() -> tuple[str, ...]:
+    """Source prefixes a line may carry FOR ITS OWN SEASON: the active market's board.
+
+    A FUNCTION RATHER THAN A CONSTANT, because the constant was the FFC filename and the two
+    places that stamp provenance also wrote the FFC filename -- on an MFL run the gate then
+    compared a literal against itself and could not fail. It now names the file that was
+    actually read.
+    """
+    from . import markets
+
+    return (markets.active().board_source_prefix(),)
+
+
+def _board_source(season: int) -> str:
+    """The provenance string for the ACTIVE market's board in *season*."""
+    from . import markets
+
+    return markets.active().board_source(season)
 
 
 class LeakError(ValueError):
@@ -175,7 +192,7 @@ def assert_pre_draft(lines: SeasonLines) -> None:
     for name in lines.provenance:
         if name in SEASONLESS_SOURCES:
             continue
-        if any(name.startswith(prefix) for prefix in SAME_SEASON_SOURCES):
+        if any(name.startswith(prefix) for prefix in same_season_sources()):
             if not name.endswith(str(lines.season)):
                 raise LeakError(
                     f"{name} is a same-season source for a board of {lines.season} but names "
@@ -708,7 +725,7 @@ def project(season: int, config: Any) -> SeasonLines:
 
     role_seasons = tuple(s for s in priors if fit[s].role)
     provenance = tuple(
-        [f"ffc_adp_standard_8_{season}"]
+        [_board_source(season)]
         + [f"player_stats_{s}" for s in priors]
         + [f"ff_opportunity_{s}" for s in role_seasons]
         + ["ff_playerids"]
@@ -806,5 +823,5 @@ def actual_lines(season: int, config: Any, *, per_game: bool = True) -> SeasonLi
     return SeasonLines(
         season=season, lines=tuple(lines), fit_seasons=(season,), role_seasons=(),
         matched=matched, rookies=0, unmatched=unmatched, pool=0,
-        provenance=(f"player_stats_{season}", f"ffc_adp_standard_8_{season}"),
+        provenance=(f"player_stats_{season}", _board_source(season)),
     )

@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import room
+from . import markets, room
 from .adp_join import DEF_POSITIONS, normalize
 
 FFA_DIR: Path = Path(__file__).resolve().parent / "data" / "ffa"
@@ -604,7 +604,7 @@ def build(
         provenance=(
             RAW_FILE.format(season=season),
             PROJ_FILE.format(season=season),
-            f"ffc_adp_standard_8_{season}",
+            markets.active().board_source(season),
         ),
     )
 
