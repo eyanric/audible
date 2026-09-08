@@ -46,6 +46,73 @@ REPO = Path(__file__).resolve().parents[1]
 # reproducible rather than merely large.
 SEEDS = 50
 
+# WHAT EACH MARKET'S ROOM ACTUALLY IS. Every number here was MEASURED at SEEDS=50 by
+# `sim/room.py report()` and recorded; none of it is a target and none of it was chosen.
+#
+# THIS TABLE IS THE B9 DELIVERABLE. Until now this file validated whichever market happened to
+# be the module default, so "the room resembles a real one" was an FFC sentence that read like
+# a general one. Two of the three rooms do NOT resemble a real one, and that is recorded here
+# rather than skipped, because a gate that skips is a gate that does not exist.
+#
+# Recording the failures rather than asserting they are absent still catches a regression: the
+# in-sample fail set is asserted EQUAL, not merely non-empty, so a room that starts failing a
+# seventh statistic goes red and so does one that silently starts passing.
+ROOM_FACTS: dict[str, dict[str, object]] = {
+    "ffc_12_std": {
+        # The only market whose room passes B1. Every result this repo has published was
+        # measured here.
+        "resembles_real": True,
+        "in_sample_fails": frozenset(),
+        "held_out_covered": 28,
+        # FFC's top 128 by ADP holds NO KICKER IN ANY SEASON, so a strict-ADP room cannot take
+        # one: `first_k_round` is the ROUNDS+1 sentinel in all five.
+        "strict_adp_kdef": (4.0, 2.0, 1.0, 0.0, 4.0),
+        "strict_adp_undershoots": True,
+        "strict_adp_takes_a_kicker": False,
+        "wide_sigma_fails": frozenset(
+            {"first DEF round", "first K round", "first QB round", "pick-ADP spread",
+             "runs of 3+"}
+        ),
+    },
+    "mfl_12_std": {
+        # Fails on FIRST QB ROUND by 0.04 of a round -- synth 2.96 against a real range that
+        # starts at 3.0. A fail is a fail and it is recorded as one, but the size is worth
+        # knowing before anyone reads it as a broken room.
+        "resembles_real": False,
+        "in_sample_fails": frozenset({"first QB round"}),
+        "held_out_covered": 25,
+        "strict_adp_kdef": (7.0, 8.0, 4.0, 4.0, 7.0),
+        "strict_adp_undershoots": True,
+        "strict_adp_takes_a_kicker": True,
+        "wide_sigma_fails": frozenset(
+            {"first DEF round", "first K round", "first QB round", "pick-ADP spread"}
+        ),
+    },
+    "mfl_8_std": {
+        # Fails on PICK-ADP SPREAD: synth 20.3 against a real 23.2-26.8. The room
+        # under-disperses on an eight-team board. Note the direction: under B8's classifier
+        # this same statistic read 51.2 -- three times too WIDE -- so the classifier fix moved
+        # it from -87 sem to -29 sem and from three in-sample failures to one.
+        "resembles_real": False,
+        "in_sample_fails": frozenset({"pick-ADP spread"}),
+        "held_out_covered": 24,
+        # MFL's board carries kickers where FFC's does not, so a strict-ADP room takes 11-16
+        # specialists here against FFC's 0-4. That is the same fact as "FFC's top 128 holds no
+        # kicker", seen from the other side.
+        "strict_adp_kdef": (14.0, 16.0, 12.0, 11.0, 14.0),
+        # AND IT DOES NOT UNDERSHOOT HERE. 16 against a real floor of 16: an eight-team
+        # board already prices specialists about where an eight-team room takes them, so
+        # drafting strictly by ADP does not collapse them. The pick schedule exists to
+        # correct a board/room TEAM-COUNT MISMATCH, and this market does not have one.
+        "strict_adp_undershoots": False,
+        "strict_adp_takes_a_kicker": True,
+        "wide_sigma_fails": frozenset(
+            {"first DEF round", "first K round", "first QB round", "pick-ADP spread",
+             "runs of 3+"}
+        ),
+    },
+}
+
 
 def _require(name: str) -> Path:
     for root in (SIM_CACHE, LIVE_CACHE):
@@ -54,16 +121,46 @@ def _require(name: str) -> Path:
     pytest.skip(f"{name} is pinned in neither {SIM_CACHE} nor {LIVE_CACHE}")
 
 
+def _markets() -> tuple[str, ...]:
+    from . import markets as M
+
+    return tuple(sorted(M.REGISTRY))
+
+
+@pytest.fixture(scope="module", params=_markets())
+def market_name(request):
+    """EVERY DECLARED MARKET, one at a time, active for the whole module.
+
+    THIS IS THE POINT OF B9. Until now this file validated whatever market happened to be the
+    module default, which is FFC -- so every calibration downstream was an FFC fact wearing a
+    general one's clothes, and B8 shipped an MFL room whose bots could not draft a running back
+    without anything here going red.
+
+    The market is entered with `markets.use`, which restores on the way out, and the `yield`
+    sits inside that block so it stays active for every test in the parameterisation rather
+    than only while the fixture body runs. It is a SEPARATE fixture from `room` so that the
+    thirty-odd tests unpacking a five-tuple keep working untouched.
+    """
+    from . import markets as M
+
+    with M.use(request.param):
+        yield request.param
+
+
 @pytest.fixture(scope="module")
-def room():
-    """The fit and the boards, built once. Skips by name when an input is missing."""
+def room(market_name):
+    """The fit and the boards, built once per market. Skips by name when an input is missing."""
     pytest.importorskip("polars", reason="uv sync --extra nflverse")
+    from . import markets as M
     from . import room as R
 
     _require("nflverse/ff_playerids.parquet")
     _require("nflverse/teams.parquet")
     for season in R.SEASONS:
-        _require(f"ffc_adp_standard_8_{season}.json")
+        # THE MARKET NAMES ITS OWN PINS. Hardcoding the FFC filename here meant the fixture
+        # checked for a file the run might never open and never checked the board it fitted.
+        for pin in M.get(market_name).pins(season):
+            _require(pin)
         _require(f"espn_draft_{R.LEAGUE_ID}_{season}.json")
 
     fit = R.fit_room()
@@ -108,22 +205,51 @@ def test_control_every_real_pick_resolves_to_a_position_and_almost_all_join(room
     )
 
 
-def test_control_the_adp_files_are_twelve_team_whatever_their_name_says(room) -> None:
-    """The premise the whole two-clock finding rests on, checked rather than repeated."""
+def test_control_the_board_serves_the_team_count_the_market_declares(room, market_name) -> None:
+    """What team count the board is FOR, checked against what the market says it asked for.
+
+    THE FFC-ONLY FORM OF THIS TEST WAS THE PREMISE B8 EXISTED TO BREAK. It asserted
+    `meta.teams == R.ADP_TEAMS == 12` against a file named `..._8_...`, which is a true and
+    useful fact about FFC and says nothing at all about a market that is genuinely eight-team.
+    Read the count out of whatever the market serves instead, and require it to match what the
+    market's own parameters asked for.
+    """
     import json
 
+    from . import markets as M
+
     R, _fit, _boards, _real, _syn = room
+    market = M.get(market_name)
     for season in R.SEASONS:
-        path, _root = R.resolve_input(f"ffc_adp_standard_8_{season}.json")
-        meta = json.loads(path.read_text(encoding="utf-8"))["meta"]
-        assert meta["teams"] == R.ADP_TEAMS, (
-            f"{season} FFC file reports teams={meta['teams']}, not {R.ADP_TEAMS}. The "
-            f"specialist offset and the 8/12 corroboration both assume twelve."
-        )
+        path, _root = R.resolve_input(market.pins(season)[0])
+        blob = json.loads(path.read_text(encoding="utf-8"))
+        if market.source == M.FFC:
+            # FFC publishes the count and it is TWELVE whatever the filename says. That
+            # mismatch is the confound the second market exists to size, so it is asserted
+            # rather than tolerated.
+            assert blob["meta"]["teams"] == R.ADP_TEAMS, (
+                f"{season} FFC file reports teams={blob['meta']['teams']}, not {R.ADP_TEAMS}."
+            )
+        else:
+            # MFL publishes no count in the response, so the only claim available is that the
+            # market asked for one. Asserting the request is weaker than asserting the answer,
+            # and it is labelled as such rather than dressed up.
+            assert market.params.get("fcount"), f"{market.name} declares no team count"
+            assert str(market.params["fcount"]) in market.pins(season)[0], (
+                f"{market.name}'s pin filename does not carry its FCOUNT, so two team counts "
+                f"could share one file"
+            )
+            assert blob.get("adp", {}).get("player"), f"{season} {market.name} board is empty"
 
 
-def test_control_relocated_franchises_resolve_to_the_abbreviation_ffc_uses(room) -> None:
-    """The join bug that shipped once. Three nicknames map to more than one abbreviation."""
+def test_control_relocated_franchises_resolve_to_the_abbreviation_the_board_uses(room) -> None:
+    """The join bug that shipped once. Three nicknames map to more than one abbreviation.
+
+    NOT FFC-SPECIFIC, despite the helper still being called `ffc_defence_abbrs`: that helper
+    reads the ACTIVE market's boards, so the tie-break it feeds `nick_to_abbr` is whatever the
+    current market writes. Renamed here because the old name asserted a market this test no
+    longer runs in, and a wrong name is a defect like any other.
+    """
     R, _fit, _boards, _real, _syn = room
     nicks = R.nick_to_abbr()
     known = R.ffc_defence_abbrs()
@@ -189,27 +315,88 @@ def test_g1_the_pick_schedule_is_measured_and_moves_too(room) -> None:
         assert abs(fit.pick_sd[pos] - subset.pick_sd[pos]) > 1e-9
 
 
-def test_g1_which_clock_a_position_is_on_is_a_count_with_a_wide_margin(room) -> None:
-    """The split has to hold in EVERY season, not just pooled, or the cut is doing the work."""
+def test_g1_which_clock_a_position_is_on_separates_with_a_wide_margin(room) -> None:
+    """The clock ratio must separate the two regimes in EVERY market, with room to spare.
+
+    THIS TEST USED TO ASSERT THE SUPPLY RATIO, and that is what B9 retired. The supply ratio's
+    numerator is 128 picks of an eight-team draft and its denominator is the market board's top
+    128 -- two windows that only correspond when the market's team count DIFFERS from the
+    room's, so it collapses toward 1.0 exactly when the market fits the league. Its "factor of
+    2.25 of clearance" was an FFC measurement: on mfl_8_std the tightest scheduled season came
+    in at 1.60x and the best board season at 1.111, on the wrong side of a cut of 1.0.
+
+    The clock ratio conditions on nothing and reads no window. Measured separation, worst case
+    per market: 3.07x on ffc_12_std, 5.04x on mfl_12_std, 3.82x on mfl_8_std.
+    """
     R, fit, _boards, _real, _syn = room
-    assert fit.scheduled == frozenset({"K", "DEF"}), f"unexpected split: {fit.scheduled}"
-    sched = [fit.supply_ratio[p] for p in fit.scheduled]
-    board = [fit.supply_ratio[p] for p in fit.supply_ratio if p not in fit.scheduled]
-    assert min(sched) > R.SUPPLY_RATIO_CUT >= max(board)
-    # Per season, not merely pooled. A position the room drafts more of than the board holds
-    # cannot be coming off the board, and that has to be true every year for the split to be
-    # a fact about the room rather than an average over five of them.
-    worst_scheduled = min(min(fit.supply_by_season[p]) for p in fit.scheduled)
-    best_board = max(
-        max(fit.supply_by_season[p]) for p in fit.supply_ratio if p not in fit.scheduled
+    # BOTH SIDES DERIVED, from different inputs. The classifier reads picks and ranks; the
+    # expectation reads the league's own starting slots. Neither is a literal.
+    assert fit.scheduled == R.expected_scheduled(), (
+        f"classifier derived {sorted(fit.scheduled)}, league slots imply "
+        f"{sorted(R.expected_scheduled())}"
     )
-    assert worst_scheduled > best_board, (
-        f"per-season supply ratios overlap: worst scheduled {worst_scheduled:.2f}, best board "
-        f"{best_board:.2f}. The cut is doing the work rather than the measurement."
+    assert fit.scheduled, "no position is scheduled; every assertion below would be vacuous"
+    assert not fit.clock_unclassified, (
+        f"{fit.clock_unclassified} had too few joined picks to classify and defaulted to the "
+        f"board clock; a default is not a measurement"
     )
-    assert worst_scheduled / R.SUPPLY_RATIO_CUT >= 2.0, (
-        f"the tightest scheduled season is only {worst_scheduled:.2f}x the cut"
+    sched_hi = max(fit.clock_ratio[p] for p in fit.scheduled)
+    board_lo = min(v for p, v in fit.clock_ratio.items() if p not in fit.scheduled)
+    assert sched_hi < R.CLOCK_RATIO_CUT <= board_lo, (
+        f"the regimes overlap the cut: highest scheduled {sched_hi:.3f}, lowest board "
+        f"{board_lo:.3f}, cut {R.CLOCK_RATIO_CUT}"
     )
+    # A GAP, not merely an ordering. The bar is 2.0x against a worst measured 3.07x, so it is
+    # comfortably below every market and far above the 1.005x the retired classifier managed on
+    # mfl_8_std. `test_i_the_retired_classifier_fails_this_gate` proves it can go red.
+    assert board_lo / sched_hi >= 2.0, (
+        f"the two regimes are only {board_lo / sched_hi:.2f}x apart (highest scheduled "
+        f"{sched_hi:.3f}, lowest board {board_lo:.3f}); the cut is doing the work"
+    )
+
+
+def test_g1_the_split_survives_leaving_any_season_out(room) -> None:
+    """Held-out stability, which is what the POOLED fit actually needs.
+
+    The predecessor asserted the split PER SEASON. That is a stronger claim than the fit makes
+    and the code does not even produce it: K and DEF carry only six to nine joined picks in a
+    single season, which is below `MIN_CLOCK_N`, so a single-season fit marks them unclassified
+    and derives an EMPTY scheduled set rather than a wrong one. (With the guards bypassed the
+    raw ratios do wander -- ffc_12_std's 2024 kicker reads 1.982, and both MFL markets' 2022
+    quarterback reads about 0.80 -- but that is a number this module never acts on, and an
+    earlier draft of this docstring quoted it as though it were.)
+
+    `fit_room` pools all five seasons, so the question that matters is whether the pooled
+    verdict is robust to dropping one. That is clean in all fifteen fits.
+    """
+    R, _fit, _boards, _real, _syn = room
+    for held in R.SEASONS:
+        kept = tuple(s for s in R.SEASONS if s != held)
+        assert R.fit_room(kept).scheduled == R.expected_scheduled(), (
+            f"holding out {held} changes the scheduled set to "
+            f"{sorted(R.fit_room(kept).scheduled)}"
+        )
+
+
+def test_i_the_retired_classifier_fails_this_gate(room, market_name) -> None:
+    """INJECTION. Restore the supply ratio and mfl_8_std schedules RB and WR again.
+
+    This is failure injection 1 from the B9 handoff, and it is what says the gate above is
+    measuring the classifier rather than restating the league's slots.
+    """
+    R, fit, _boards, _real, _syn = room
+    would = frozenset(p for p, r in fit.supply_ratio.items() if r > R.SUPPLY_RATIO_CUT)
+    if market_name == "mfl_8_std":
+        assert would != R.expected_scheduled(), (
+            "the retired supply ratio no longer mis-classifies mfl_8_std, so this injection "
+            "has stopped reproducing the defect it exists to reproduce"
+        )
+        assert {"RB", "WR"} <= would, f"expected RB and WR to be scheduled, got {sorted(would)}"
+    else:
+        assert would == R.expected_scheduled(), (
+            f"the retired classifier disagrees on {market_name} too, which it did not when "
+            f"B9 measured it: {sorted(would)}"
+        )
 
 
 def test_g1_the_correlation_is_reported_but_does_not_decide_anything(room) -> None:
@@ -252,27 +439,50 @@ def test_g1_the_roster_caps_come_from_the_observed_maxima(room) -> None:
 # --- G2: room validation, pre-registered -------------------------------------------------
 
 
-def test_g2_every_pre_registered_statistic_lands_in_the_real_range(room) -> None:
+def test_g2_every_pre_registered_statistic_lands_where_it_was_measured(room, market_name) -> None:
+    """EQUALITY, not absence. Two of the three rooms fail a statistic and that is the finding.
+
+    Asserting `not failures` would have been a green gate on FFC and a red one on both MFL
+    markets, which is a gate that says "this market exists" rather than one that catches a
+    regression. Asserting the SET means a room that starts failing a new statistic goes red,
+    and so does one that silently starts passing -- which would mean the room changed.
+    """
     R, _fit, _boards, real, synthetic = room
-    failures = [
+    comps = R.compare(synthetic, list(real.values()))
+    failed = frozenset(c.name for c in comps if not c.passes)
+    expected = ROOM_FACTS[market_name]["in_sample_fails"]
+    detail = "; ".join(
         f"{c.name}: synth {c.synthetic:.1f} outside real {c.real_lo:.1f}-{c.real_hi:.1f}"
-        for c in R.compare(synthetic, list(real.values()))
+        for c in comps
         if not c.passes
-    ]
-    assert not failures, "; ".join(failures)
+    )
+    assert failed == expected, (
+        f"{market_name} in-sample failures changed: {sorted(failed)} against a recorded "
+        f"{sorted(expected)}. {detail}"
+    )
 
 
-def test_g2_the_two_statistics_the_fit_does_not_target_also_land(room) -> None:
-    """Stated separately because these are the only in-sample lines that are evidence."""
+def test_g2_the_two_statistics_the_fit_does_not_target(room, market_name) -> None:
+    """Stated separately because these are the only in-sample lines that are evidence.
+
+    `first QB round` and `runs of 3+` are the two the fit does not aim at, so they are the two
+    that can corroborate it. Both land on ffc_12_std and on mfl_8_std. On mfl_12_std the
+    quarterback misses by 0.04 of a round -- synth 2.96 against a real range whose floor is
+    3.0 -- which is recorded rather than waved through, and is the only reason that room does
+    not pass B1.
+    """
     R, _fit, _boards, real, synthetic = room
     free = [c for c in R.compare(synthetic, list(real.values())) if c.kind == "free"]
     assert {c.name for c in free} == {"first QB round", "runs of 3+"}
-    assert all(c.passes for c in free), [
-        (c.name, c.synthetic, c.real_lo, c.real_hi) for c in free if not c.passes
-    ]
+    failed = frozenset(c.name for c in free if not c.passes)
+    assert failed == frozenset(ROOM_FACTS[market_name]["in_sample_fails"]) & {
+        "first QB round", "runs of 3+"
+    }, [(c.name, c.synthetic, c.real_lo, c.real_hi) for c in free if not c.passes]
 
 
-def test_g2_held_out_seasons_are_mostly_covered_and_the_misses_are_the_known_ones(room) -> None:
+def test_g2_held_out_seasons_are_mostly_covered_and_the_misses_are_the_known_ones(
+    room, market_name
+) -> None:
     """The honest test, and it does NOT come out clean. The misses are the deliverable.
 
     Refit without a season, draft that season's board, ask whether its real value falls in
@@ -291,12 +501,15 @@ def test_g2_held_out_seasons_are_mostly_covered_and_the_misses_are_the_known_one
         2025 is the other season whose real first K and first D/ST both came in round 11, and
         it is covered -- so this is a near miss on a pooled schedule, not a 2023 anomaly.
 
-    The exact miss list at SEEDS=50 is 2021 K+DEF, 2021 spread, 2023 first DEF, 2024 K+DEF,
-    2025 K+DEF, 2025 spread -- six of thirty. It moves with the seed count because the band
-    is a percentile over a finite sample, which is why the gate below is on the RATE.
+    MEASURED AT SEEDS=50, B9, per market -- and the FFC list is no longer the six this
+    docstring used to name. ffc_12_std covers 28 of 30, missing only the 2021 and 2025 spread;
+    mfl_12_std covers 25, adding 2023's first defence and three more spread seasons; mfl_8_std
+    covers 24, missing the spread in all five. The spread is the statistic sigma is FITTED to,
+    so it is the one the report already labels a self-consistency check rather than evidence,
+    and it is the member that misses in every market.
 
     The gate is on the RATE, so a regression that broke the room broadly still fails here,
-    while the three known misses do not turn it red every run.
+    while the known misses do not turn it red every run.
     """
     R, _fit, _boards, _real, _syn = room
     covered = 0
@@ -311,16 +524,31 @@ def test_g2_held_out_seasons_are_mostly_covered_and_the_misses_are_the_known_one
     # B1 exists to add, and one the in-sample line calls a FAIL -- scored 22/30, and a room
     # with every mu sign flipped, drafting its first quarterback in round 1.6, scored exactly
     # 20. At 23 both go red and only total determinism collapse used to.
+    recorded = ROOM_FACTS[market_name]["held_out_covered"]
     assert covered >= 23, (
-        f"only {covered}/{total} held-out season-statistics covered; the room was at 24/30 "
-        f"when B1 shipped, and below 23 it is no longer the room that was validated"
+        f"only {covered}/{total} held-out season-statistics covered in {market_name}; the room "
+        f"was at 24/30 when B1 shipped, and below 23 it is no longer the room that was "
+        f"validated. Recorded for this market: {recorded}"
+    )
+    # Recorded value, within the Monte Carlo slack the band itself has. Two either way is
+    # about what a fifty-seed percentile moves by; more than that is the room changing.
+    assert abs(covered - recorded) <= 2, (
+        f"{market_name} covered {covered}/{total}, recorded {recorded}"
     )
 
 
-def test_g2_the_verdict_function_says_the_room_resembles_real(room) -> None:
+def test_g2_the_verdict_function_agrees_with_the_recorded_verdict(room, market_name) -> None:
+    """One of three rooms resembles a real one. That is the B9 answer, asserted rather than hoped.
+
+    `report()`'s verdict also folds in the classifier check from B9, so a room whose scheduled
+    set disagrees with its league's slots is False here even if all six statistics land.
+    """
     R, _fit, _boards, _real, _syn = room
     _lines, ok = R.report(seeds=SEEDS)
-    assert ok
+    assert ok is ROOM_FACTS[market_name]["resembles_real"], (
+        f"{market_name} verdict is {ok}, recorded as "
+        f"{ROOM_FACTS[market_name]['resembles_real']}"
+    )
 
 
 # --- G3: specialists behave --------------------------------------------------------------
@@ -435,32 +663,67 @@ def test_g4_the_room_drafts_in_snake_order(room) -> None:
     )
 
 
-def test_g3_beats_the_strict_adp_room_by_the_margin_that_was_measured(room) -> None:
+def test_g3_beats_the_strict_adp_room_in_every_market(room, market_name) -> None:
+    """The modelled room must land closer to the real specialist count than strict ADP does.
+
+    THE "0-4" AND "4x" IN THE PREVIOUS VERSION WERE FFC NUMEROLOGY, and B9 measured why: FFC's
+    top 128 by ADP holds NO KICKER IN ANY SEASON, so a strict-ADP room there cannot take one
+    and lands at 0-4 specialists against a real 16-17. MFL's boards carry kickers, so the same
+    strict-ADP room takes 4-8 at twelve teams and 11-16 at eight. Neither number is a fact
+    about the room; both are facts about the board.
+
+    What IS a fact about the room, and what G3 actually rests on, is that modelling the pick
+    schedule moves the specialist count TOWARD reality. That holds in all three markets and is
+    what is asserted. The recorded per-market strict-ADP counts are asserted too, so a board
+    that changed composition cannot slip past.
+    """
     R, _fit, boards, real, synthetic = room
     naive = [R.adp_only_stats(boards[s]).kdef_in_128 for s in R.SEASONS]
     real_kdef = [r.kdef_in_128 for r in real.values()]
     syn = st.mean([s.kdef_in_128 for s in synthetic])
-    assert max(naive) <= 4, f"strict-ADP took {max(naive)} specialists; the premise was 0-4"
-    assert syn >= 4 * max(naive) or (max(naive) == 0 and syn > 0)
-    assert abs(syn - st.mean(real_kdef)) < abs(st.mean(naive) - st.mean(real_kdef))
+    assert tuple(naive) == ROOM_FACTS[market_name]["strict_adp_kdef"], (
+        f"{market_name} strict-ADP specialist counts moved: {naive}"
+    )
+    if ROOM_FACTS[market_name]["strict_adp_undershoots"]:
+        assert max(naive) < min(real_kdef), (
+            f"strict ADP took {naive}, which does not undershoot the real floor "
+            f"{min(real_kdef)}"
+        )
+    else:
+        assert max(naive) >= min(real_kdef), (
+            f"{market_name} was recorded as a market where strict ADP does NOT collapse the "
+            f"specialists, but it took {naive} against a real floor of {min(real_kdef)}"
+        )
+    assert abs(syn - st.mean(real_kdef)) < abs(st.mean(naive) - st.mean(real_kdef)), (
+        f"the modelled room ({syn:.2f}) is no closer to the real mean "
+        f"({st.mean(real_kdef):.2f}) than strict ADP ({st.mean(naive):.2f}) is"
+    )
 
 
 # --- G4: determinism ---------------------------------------------------------------------
 
 
-def test_g2_a_position_never_taken_reads_as_outside_the_draft(room) -> None:
+def test_g2_a_position_never_taken_reads_as_outside_the_draft(room, market_name) -> None:
     """The strict-ADP room takes no kicker at all. That must not read as "took one late".
 
     Untested until mutation testing pointed at it: changing the sentinel from ``rounds + 1``
     to ``rounds`` broke nothing, because both call sites read only ``.kdef_in_128``.
     """
     R, _fit, boards, _real, _syn = room
+    # The sentinel itself, which is what mutation testing pointed at. Market-independent.
     assert R._first_round([(1, 1, "RB")], "K", R.ROUNDS) == R.ROUNDS + 1
-    for season in R.SEASONS:
-        naive = R.adp_only_stats(boards[season])
-        assert naive.first_k_round == R.ROUNDS + 1, (
-            f"{season}: strict ADP took a kicker inside 128, which the premise says it never "
-            f"does -- the first kicker on the board is at ADP rank 138-143"
+    # And the board fact that exercises it, which is NOT market-independent: FFC's top 128
+    # holds no kicker in any season, so the sentinel actually fires there. MFL's boards carry
+    # kickers inside 128, so the sentinel is exercised only by the unit assertion above.
+    takes_one = ROOM_FACTS[market_name]["strict_adp_takes_a_kicker"]
+    seen = [R.adp_only_stats(boards[season]).first_k_round for season in R.SEASONS]
+    if takes_one:
+        assert all(r <= R.ROUNDS for r in seen), (
+            f"{market_name} was recorded as putting a kicker inside 128 but read {seen}"
+        )
+    else:
+        assert all(r == R.ROUNDS + 1 for r in seen), (
+            f"{market_name} was recorded as never putting a kicker inside 128 but read {seen}"
         )
 
 
@@ -571,13 +834,16 @@ def test_i4_a_board_built_from_end_of_season_points_is_refused(room) -> None:
 # --- injections 1 and 2 -------------------------------------------------------------------
 
 
-def test_i1_the_strict_adp_room_collapses_the_specialists(room) -> None:
+def test_i1_the_strict_adp_room_collapses_the_specialists(room, market_name) -> None:
     """Failure injection 1. Reproduces the known-bad model; this is the gate on G3.
 
     Two ablations, because they separate which mechanism does the work.
 
-    Strict ADP order takes 0-4 specialists in 128 picks against a real 16-17 -- it cannot do
-    otherwise, since no season has a single kicker inside the top 128 by ADP.
+    Strict ADP order UNDERSHOOTS the real 16-17 in every market, and by how much is a fact
+    about the BOARD rather than about the room: FFC's top 128 holds no kicker in any season so
+    it takes 0-4, MFL's twelve-team board takes 4-8 and its eight-team board 11-16. The claim
+    the injection carries is the undershoot, which holds everywhere; the old "0-4" was an FFC
+    number standing in for it.
 
     Turning ONLY the pick schedule off, keeping the fitted noise, the caps and the deadline,
     breaks it in the OTHER direction and that is worth knowing. Back on the board clock the
@@ -592,8 +858,18 @@ def test_i1_the_strict_adp_room_collapses_the_specialists(room) -> None:
     real_hi = max(r.kdef_in_128 for r in real.values())
 
     naive = [R.adp_only_stats(boards[s]).kdef_in_128 for s in R.SEASONS]
-    assert max(naive) < real_lo, f"strict ADP took {naive}, which does not undershoot {real_lo}"
-    assert max(naive) <= 4 and min(naive) == 0
+    assert tuple(naive) == ROOM_FACTS[market_name]["strict_adp_kdef"], naive
+    if not ROOM_FACTS[market_name]["strict_adp_undershoots"]:
+        # MEASURED, AND IT IS THE FINDING RATHER THAN AN EXEMPTION. On mfl_8_std strict ADP
+        # takes 16 specialists against a real floor of 16, so this injection does not
+        # reproduce its defect here at all. The rest of the test -- turning the schedule off
+        # and requiring the room to break the OTHER way -- still runs and still carries the
+        # claim G3 rests on.
+        assert max(naive) >= real_lo, naive
+    else:
+        assert max(naive) < real_lo, (
+            f"strict ADP took {naive}, which does not undershoot {real_lo}"
+        )
 
     unscheduled = [
         R.sim_stats(R.simulate_draft(boards[s], fit, seed, schedule_specialists=False))
@@ -630,9 +906,18 @@ def test_i1_zero_sigma_alone_does_not_reproduce_the_bad_model(room) -> None:
     ), "sigma=0 did not narrow the pick-ADP spread, so sigma is not driving it"
 
 
-def test_i2_a_very_large_sigma_breaks_the_room(room) -> None:
-    """Failure injection 2. Blow the noise up and G2 must go red, not merely get worse."""
-    R, fit, boards, real, _syn = room
+def test_i2_a_very_large_sigma_breaks_the_room(room, market_name) -> None:
+    """Failure injection 2. Blow the noise up and G2 must go STRICTLY redder.
+
+    THE CLAIM IS NOW A STRICT SUPERSET, NOT A NAMED PAIR, and that is what makes this
+    injection mean something in a room that is not already clean. The previous version required
+    `runs of 3+` and `pick-ADP spread` specifically -- an FFC observation. Measured, an 8x
+    sigma breaks five statistics on ffc_12_std and mfl_8_std but only four on mfl_12_std, where
+    `runs of 3+` survives it. Requiring the corrupted room to fail everything the uncorrupted
+    one fails AND more is the property that actually distinguishes a working gate from a
+    broken subject, and it holds in every market.
+    """
+    R, fit, boards, real, synthetic = room
     # Twenty seeds a season, not four. At four (n=20) `runs of 3+` estimates to +-0.5 and
     # lands inside the real 8-11 about as often as not, so the assertion below flickered once
     # B2's refinements added a little clustering back. At twenty (n=100) it reads 7.5 +-0.2,
@@ -642,11 +927,19 @@ def test_i2_a_very_large_sigma_breaks_the_room(room) -> None:
         for s in R.SEASONS
         for seed in range(20)
     ]
-    failures = [c for c in R.compare(wild, list(real.values())) if not c.passes]
+    failures = frozenset(
+        c.name for c in R.compare(wild, list(real.values())) if not c.passes
+    )
+    baseline = frozenset(
+        c.name for c in R.compare(synthetic, list(real.values())) if not c.passes
+    )
     assert failures, "an 8x sigma passed every pre-registered statistic; the gates are inert"
-    assert {"runs of 3+", "pick-ADP spread"} <= {c.name for c in failures}, (
-        f"8x sigma failed on {[c.name for c in failures]}; expected the run frequency and "
-        f"the spread to be the ones that break"
+    assert baseline < failures, (
+        f"8x sigma failed on {sorted(failures)} against an uncorrupted {sorted(baseline)}; "
+        f"the injection has to make things STRICTLY worse or it is not an injection"
+    )
+    assert failures == ROOM_FACTS[market_name]["wide_sigma_fails"], (
+        f"{market_name} 8x-sigma failures changed: {sorted(failures)}"
     )
 
 
@@ -673,16 +966,28 @@ def test_injections_fire_as_a_process_with_a_nonzero_exit(name: str) -> None:
     assert "INJECTION FIRED" in proc.stdout, proc.stdout
 
 
-def test_the_uncorrupted_room_passes_so_the_injections_mean_something(room) -> None:
+def test_the_uncorrupted_baseline_is_known_so_the_injections_mean_something(
+    room, market_name
+) -> None:
     """An injection asserts "the corrupted room fails". That is worth nothing on its own.
 
-    Mutation testing showed the exact failure mode: with the classifier broken so that
-    nothing is scheduled, `--inject no-schedule` becomes a literal no-op and still exits 1,
-    because the UNcorrupted room was already red. Every injection needs this precondition.
+    Mutation testing showed the exact failure mode: with the classifier broken so that nothing
+    is scheduled, `--inject no-schedule` becomes a literal no-op and still exits 1, because the
+    UNcorrupted room was already red. Every injection needs this precondition.
+
+    B9 HAD TO WEAKEN THE PRECONDITION, and the weakening is the honest part. The old form was
+    `not failures` -- a clean baseline -- which is true only of ffc_12_std. Two of three rooms
+    fail one statistic each, so demanding a clean baseline would have meant either skipping the
+    injections in those markets or deleting the finding. What replaces it is that the baseline
+    is KNOWN AND FIXED, so every injection can be required to make it strictly worse; that is
+    what `test_i2` now asserts, and it is a stronger property than a clean baseline gives on
+    its own.
     """
     R, _fit, _boards, real, synthetic = room
-    failures = [c.name for c in R.compare(synthetic, list(real.values())) if not c.passes]
-    assert not failures, (
-        f"the uncorrupted room already fails on {failures}; until that is fixed the "
-        f"injections cannot distinguish a working gate from a broken subject"
+    failures = frozenset(
+        c.name for c in R.compare(synthetic, list(real.values())) if not c.passes
+    )
+    assert failures == ROOM_FACTS[market_name]["in_sample_fails"], (
+        f"{market_name}'s uncorrupted baseline moved to {sorted(failures)}; every injection "
+        f"below is read against it, so it has to be known before any of them means anything"
     )

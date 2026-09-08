@@ -1506,6 +1506,15 @@ def leak_ceiling_failures(payload: dict[str, Any]) -> list[str]:
     return out
 
 
+def _ratio_text(value: Any) -> str:
+    """A clock ratio for a message, whatever shape it survived the artifact in."""
+    if value is None:
+        return "no ratio recorded"
+    if isinstance(value, int | float):
+        return "inf" if value == float("inf") else f"{value:.3f}"
+    return str(value)
+
+
 def gate_failures(payload: dict[str, Any]) -> list[str]:
     """Every gate the artifact itself can check. Named, so a non-zero exit says which.
 
@@ -1546,32 +1555,47 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
     """
     failures: list[str] = []
 
-    # G7 -- THE OPPONENT ROOM MUST BE THE ROOM B1 VALIDATED, and this gate exists because B8
-    # found a market where it is not. `room.fit_room` puts a position on the SCHEDULE clock
-    # when the drafted count exceeds what the board's top 128 supplies; B1 validated a room
-    # where that set is exactly {DEF, K}, and `room._best` REMOVES every scheduled position
-    # from the board the bots pick off. Measured on MFL's eight-team board, RB (1.047) and WR
-    # (1.111) cross the cut, so the bots cannot take a running back or a receiver off the
-    # board and fall through to drafting three quarterbacks each in a one-QB league.
+    # G7 -- THE OPPONENT ROOM MUST HAVE THE TWO-CLOCK STRUCTURE THE LEAGUE IMPLIES, and this
+    # gate exists because B8 found a market where it did not. `room._best` REMOVES every
+    # scheduled position from the board the bots pick off, so a position wrongly scheduled
+    # cannot be drafted normally at all -- measured on MFL's eight-team board under B8's
+    # classifier, RB and WR were scheduled and the bots drafted three quarterbacks each in a
+    # one-QB league. Every arm still ran and the artifact looked ordinary.
     #
-    # Nothing caught it. Every arm still ran, every interval still computed, and the artifact
-    # looked ordinary -- but every number in it was measured against opponents that do not
-    # draft like the real room. `sim/test_g_room.py` asserts this same set and could not see
-    # it, because its fixture builds under whatever market happens to be active.
+    # BOTH SIDES ARE NOW DERIVED, AND FROM DIFFERENT SOURCES. `room.expected_scheduled()` reads
+    # the league's own STARTING_SLOTS -- which positions it starts, and which of those are
+    # specialists. The artifact's `fit.scheduled` comes from `room.fit_room`'s classifier, which
+    # reads picks and ranks. The two share no input, so agreement is evidence rather than
+    # tautology. B9 replaced a hardcoded `B1_SCHEDULED = {"DEF", "K"}` here, which was a literal
+    # recording what one market happened to produce.
     #
-    # It is a HARD gate rather than a warning because a mis-specified room does not degrade a
-    # result, it replaces it.
+    # IT IS AN EQUALITY, NOT A SUBSET. B8's version only caught a scheduled set that was too
+    # WIDE. A set that is too NARROW is the other half of the same defect: a league that starts
+    # a kicker, in a room where nothing schedules one, fills that slot by accident or not at all.
+    #
+    # Hard rather than advisory: a mis-specified room does not degrade a result, it replaces it.
     scheduled = set(payload.get("fit", {}).get("scheduled") or ())
-    unexpected = sorted(scheduled - room.B1_SCHEDULED)
-    if unexpected:
-        ratios = payload.get("fit", {}).get("supply_ratio") or {}
-        detail = ", ".join(f"{p} {ratios.get(p, float('nan')):.3f}" for p in unexpected)
+    expected = room.expected_scheduled()
+    if scheduled != expected:
+        ratios = payload.get("fit", {}).get("clock_ratio") or {}
+        # FORMATTED DEFENSIVELY, because the value is not always a float. `fit_room` writes
+        # `inf` for a position it could not classify, and `artifact._clean` turns that into the
+        # STRING "inf" so the payload stays JSON-safe -- at which point `f"{value:.3f}"` raises
+        # ValueError. `gate_failures` is called bare, so that exception aborted the ENTIRE gate
+        # list rather than reporting G7: the run exited on a traceback and G0, G5, G6a, G6b and
+        # G9 never evaluated. It was reachable from a preflight-legal config (a single-season
+        # `fit_seasons`, where K and DEF fall under MIN_CLOCK_N and go unclassified), which is
+        # precisely the shape that most needs this gate to fire.
+        detail = ", ".join(
+            f"{p} {_ratio_text(ratios.get(p))}" for p in sorted(scheduled ^ expected)
+        )
         failures.append(
-            f"G7 room-fidelity: position(s) {unexpected} are on the SCHEDULE clock in this "
-            f"market (supply ratio {detail} against a cut of {room.SUPPLY_RATIO_CUT}), so the "
-            f"bots cannot draft them off the board at all. B1 validated a room whose scheduled "
-            f"set is {sorted(room.B1_SCHEDULED)}. Nothing measured inside a different room "
-            f"is comparable to anything measured inside that one."
+            f"G7 room-fidelity: the classifier put {sorted(scheduled)} on the SCHEDULE clock "
+            f"where this league's starting slots imply {sorted(expected)}. Disagreeing "
+            f"position(s) read {detail or 'no ratio recorded'} against a cut of "
+            f"{room.CLOCK_RATIO_CUT}. A scheduled position is removed from the board the bots "
+            f"draft from, so nothing measured inside this room is comparable to anything "
+            f"measured inside one with the structure the league actually has."
         )
 
     if not payload.get("units"):

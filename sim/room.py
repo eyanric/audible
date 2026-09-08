@@ -308,6 +308,127 @@ PRE_DRAFT_SOURCES: frozenset[str] = frozenset(
 # are still computed and still reported, as diagnostics, with that caveat attached.
 SUPPLY_RATIO_CUT: float = 1.0
 
+# THE CLASSIFIER. Third of three, and the first that works on more than one market.
+#
+#   clock_ratio[position] = sd(pick) / sd(pick - rank)
+#
+# Below 1.0 the position is on the SCHEDULE clock; above it, on the BOARD clock. The signature
+# is the one the module docstring has always described: a kicker's mean ADP rank is 161.8 and
+# his mean pick 107.4, at a pick sd of 12.4 against 32-36 for the skill positions. WHICH kicker
+# barely matters; WHEN is nearly fixed. So subtracting the rank from the pick makes a board
+# position's residual TIGHTER than its raw pick (the pick tracks the rank) and a scheduled
+# position's residual WIDER (the pick is nearly fixed while the rank scatters).
+#
+# WHY THE TWO IT REPLACED FAILED, and whether this one fails the same ways. Both refutations
+# were re-run against this statistic rather than assumed away; the numbers are in the report.
+#
+#   THE CORRELATION TEST failed first because it was INVARIANT to the very 8/12 round
+#   rescaling the two-clock story is about -- rescale every rank by c and r agrees to six
+#   decimal places. This statistic is not invariant, and that is the point: rescaling ranks by
+#   c changes sd(pick - c*rank), so it can see exactly what r could not. Measured, the
+#   verdicts hold across the whole plausible range: at c = 8/12, which rescales a twelve-team
+#   board into eight-team rounds, every verdict is unchanged and every margin IMPROVES. The
+#   nearest skill position to flipping is WR on mfl_8_std, which needs c >= 1.25.
+#
+#   THE SUPPLY RATIO failed because its numerator is 128 picks of an eight-team draft and its
+#   denominator is the market board's top 128 -- two windows that only correspond when the
+#   market's team count DIFFERS from the room's. On a twelve-team board rank 128 is round 10.7,
+#   before a kicker goes; on an eight-team board rank 128 IS the whole draft, so numerator and
+#   denominator have the same composition and every ratio collapses toward 1.0. Measured on
+#   mfl_8_std: WR 1.111 against DEF 1.105, a separation of 1.005 on the wrong side of the cut.
+#   This statistic reads no window at all. It is computed per position over that position's own
+#   joined picks, so a market that fits the room perfectly cannot degenerate it.
+#
+#   WHERE IT IS STILL VULNERABLE, stated rather than discovered later. Restricted to the
+#   specialists' own (rank, pick) box, EVERY position reads below 1.0 -- QB 0.42, RB 0.52,
+#   WR 0.47, TE 0.66 against K 0.37, DEF 0.32 on mfl_8_std. That is the same range-restriction
+#   family that killed the correlation test, and it is mechanical: the box is ~46 picks wide
+#   and 120-206 ranks wide, so sd(rank)/sd(pick) is inflated by the box's aspect ratio and
+#   pushes everything under the cut by construction. The cut is therefore meaningful ONLY on a
+#   position's unconditioned population, which is what `fit_room` uses. The ordering mostly
+#   survives restriction on the MFL markets and partly breaks on FFC (RB 0.43 falls below
+#   K 0.60), so the ORDER is not claimed to be robust either. Nothing conditions on anything
+#   in the shipped classifier; this note exists so nobody adds a conditional later.
+#
+# WHAT THE CUT ACTUALLY IS, in closed form. With k = sd(rank)/sd(pick) and rho = corr(rank,
+# pick), Var(pick - rank) = sd(pick)^2 + sd(rank)^2 - 2*rho*sd(pick)*sd(rank), so
+#
+#     ratio > 1   <=>   sd(rank) < 2*rho*sd(pick)   <=>   k < 2*rho
+#
+# and since the OLS slope of pick on rank is b = rho/k, that collapses to
+#
+#     ratio > 1   <=>   b > 0.5,   INDEPENDENT OF rho.
+#
+# So the classifier is a slope test with the cut at HALF A PICK PER RANK, and the correlation
+# drops out of it entirely. That is worth stating because it is the cleanest available answer
+# to "why is this not the correlation test again": it is not a function of rho at all. Verified
+# on all eighteen market-position cells, zero identity mismatches.
+#
+# THE CUT IS 1.0 AND IT IS A MEANING, not a threshold: it is the point where the residual stops
+# being tighter than the raw pick, which is the definition of the pick tracking the rank. It
+# was not chosen to make an answer come out. Measured separation across all three markets is a
+# factor of 2.34 -- nearest board position WR 1.406 (mfl_8_std), nearest scheduled K 0.602
+# (ffc_12_std) -- against the supply ratio's 1.005 on the wrong side.
+#
+# HOW CLOSE THE NEAREST MARKET IS TO FAILING, because "it works on three" is not "it works".
+# The binding cell is WR on mfl_8_std: sd(rank) 47.17 against a limit of 2*rho*sd(pick) = 58.56,
+# so 19.4% of headroom, bootstrap interval [1.217, 1.640] with 0 of 10,000 resamples below the
+# cut. That is comfortable for this market and NOT a large margin in general -- the observed
+# between-market spread in sd(rank) for receivers is 37.5 to 47.2, a 26% range, which already
+# exceeds the headroom left. A fourth market landing under the cut is not remote, and it would
+# show up as a receiver being scheduled.
+#
+# WHAT DOES NOT DRIVE IT, measured, because the obvious guess is wrong: board DEPTH does not.
+# mfl_12_std serves 289-312 rows against mfl_8_std's 219-241 and has the BETTER receiver margin
+# (slope 0.664 against 0.621), and truncating the room to as few as eight rounds against the
+# same board leaves every skill ratio between 1.10 and 2.31. What drives it is the rank scatter
+# of the DRAFTED set, which is not a function of how many rows the board has.
+CLOCK_RATIO_CUT: float = 1.0
+
+# A position is classified only when its ratio is RESOLVABLY on one side of the cut. Two
+# guards, and the second is the one that matters.
+#
+# `MIN_CLOCK_N` IS THE GUARD, AND THE NUMBER IS BRACKETED BY MEASUREMENT rather than chosen.
+#
+# It was 10, and 10 was calibrated to the wrong thing. Adversarial review measured that on a
+# SINGLE-SEASON fit the quarterback crosses the cut at n=12-14 on both MFL markets -- clearing
+# a floor of 10 -- and is therefore scheduled and REMOVED FROM THE BOARD in a one-QB league,
+# which is the exact B8 catastrophe this classifier was written to prevent. The comment that
+# used to sit here claimed the floor "never binds" and that defaulting to the board clock was
+# safe in both directions; both were false for any fit window shorter than five seasons.
+#
+# The bracket, measured on all three markets:
+#
+#   single-season fits   thinnest cell n = 6-8,   QB n = 12-14   <- must be REFUSED
+#   leave-one-season-out thinnest cell n = 27-32                 <- must be ADMITTED
+#   pooled five-season   thinnest cell n = 34-41                 <- must be ADMITTED
+#
+# So any floor in (14, 27] does the same job, and 20 sits in the middle of that window with
+# six of margin below and seven above. `sim/test_g_b9.py` asserts that every floor from 15 to
+# 27 yields the identical pooled and leave-one-out verdicts in all three markets, so no shipped
+# number depends on where in the window it sits -- which is the difference between bracketing a
+# constant and tuning one.
+#
+# LOSO HAS TO BE ADMITTED because it is a real code path: `room.holdout` refits on four seasons
+# for each held-out season, and the held-out battery is the evidence that counts.
+MIN_CLOCK_N: int = 20
+
+# Reported beside the ratio, and DELIBERATELY NOT GATING. A first version of this guard refused
+# to classify any cell whose bootstrap interval straddled the cut, which is the more principled
+# rule and is unusable here: at n=27 -- the thinnest cell a leave-one-out fit uses -- FFC's
+# kicker reads a point estimate of 0.600 and still resamples above 1.0 more than one time in
+# forty, because kicker RANKS scatter enormously (rank 138 to 223 on the same board). Gating on
+# it left `holdout` with the kicker on the board clock and turned two of the fifteen held-out
+# fits red. The interval is worth reporting and is not worth deciding on at these sample sizes.
+#
+# Deterministic: fixed seed, fixed resample count.
+CLOCK_BOOTSTRAP: int = 2000
+CLOCK_BOOTSTRAP_SEED: int = 20260908
+
+# Positions a league fills on a SCHEDULE rather than off the board. The spellings are the same
+# ones `invariants.SCHEDULED_SLOTS` carries.
+SPECIALIST_POSITIONS: frozenset[str] = frozenset({"K", "DEF", "DST", "D/ST"})
+
 # THE SCHEDULED SET B1 VALIDATED. `fit_room` derives the scheduled set per market from the
 # supply ratio; this is what that derivation produced on the market B1 was gated against, and
 # `runner.gate_failures` refuses an artifact whose derived set is wider.
@@ -321,7 +442,29 @@ SUPPLY_RATIO_CUT: float = 1.0
 # "is a meaning rather than a threshold" on a factor of 2.25 of clearance -- and that clearance
 # is an FFC fact. At 1.047 the cut is doing real work, and a market that lands there needs the
 # question reopened rather than the number read.
-B1_SCHEDULED: frozenset[str] = frozenset({"DEF", "K"})
+def expected_scheduled() -> frozenset[str]:
+    """What the LEAGUE's own slots say should be on the schedule clock.
+
+    DERIVED RATHER THAN HARDCODED, and derived from a different FILE than the classifier: this
+    side reads `STARTING_SLOTS` -- which positions the league starts, and which of those are
+    specialists -- while the classifier reads picks and ranks. Its predecessor was
+    `B1_SCHEDULED = frozenset({"DEF", "K"})`, a literal recording what one market happened to
+    produce, so this is a real improvement in where the number comes from.
+
+    IT IS A WEAKER INDEPENDENCE THAN IT LOOKS, and adversarial review was right to say so.
+    `STARTING_SLOTS` is a MODULE CONSTANT, not `config.league`, so this returns {DEF, K} for
+    every league in the repo and would keep doing so if the league changed underneath it. And
+    the classifier side is pinned too: `fit_room` always joins against `espn_draft_6012_*`
+    whatever a config says. So "two independent sources" means two files describing ONE league,
+    not two leagues. The gate still catches a classifier that drifts -- which is what B8 needed
+    and did not have -- and it would NOT catch a league whose roster this module does not model.
+
+    `runner.load_config` refuses any config whose league is not the market's declared league,
+    so no other league can reach this today. That is what keeps the weakness latent rather than
+    live, and it is the thing to fix first if a second league is ever added.
+    """
+    startable = {p for slot in STARTING_SLOTS for p in SLOT_ELIGIBILITY[slot]}
+    return frozenset(startable & SPECIALIST_POSITIONS)
 
 def kickoff(season: int) -> date:
     """The season's first regular-season game: the Thursday after Labor Day.
@@ -668,6 +811,20 @@ class Fit:
     scheduled: frozenset[str]
     pick_mu: dict[str, float]
     pick_sd: dict[str, float]
+    # THE CLASSIFIER: sd(pick) / sd(pick - rank), per position. Below CLOCK_RATIO_CUT is the
+    # schedule clock. The two standard deviations are carried beside it because the ratio alone
+    # cannot say WHY a position landed where it did, and a reader checking a surprising verdict
+    # wants both halves.
+    clock_ratio: dict[str, float]
+    clock_sd_pick: dict[str, float]
+    clock_sd_resid: dict[str, float]
+    clock_n: dict[str, int]
+    clock_unclassified: tuple[str, ...]
+    # Whether a bootstrap interval on the ratio clears the cut. Reported, never gating.
+    clock_resolvable: dict[str, bool]
+    # DIAGNOSTIC ONLY from B9 on. Kept computed and reported because it is the number three
+    # sessions of results were produced under, and dropping it would make those unreadable --
+    # but it decides nothing now. See SUPPLY_RATIO_CUT for the window mismatch that retired it.
     supply_ratio: dict[str, float]
     supply_avail: dict[str, int]
     supply_drafted: dict[str, int]
@@ -714,6 +871,27 @@ class Fit:
         if position in self.scheduled:
             return self.pick_mu[position]
         return rank + self.mu.get(position, 0.0)
+
+
+def _clock_resolvable(picks: Sequence[float], resid: Sequence[float]) -> bool:
+    """Does the clock ratio's bootstrap interval sit entirely on one side of the cut?
+
+    Resamples the (pick, residual) PAIRS together, because the two standard deviations are
+    computed over the same rows and resampling them independently would break that.
+    """
+    rng = random.Random(CLOCK_BOOTSTRAP_SEED)
+    n = len(picks)
+    below = 0
+    for _ in range(CLOCK_BOOTSTRAP):
+        idx = [rng.randrange(n) for _ in range(n)]
+        denom = _sd([resid[i] for i in idx])
+        if denom == 0.0:
+            return False
+        below += 1 if _sd([picks[i] for i in idx]) / denom < CLOCK_RATIO_CUT else 0
+    # A two-sided 95% interval clears the cut when fewer than 2.5% of resamples land the other
+    # side of it. Stated as a count so the arithmetic is visible.
+    edge = 0.025 * CLOCK_BOOTSTRAP
+    return below < edge or below > CLOCK_BOOTSTRAP - edge
 
 
 def _sd(values: Sequence[float]) -> float:
@@ -808,8 +986,40 @@ def fit_room(
         rank_corr[pos] = corr
         rank_slope[pos] = slope
 
-    # THE CLASSIFIER. Counted over the whole board and the whole draft, per season and
-    # pooled, so nothing is conditioned on and range restriction cannot reach it.
+    # THE CLASSIFIER, on each position's own joined picks and nothing else. No window, no
+    # team-count normalisation, nothing conditioned on. See CLOCK_RATIO_CUT.
+    clock_sd_pick: dict[str, float] = {}
+    clock_sd_resid: dict[str, float] = {}
+    clock_ratio: dict[str, float] = {}
+    clock_n: dict[str, int] = {}
+    clock_resolvable: dict[str, bool] = {}
+    unclassified: list[str] = []
+    for pos, rows in by_position.items():
+        clock_n[pos] = len(rows)
+        picks = [float(r.overall) for r in rows]
+        resid = [r.delta for r in rows]
+        sd_pick = _sd(picks)
+        sd_resid = _sd(resid)
+        clock_sd_pick[pos] = sd_pick
+        clock_sd_resid[pos] = sd_resid
+        if len(rows) < MIN_CLOCK_N or sd_resid == 0.0:
+            clock_ratio[pos] = float("inf")
+            unclassified.append(pos)
+            continue
+        clock_ratio[pos] = sd_pick / sd_resid
+        # Reported, never gating. See CLOCK_BOOTSTRAP.
+        clock_resolvable[pos] = _clock_resolvable(picks, resid)
+    # AN UNCLASSIFIED POSITION IS NEVER SCHEDULED. Setting the flag without excluding it here
+    # was the first version of this and it was worse than no guard at all: a single-season fit
+    # marked the quarterback unresolvable and then scheduled him anyway, so the report said
+    # "not classified" while the room took him off the board.
+    scheduled = frozenset(
+        p for p, r in clock_ratio.items()
+        if r < CLOCK_RATIO_CUT and p not in unclassified
+    )
+
+    # THE RETIRED CLASSIFIER, still counted and still reported as a diagnostic. It decides
+    # nothing from B9 on.
     avail: Counter[str] = Counter()
     drafted: Counter[str] = Counter()
     per_season: dict[str, list[float]] = {}
@@ -827,7 +1037,6 @@ def fit_room(
         pos: (drafted[pos] / avail[pos] if avail[pos] else float("inf"))
         for pos in set(avail) | set(drafted)
     }
-    scheduled = frozenset(p for p, r in supply_ratio.items() if r > SUPPLY_RATIO_CUT)
 
     pick_mu = {p: st.mean([r.overall for r in by_position[p]]) for p in scheduled}
     pick_sd = {p: _sd([float(r.overall) for r in by_position[p]]) for p in scheduled}
@@ -945,6 +1154,10 @@ def fit_room(
     return Fit(
         mu=mu, sigma=sigma, cell_n=cell_n, pooled=tuple(pooled),
         scheduled=scheduled, pick_mu=pick_mu, pick_sd=pick_sd,
+        clock_ratio=clock_ratio, clock_sd_pick=clock_sd_pick,
+        clock_sd_resid=clock_sd_resid, clock_n=clock_n,
+        clock_unclassified=tuple(sorted(unclassified)),
+        clock_resolvable=clock_resolvable,
         supply_ratio=supply_ratio, supply_avail=dict(avail), supply_drafted=dict(drafted),
         supply_by_season={k: tuple(v) for k, v in per_season.items()},
         rank_corr=rank_corr, rank_slope=rank_slope,
@@ -1711,6 +1924,16 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
 
     boards = {s: load_board(s) for s in SEASONS}
     roots = sorted({r for b in boards.values() for r in b.roots})
+    # WHICH MARKET THIS ROOM WAS FITTED AGAINST, on the first line. Until B9 the report named
+    # no market at all, so three runs against three different boards produced three reports
+    # that were indistinguishable on the page -- and every gate downstream inherited whichever
+    # one happened to be active.
+    market = markets.active()
+    out.append(
+        f"market: {market.name}  (league {market.league}, adp {market.source})  "
+        f"board rows {min(len(b.rows) for b in boards.values())}-"
+        f"{max(len(b.rows) for b in boards.values())}"
+    )
     out.append(f"input root(s): {', '.join(roots)}  (sim={SIM_CACHE}, live={LIVE_CACHE})")
     out.append(f"seasons: {', '.join(str(s) for s in SEASONS)}  picks: {fit.total}")
     out.append(
@@ -1722,21 +1945,63 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
 
     out.append("G1 -- the fit, all of it measured")
     out.append(
-        f"  which clock each position is on. supply ratio = drafted / available in the top "
-        f"{PICKS} by ADP, cut at {SUPPLY_RATIO_CUT}:"
+        f"  which clock each position is on. clock ratio = sd(pick) / sd(pick - rank), "
+        f"cut at {CLOCK_RATIO_CUT}; below the cut is the SCHEDULE clock:"
     )
-    for pos in sorted(fit.supply_ratio, key=lambda p: -fit.supply_ratio[p]):
+    for pos in sorted(fit.clock_ratio, key=lambda p: fit.clock_ratio[p]):
         clock = "SCHEDULE" if pos in fit.scheduled else "board"
+        ratio = fit.clock_ratio[pos]
+        note = "  (n below MIN_CLOCK_N: not classified)" if pos in fit.clock_unclassified else ""
+        out.append(
+            f"    {pos:4s} n={fit.clock_n.get(pos, 0):4d} "
+            f"sd(pick)={fit.clock_sd_pick.get(pos, 0.0):6.2f} "
+            f"sd(pick-rank)={fit.clock_sd_resid.get(pos, 0.0):6.2f}  "
+            f"ratio={'inf' if ratio == float('inf') else f'{ratio:.3f}':>6s}  -> {clock}{note}"
+        )
+    expected = expected_scheduled()
+    agrees = fit.scheduled == expected
+    out.append(
+        f"    derived {sorted(fit.scheduled)} against {sorted(expected)} implied by the "
+        f"league's starting slots: {'agree' if agrees else 'DISAGREE'}"
+    )
+    if not agrees:
+        out.append(
+            f"      disagreeing: {sorted(fit.scheduled ^ expected)}. A scheduled position is "
+            f"removed from the board the bots draft off, so this room is not the room the "
+            f"league describes and nothing measured in it is comparable to anything else."
+        )
+    out.append("")
+    out.append(
+        f"  DIAGNOSTIC ONLY, and retired as a classifier in B9: supply ratio = drafted / "
+        f"available in the top {PICKS} by ADP, cut at {SUPPLY_RATIO_CUT}. Its numerator is a "
+        f"{TEAMS}-team draft and its denominator is the market board's top {PICKS}, two windows "
+        f"that only correspond when the market's team count differs from the room's -- so it "
+        f"collapses toward 1.0 exactly when the market fits the league. It decides nothing:"
+    )
+    disagreed: list[str] = []
+    for pos in sorted(fit.supply_ratio, key=lambda p: -fit.supply_ratio[p]):
         per = "/".join(
             "inf" if v == float("inf") else f"{v:.2f}" for v in fit.supply_by_season[pos]
         )
         ratio = fit.supply_ratio[pos]
+        # WHAT THE RETIRED CLASSIFIER WOULD HAVE SAID, not what the shipped one says. Printing
+        # the live verdict next to the retired number would read as though the retired number
+        # produced it, which is the sort of wrong label that costs a session.
+        would = "SCHEDULE" if ratio > SUPPLY_RATIO_CUT else "board"
+        now = "SCHEDULE" if pos in fit.scheduled else "board"
+        mark = "" if would == now else f"  <- DISAGREES with the clock ratio ({now})"
+        if would != now:
+            disagreed.append(pos)
         out.append(
             f"    {pos:4s} avail={fit.supply_avail.get(pos, 0):4d} "
             f"drafted={fit.supply_drafted.get(pos, 0):4d}  "
-            f"ratio={'inf' if ratio == float('inf') else f'{ratio:.2f}':>6s}  -> {clock}"
+            f"ratio={'inf' if ratio == float('inf') else f'{ratio:.2f}':>6s}  "
+            f"would say {would}{mark}"
         )
         out.append(f"         by season: {per}")
+    out.append(
+        f"    the retired classifier disagrees on {sorted(disagreed) or 'nothing'} in this market"
+    )
     out.append(
         "  diagnostics only -- corr(ADP rank, actual pick) and its slope. These do NOT decide"
     )
@@ -1795,7 +2060,13 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
     out.append(f"G2 -- room validation, {len(synthetic)} synthetic drafts ({sampler} sampler)")
     out.append("  in-sample: synth mean [5th-95th pct] vs the real five-season range")
     comparisons = compare(synthetic, real)
-    verdict = True
+    # THE CLASSIFIER VERDICT IS PART OF THE ROOM'S VERDICT. The six statistics all describe how
+    # the synthetic draft LOOKS; none of them can see that a position was taken off the board
+    # entirely, because a room that schedules receivers still produces a plausible-looking
+    # first-QB round and a plausible spread. B8 shipped exactly that. So the structure is
+    # gated here as well as in `runner.gate_failures` G7 -- the CLI and the sweep must not be
+    # able to disagree about whether a room is valid.
+    verdict = fit.scheduled == expected_scheduled()
     for c in comparisons:
         flag = "pass" if c.passes else "FAIL"
         if c.passes and c.margin_sem < 2.0:
@@ -2020,7 +2291,18 @@ def main(argv: list[str] | None = None) -> int:
         "--inject", choices=INJECTIONS, default=None,
         help="corrupt one mechanism and report whether the gates notice (exits 1 when they do)",
     )
+    parser.add_argument(
+        "--market", choices=sorted(markets.REGISTRY), default=markets.DEFAULT,
+        help="the (league config, ADP source) pair to fit and validate in",
+    )
     args = parser.parse_args(argv)
+
+    # BEFORE ANY BOARD IS READ, which is the same ordering rule `runner.execute` states: the
+    # market is a module-level selection that `load_board` reads rather than takes, so setting
+    # it after the first `fit_room` would validate one room and report another. Every path out
+    # of this function -- `--inject`, `report`, `--cost` -- reads a board, and this is the only
+    # line that precedes all three.
+    markets.set_active(args.market)
 
     if args.inject:
         lines, held = inject(args.inject, seeds=args.seeds)
