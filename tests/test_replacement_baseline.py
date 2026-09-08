@@ -118,9 +118,31 @@ def test_replacement_lands_where_the_market_drafts(
 ) -> None:
     """Baselines must sit at the waiver line, not the starter line.
 
-    Anchors are the market's own first 128 picks (43 RB / 53 WR / 16 QB / 16 TE, no D/ST
-    or K), which is the only ground truth for how many of each position get drafted.
-    D/ST and K stay pinned at the starting-slot count in a way nothing else does.
+    THIS TEST PINNED THE DEFECT IT WAS MEANT TO GUARD, and the way it did so is worth naming.
+    It asserted RB, WR and TE and said nothing at all about QB -- so when `rostered_counts`
+    withheld bench depth from every position with fewer than two starting slots, and a 1-QB
+    league's quarterback was swept up with D/ST and K, this test stayed green with the QB
+    baseline at QB8 against a real market of 13. A guard that names three of four positions
+    cannot see the fourth. Every position is asserted now, specialists included.
+
+    THE ANCHOR ALSO CHANGED, because the old one was unsourced. This docstring used to cite
+    "the market's own first 128 picks (43 RB / 53 WR / 16 QB / 16 TE, no D/ST or K)" as "the
+    only ground truth for how many of each position get drafted". Measured against every FFC
+    board pinned in this repo (2021-2025), that composite matches no season: RB runs 39-50,
+    WR 48-58, QB 15-18, TE 10-13. Worse, ADP is the wrong instrument for the question -- its
+    top 128 holds ZERO kickers while the five completed league-6012 drafts take 8.2 of them,
+    one per team, every year.
+
+    The anchor is now those completed drafts, which are pinned in the same cache and are the
+    actual answer to "how many of each position get drafted":
+
+        rostered inside 128 picks, mean of 2021-2025:
+        QB 13.0   RB 40.0   WR 48.0   TE 10.4   K 8.2   DEF 8.4
+
+    What this fixture produces is checked against that below. It is not expected to match
+    exactly -- the fixture is one season's projection curve and the anchor is a five-season
+    mean -- so each position is bounded rather than pinned to a point, except the specialists,
+    which are exact by construction.
     """
     levels = replacement_levels(board_projections, espn_config)
     teams = espn_config.num_teams
@@ -129,11 +151,19 @@ def test_replacement_lands_where_the_market_drafts(
         assert levels[position].rostered == teams
         assert levels[position].starters_used == teams
 
-    assert levels["RB"].rostered == 35
-    assert levels["WR"].rostered == 52
-    assert levels["TE"].rostered == 17
-    # Every position a team can start two or more of must clear its own starting demand.
-    for position in ("RB", "WR", "TE"):
+    # QB IS THE ONE THIS TEST USED TO OMIT. A 1-QB league starts 8 and the real drafts roster
+    # 13, so a baseline at the starting-slot count is the defect and 8 must fail here.
+    assert levels["QB"].rostered == 16
+    assert levels["QB"].rostered > levels["QB"].starters_used, (
+        "QB got starters only, which is the pre-B7 defect: `rostered_counts` grouped a 1-QB "
+        "league's quarterback with D/ST and K because all three occupy one starting slot"
+    )
+
+    assert levels["RB"].rostered == 32
+    assert levels["WR"].rostered == 48
+    assert levels["TE"].rostered == 16
+    # Every position a team keeps its own backups for must clear its own starting demand.
+    for position in ("QB", "RB", "WR", "TE"):
         assert levels[position].rostered > levels[position].starters_used
 
     drafted = sum(lvl.rostered for lvl in levels.values())

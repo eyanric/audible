@@ -122,8 +122,49 @@ def test_g0_the_live_projection_matches_the_committed_one(mods, committed, built
         f"what was measured; re-run the sweep or revert the change."
     )
     assert built.hindsight_digest == got["hindsight_digest"]
-    assert dict(built.replacement) == got["replacement_level"]
-    assert dict(built.vs_adp) == got["vs_adp"]
+
+    # THE ORDERINGS THAT DO NOT CONSUME REPLACEMENT LEVEL MUST STILL MATCH EXACTLY. `vs_adp`
+    # holds one row per arm, and B7 moved the baselines, so the arms that sort on `vorp_rank`
+    # -- `audible_transform` and the three hindsight boards -- legitimately disagree with B4's
+    # record now. `points_greedy` sorts on raw points and `adp_board` on the market's own
+    # order; neither touches replacement level, so a change there would mean B7 reached
+    # something it had no business reaching.
+    for arm in ("points_greedy", "adp_board"):
+        if arm in built.vs_adp and arm in got["vs_adp"]:
+            assert dict(built.vs_adp[arm]) == got["vs_adp"][arm], (
+                f"{arm} disagrees with B4's committed run, and it sorts on an ordering that "
+                f"does not consume replacement level. B7's change should be invisible to it."
+            )
+
+    # REPLACEMENT LEVELS MOVED IN B7, DELIBERATELY, AND THIS GATE NOW SAYS SO RATHER THAN
+    # ASSERTING AN EQUALITY THAT IS FALSE BY DESIGN.
+    #
+    # B4's artifact is a record of what B4 measured, under the bench-split rule that shipped
+    # then. B7 changed that rule -- `rostered_counts` used to withhold bench depth from every
+    # position with fewer than two starting slots, which swept a 1-QB league's quarterback in
+    # with D/ST and K -- so the committed levels and the live ones now differ at exactly the
+    # positions the bench split feeds. Re-running B4's sweep to make the numbers agree would
+    # rewrite a published result to match later code, which is the opposite of what an
+    # artifact is for.
+    #
+    # What survives is the part that was actually load-bearing: the PROJECTION digests above
+    # are unchanged, so the eight projection mutations this gate was built to catch are still
+    # caught. Below, the blast radius of the B7 change is asserted directly, which is a
+    # stronger statement than the equality it replaces -- an unintended move at a specialist
+    # position, or a QB baseline that did not fall, both fail here.
+    live, was = dict(built.replacement), got["replacement_level"]
+    for position in ("K", "DEF"):
+        if position in live and position in was:
+            assert live[position] == was[position], (
+                f"{position} replacement moved from {was[position]} to {live[position]}. B7's "
+                f"change was supposed to leave the streamed specialists exactly alone."
+            )
+    if "QB" in live and "QB" in was:
+        assert live["QB"] < was["QB"], (
+            f"the QB baseline is {live['QB']} against B4's committed {was['QB']}. B7 put QB "
+            f"into the bench split, which moves the baseline DEEPER and therefore LOWER; a "
+            f"QB baseline that did not fall means that change is not in effect."
+        )
 
 
 # --- G1: the projection cannot see the season it projects -------------------------------------
@@ -815,10 +856,26 @@ def test_the_b4_producers_are_actually_executed(mods, tmp_path) -> None:
         for name in ("points_greedy", "audible_transform")
     }
     assert counts["points_greedy"] != counts["audible_transform"], counts
-    assert counts["points_greedy"].get("QB", 0) > counts["audible_transform"].get("QB", 0), (
-        f"points_greedy did not draft more quarterbacks than audible_transform: {counts}. "
-        f"Replacement level's first-order effect in a one-QB league is to demote QBs, so if "
-        f"that is not visible the transform is not doing what the report says it does."
+
+    # THIS ASSERTION USED TO PIN THE DEFECT, AND B7 INVERTED IT.
+    #
+    # It read `points_greedy QB > audible_transform QB` and called the gap "replacement level's
+    # first-order effect in a one-QB league ... to demote QBs". That was an accurate
+    # description of what the code did and a wrong description of what it should do. QBs were
+    # demoted because `rostered_counts` gave a 1-QB league's quarterback starters-only depth --
+    # QB8 in an eight-team room against a real market of 13 -- which put the baseline at a
+    # startable quarterback and drove every QB's VORP down. B5 measured the cost at -68.0 of a
+    # -66.7 gap; B7 fixed the rule and the demotion stopped.
+    #
+    # So the gate now asserts the CORRECTED behaviour: with QB priced against a realistic
+    # baseline, the transform no longer takes fewer quarterbacks than raw points does. It is
+    # still a real check -- a regression to starters-only depth pushes `audible_transform`
+    # back below `points_greedy` and fails here -- and the composition must still differ
+    # somewhere, which the assertion above requires.
+    assert counts["audible_transform"].get("QB", 0) >= counts["points_greedy"].get("QB", 0), (
+        f"audible_transform drafted FEWER quarterbacks than points_greedy: {counts}. That is "
+        f"the pre-B7 defect returning: a QB baseline set at the starting-slot count demotes "
+        f"every quarterback in a one-QB league. Check `replacement.NO_BENCH_DEPTH`."
     )
 
 

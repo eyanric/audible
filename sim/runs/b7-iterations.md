@@ -157,11 +157,153 @@ wrong and the loop stops.**
 
 ### Change
 
-`src/audible/value/replacement.py` only. One rule.
+`src/audible/value/replacement.py`, one rule. The bench-eligibility test
+
+```python
+depth = sorted((pos for pos in counts if _startable_slots(config, pos) >= 2), ...)
+```
+
+becomes
+
+```python
+depth = sorted((pos for pos in counts if pos not in NO_BENCH_DEPTH), ...)
+```
+
+with `NO_BENCH_DEPTH = frozenset({"K", "DEF", "DST", "D/ST", "DL", "LB", "DB"})`.
+`_startable_slots` is untouched and still used elsewhere; `audible/draft/ordering.py` keeps its
+own hand-maintained mirror of it, which is therefore still in step.
+
+**THE IDP ENTRIES ARE THERE TO PREVENT A CHANGE, NOT TO MAKE ONE, and the first draft of this
+iteration got that wrong.** Written as `{K, DEF, DST, D/ST}` alone, the rule also handed bench
+depth to DL, LB and DB in `sleeper_boyfun`, whose single `IDP_FLEX` slot is shared by all three
+so each has exactly one startable slot. That is a real change to the second league's board and
+this session has no evidence for it: no completed Sleeper draft is pinned and no sim config runs
+that league, so it could be neither predicted nor checked. Holding those three where they were
+makes the measured blast radius exactly what was measured:
+
+```
+  espn_danger_zone   adds QB   removes nothing
+  espn_davis_drive   adds QB   removes nothing
+  espn_green_hope    adds QB   removes nothing
+  sleeper_boyfun     adds nothing, removes nothing -- byte-identical board
+```
+
+`tests/test_replacement_baseline.py::test_replacement_lands_where_the_market_drafts` also
+changed, and that needs saying plainly rather than being buried in a diff: **it pinned the
+defect.** It asserted RB, WR and TE and said nothing whatever about QB, so a rule that gave
+quarterbacks starters-only depth passed it. A guard naming three of four positions cannot see
+the fourth. It now asserts every position including QB and its anchor is the completed drafts
+rather than the unsourced ADP composite.
 
 ### Actual
 
-*(recorded after the run)*
+Run `sim/runs/b7-iter1.json` against baseline `sim/runs/b5-vintage.json`. Byte-identical
+configs but for the run name, so the only difference is the `src/` change.
+
+```
+                                    before                 after      delta
+transform_minus_ffa_baseline  -66.7[-92.9,-40.5]   -48.5[-71.0,-26.1]   +18.2
+transform_minus_points       +122.3[-66.5,+311.2] +140.5[-44.1,+325.2]  +18.2
+transform_minus_adp           -35.4[-94.2,+23.4]   -17.2[-74.0,+39.6]   +18.2
+ffa_baseline_minus_points    +189.1[ +2.9,+375.3] +189.1[ +2.9,+375.3]   +0.0
+ceiling_minus_adp            +300.4[+140.0,+460.8] +331.9[+158.3,+505.6] +31.5
+real_minus_shuffle            +97.3[+58.4,+136.3]  +97.3[+58.4,+136.3]   +0.0
+shuffle_minus_bot             +58.7[+12.5,+104.9]  +58.7[+12.5,+104.9]   +0.0
+
+by position (transform - ffa_baseline):
+  before   QB -68.02  WR -18.48  RB +16.18  TE  +1.21  K  +9.47  DEF 0.0
+  after    QB -10.93  WR -41.59  RB +16.95  TE  -8.79  K  -0.80  DEF 0.0
+  delta    QB +57.09  WR -23.11  RB  +0.77  TE -10.00  K -10.27
+```
+
+### Predicted versus actual
+
+**QB: AGREE.** Predicted the term would move from -68.02 to between -34 and +10; it landed at
+**-10.93**. Predicted the baseline would go rank 8 -> rank 16 in all five seasons with a mean
+points drop of 34.5; both are exactly what the change produced, verified before the run. The
+mechanism is confirmed at the predicted position.
+
+**AGGREGATE: MISS, and the miss is the informative part.** Predicted `transform - ffa_baseline`
+would land between -35 and +5. It landed at **-48.5** -- an improvement of +18.2, but well
+short of the range.
+
+**Diagnosis. The bench pool is conserved and I did not model the redistribution.** There are
+`8 x 7 = 56` bench slots and the split spends all of them. Giving QB its share took slots from
+everyone else:
+
+```
+              QB    RB    WR    TE
+  before       8    52    35    17
+  after       16    48    32    16
+```
+
+QB gained 8; WR lost 3, RB lost 4, TE lost 1. A **shallower** WR baseline means the baseline
+player is BETTER, so every receiver's VORP falls and receivers get drafted later -- and the
+real market takes **48** receivers, so WR needed to go deeper, not shallower. WR therefore
+moved the wrong way and gave back 23.1 of the 57.1 that QB won. TE and K gave back another
+20.3 between them.
+
+The QB prediction was right. The aggregate prediction was wrong because it treated one
+position's baseline as independent of the others when the pool that funds them is fixed.
+
+**The predicted overshoot did not happen.** QB16 is deeper than both the real market's 13.0 and
+FFA's 11-13, so I predicted the QB term might overshoot past +15. It did not -- it stopped at
+-10.93, still slightly short of parity. Recorded because predicting a thing that then fails to
+occur is as much a correction as predicting one that does.
+
+### Controls
+
+```
+shuffle - bot     +58.7 [+12.5, +104.9]   unchanged to the decimal
+real - shuffle    +97.3 [+58.4, +136.3]   unchanged to the decimal
+bot advantage      -4.09                  unchanged; at chance
+adp advantage    +134.06                  unchanged; required arm present
+invariants        440 checks, 3 violations -- the same three audible#72 reported.
+                  No new invariant fired.
+default suite     556 passed, 1 xfailed
+```
+
+**WHICH ARMS MOVED IS ITSELF A CHECK, and it passed exactly.** Only three arms moved:
+`audible_transform` (+98.69 -> +116.88), `hindsight_board` (+434.46 -> +465.98) and
+`hindsight_total` (+400.61 -> +394.99). Every one of those orders on `vorp_rank` and therefore
+consumes replacement levels. Every arm that does not -- `points_greedy` and `hindsight_points`
+(raw points), `adp` and `adp_board` (market order), `ffa_baseline` and `ffa_vor` (FFA's own
+depths), `scarcity_only`, `shuffle`, `bot` -- is unchanged to the decimal. A change to
+replacement level that had moved the ADP arm would have meant something was wrong.
+
+**`real` DID NOT MOVE, AND THAT IS A LIMIT ON THIS WHOLE ITERATION.** The `real` arm is the
+cockpit's own `the_call` path and it is unchanged at +151.91, because `sim/seat.board_from_season`
+deliberately does not call `compute_vorp` -- its value is linear in ADP rank, documented at
+`sim/seat.py:110-123` as a refusal to invent projections. So the harness measures this fix on
+`audible_transform` and cannot say what it does to the arm that models the live cockpit. The
+fix reaches production through `build_board_from_lines`, which production does use; the sim's
+`real` arm is simply not wired to it.
+
+**The ceiling moved too, by +31.5.** `hindsight_board` is built through the same value engine,
+so the ceiling this run is read against is not the ceiling the baseline was read against.
+Fraction-of-ceiling is therefore quoted against each run's own ceiling and not across the two.
+
+### Walk-forward
+
+```
+                    before                 after            delta
+  in  (2021-2023)  -79.8 [ -95.0,  -64.7]  -52.6 [ -98.2,   -7.0]  +27.2
+  out (2024-2025)  -52.8 [-357.4, +251.8]  -39.5 [-384.7, +305.7]  +13.3
+```
+
+Both splits improved and the sign is the same in both. The improvement is smaller
+out-of-sample (+13.3 against +27.2), which is the shape overfitting would take -- but the
+out-of-sample split has **two season clusters, one degree of freedom and a t quantile of
+12.706**, so its interval spans 690 points and resolves nothing at all. It is on the page
+because a reader must be able to see that it resolves nothing, not because it says the fix
+generalises.
+
+### Verdict
+
+**Mechanism confirmed, aggregate prediction wrong, loop continues.** The gap it named closed at
+the position it named, by the amount it predicted. The aggregate missed because the prediction
+omitted a conservation constraint that was visible in the code and that I should have modelled.
+Recorded as a miss rather than rounded into a success.
 
 ---
 
@@ -169,12 +311,15 @@ wrong and the loop stops.**
 
 Re-ranked after each cycle rather than worked from a list. Current ranking by measured size:
 
-1. **QB -68.02** — iteration 1.
-2. **WR -18.48** — and the measurement points at a second defect in the same function. The
-   rule lands RB 52 / WR 35; the real drafts are RB 40.0 / WR 48.0. **The rule has RB and WR
-   the wrong way round**, because `assign_starters` gives every FLEX to a running back (RB 24
-   starters against WR 16), and the bench is then split in proportion to that. Not touched in
-   iteration 1: one change per iteration.
+1. ~~**QB -68.02**~~ — iteration 1, closed to **-10.93**.
+2. **WR -41.59** — now the largest, and iteration 1 made it worse by taking bench slots from
+   it. The rule lands WR 32 on the FFA board where the real drafts take **48**. The cause is
+   upstream of `rostered_counts`: `assign_starters` gives every FLEX to a running back (RB 24
+   starters against WR 16 on that board), and the bench is then split in proportion to starter
+   count, so the flex allocation decides the bench allocation twice over. Note the same fixture
+   question cuts the other way in `tests/fixtures/espn_board_projections.json`, where the flex
+   goes to WR and the rule lands WR 48 / RB 32 -- so this is a property of the projection
+   curve, not a constant, and any fix has to hold for both.
 3. The three `audible#72` invariant findings — `seat_conflict_seen`, `sync_stale_blip`,
-   `sync_stale_shrink`. Correctness, not board value; they move no arm.
-4. **RB +16.18**, **K +9.47**, **TE +1.21** — all inside the noise of a 5-cluster interval.
+   `sync_stale_shrink`. Correctness, not board value; they move no arm and no interval.
+4. **TE -8.79**, **RB +16.95**, **K -0.80** — inside the noise of a 5-cluster interval.

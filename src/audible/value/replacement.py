@@ -93,19 +93,62 @@ def _startable_slots(config: LeagueConfig, position: str) -> int:
     return sum(1 for slot in config.starting_slots if position in config.slot_eligibility[slot])
 
 
+# Positions that get STARTERS ONLY and no share of the bench.
+#
+# NAMED, AND THE PREVIOUS RULE'S REFUSAL TO NAME ANYTHING IS WHAT BROKE IT. `rostered_counts`
+# used to withhold bench depth from every position with fewer than two starting slots, on the
+# reasoning quoted in its docstring: a team that can start exactly one D/ST gains nothing from
+# a second. True of D/ST and K. False of a quarterback in a 1-QB league, who occupies exactly
+# one slot for a completely different reason -- and slot count cannot tell those two reasons
+# apart, so the proxy misclassified precisely one position.
+#
+# TWO GROUPS, AND THEY ARE HERE FOR DIFFERENT REASONS. Keeping them apart is the point: one is
+# measured and one is a deliberate refusal to change something unmeasured.
+#
+# STREAMED, measured on the five completed league-6012 drafts, rostered inside 128 picks:
+#
+#     K     8.2 / 8 = 1.02 per team   never a second one
+#     DEF   8.4 / 8 = 1.05 per team   never a second one
+#     QB   13.0 / 8 = 1.63 per team   most teams carry a backup  <- NOT streamed
+#
+# That is the separation slot count was standing in for, and it does not hold for QB. A backup
+# quarterback is injury insurance for a position whose starter plays every snap and whose
+# replacement is not free; a second kicker is nothing, which is why the wire holds K9 and D/ST9
+# all season.
+#
+# UNMEASURED, BEHAVIOUR PRESERVED. `sleeper_boyfun` has one `IDP_FLEX` slot shared by DL, LB
+# and DB, so each of the three has exactly one startable slot and each was excluded by the old
+# rule. Whether an IDP league streams those positions is a real question and this repository
+# has no data on it: no completed Sleeper draft is pinned, and no sim configuration runs that
+# league. Dropping them here would change that board on no evidence, so they keep the treatment
+# they already had. This entry is a placeholder for a measurement, not a claim -- pin a
+# completed `sleeper_boyfun` draft and the question answers itself the way QB's did.
+NO_BENCH_DEPTH: frozenset[str] = frozenset(
+    {"K", "DEF", "DST", "D/ST"} | {"DL", "LB", "DB"}
+)
+
+
 def rostered_counts(
     players: list[PlayerProjection], config: LeagueConfig, starters: set[str]
 ) -> dict[str, int]:
     """How many of each position the league drafts: starters, plus its share of the bench.
 
-    Bench depth goes only to positions a team could start more than one of, split by
-    starter demand. Both halves of that rule are load-bearing and neither names a position:
+    Bench depth goes only to positions a team keeps its own backups for, split by starter
+    demand. Both halves of that rule are load-bearing:
 
-    - **Only multi-slot positions.** A bench player is insurance for a starting slot. A
-      team that can start exactly one D/ST gains nothing from a second one, so it drafts
-      one and streams the rest -- which is why the waiver wire holds D/ST9 all season.
-      Positions a team starts two or three of (RB, WR, TE through the flex) turn bench
-      players into starters every week through byes and injuries, so they get hoarded.
+    - **Only positions that are not streamed.** A bench player is insurance for a starting
+      slot. A team that can start exactly one D/ST gains nothing from a second one, so it
+      drafts one and streams the rest -- which is why the waiver wire holds D/ST9 all season.
+      Positions a team starts two or three of (RB, WR, TE through the flex) turn bench players
+      into starters every week through byes and injuries, so they get hoarded.
+
+      THIS USED TO TEST `_startable_slots(config, pos) >= 2` AND THAT WAS A DEFECT. Slot count
+      is a proxy for streamability and it fails on exactly one position: a quarterback in a
+      1-QB league has one starting slot for a completely different reason than a kicker does,
+      and the proxy could not tell them apart. QB was therefore excluded from the bench split
+      entirely and given starters only -- eight in an eight-team league. `NO_BENCH_DEPTH`
+      names the property directly, with the measurement behind it and the unmeasured
+      cases held exactly where they were.
     - **Not by VORP.** Allocating the bench by value looks obvious and is exactly wrong:
       replacement is *defined* as the best unrostered player, so VORP is 0.0 at every
       position's own baseline and ranking non-starters by it ranks them by how FLAT the
@@ -114,10 +157,36 @@ def rostered_counts(
       D/ST it stashes pushes D/ST replacement deeper, which raises D/ST VORP, which
       stashes another. Measured on League B it converged on rostering 24 D/ST and 22 K.
 
-    Checked against the market, which is the only ground truth available for "how many of
-    each position actually gets drafted": ADP's first 128 picks hold 43 RB / 53 WR / 16 QB
-    / 16 TE and zero D/ST or K (first D/ST at 132, first K at 131). This rule lands League B
-    at RB35 / WR52 / QB8 / TE17 with D/ST and K held at 8 -- the same shape.
+    CHECKED AGAINST THE COMPLETED DRAFTS, NOT AGAINST ADP. An earlier version of this
+    docstring validated the rule against the ADP board's first 128 picks and called the result
+    "the same shape". Three things were wrong with that and all three are measured:
+
+    - ADP is the wrong ground truth for "how many of each position actually gets drafted". The
+      pinned FFC boards hold ZERO kickers in their top 128; the five real drafts of this league
+      take 8.2, one per team, every season. A list nobody drafts from cannot say what gets
+      drafted, and five completed drafts of this exact league sit in the same cache.
+    - The ADP figures quoted (43 RB / 53 WR / 16 QB / 16 TE, first D/ST at 132, first K at 131)
+      match no pinned season. Measured across 2021-2025 the boards run RB 39-50, WR 48-58,
+      QB 15-18, TE 10-13, with the first D/ST at 56-133 and the first K at 138-143.
+    - QB8 against a market 16 was called "the same shape" as three figures that did match. It
+      is off by half, and it was the defect this rule now fixes.
+
+    Rostered inside 128 picks, measured over the five completed league-6012 drafts
+    (2021-2025), against what this rule now produces for that league:
+
+        position    real (mean)    this rule
+        QB              13.0            16
+        RB              40.0            48
+        WR              48.0            32
+        TE              10.4            16
+        K                8.2             8
+        DEF              8.4             8
+
+    QB is now in the right region and was not before. RB and WR are still inverted -- the real
+    drafts take more receivers than backs and this rule does the reverse, because
+    `assign_starters` gives every FLEX to a running back and the bench is then split in
+    proportion to starter count. That is a separate defect in a different function, measured
+    and recorded rather than quietly folded into this change.
     """
     counts = {
         position: sum(
@@ -132,7 +201,7 @@ def rostered_counts(
         return counts
 
     depth = sorted(
-        (pos for pos in counts if _startable_slots(config, pos) >= 2),
+        (pos for pos in counts if pos not in NO_BENCH_DEPTH),
         key=lambda pos: (-counts[pos], pos),
     )
     demand = sum(counts[pos] for pos in depth)

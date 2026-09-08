@@ -489,16 +489,33 @@ def test_the_three_findings_on_main_are_still_findings(swept) -> None:
         )
 
 
-def test_the_qb_baseline_defect_is_reported_not_touched() -> None:
-    """`rostered_counts` is B5's finding, measured at -68.0, and is NOT this session's to fix.
+def test_the_write_scope_is_the_one_this_session_was_given() -> None:
+    """What may be edited, and by which session. B6 said `sim/` only; B7 was given `src/`.
 
-    It changes the live cockpit's board during a frozen draft. Asserting that `sim/` has not
-    edited it is how "report it, do not touch it" stays true after this session ends.
+    B6 WROTE THIS AS `sim/` ONLY AND THAT WAS CORRECT FOR B6. Its handoff fenced it into the
+    harness precisely so that the QB baseline defect it had just detected could not be fixed in
+    the same session that detected it -- fixing and detecting together means the detector was
+    never tested against the bug. The fence was the point, and it held: B6 reported
+    `rostered_counts` at -68.0 and did not touch it.
+
+    B7's handoff lifts the fence deliberately, and says why: *"This session writes to
+    `src/audible/`. That is deliberate and it is new -- every prior sim session was fenced into
+    `sim/`, which is why five sessions produced measurement and zero improvement. Flux is frozen
+    and nothing merges, so `src/` changes cannot reach the live pod."*
+
+    So the guard is not deleted -- a session with no scope check is how an unrelated file gets
+    edited unnoticed. It now names the paths B7 was authorised to change and still fails on
+    anything else. `ALLOWED` is the whole of the session's write surface, in one place, and it
+    is the thing to narrow when the next handoff re-fences.
     """
-    # `git diff origin/main...HEAD` was the first version and it saw NOTHING: on this branch
-    # origin/main == HEAD and every change was still uncommitted, so the assertion reduced to
-    # `assert not []`. It also cannot see the working tree, which is exactly where an edit to
-    # `src/audible/value/replacement.py` would sit. `status --porcelain` sees both.
+    # Every path this session may touch. `sim/` is the harness; the two `src/` entries and the
+    # test beside them are iteration 1's change and nothing more. A fourth path appearing here
+    # without a handoff sentence authorising it is a scope creep, not a refactor.
+    allowed = (
+        "sim/",
+        "src/audible/value/replacement.py",
+        "tests/test_replacement_baseline.py",
+    )
     committed = subprocess.run(
         ["git", "diff", "--name-only", "origin/main...HEAD"],
         cwd=REPO, capture_output=True, text=True, check=False,
@@ -511,9 +528,11 @@ def test_the_qb_baseline_defect_is_reported_not_touched() -> None:
         pytest.skip("git is unavailable here")
     changed = [line for line in committed.stdout.splitlines() if line.strip()]
     changed += [line[3:].strip() for line in working.stdout.splitlines() if line.strip()]
-    outside = sorted({c for c in changed if c and not c.startswith("sim/")})
+    outside = sorted(
+        {c for c in changed if c and not any(c.startswith(a) for a in allowed)}
+    )
     assert not outside, (
-        f"this session must write only inside sim/; it also touched {outside}. "
-        f"`rostered_counts` in src/audible/value/replacement.py is B5's finding, measured at "
-        f"-68.0, and changing it moves the live cockpit's board during a frozen draft."
+        f"this session touched {outside}, which is outside the write scope it was given "
+        f"({list(allowed)}). Changing production outside that list moves the live cockpit's "
+        f"board, and the draft is frozen."
     )
