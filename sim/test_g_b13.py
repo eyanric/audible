@@ -84,14 +84,12 @@ def test_the_production_board_is_the_object_build_board_from_lines_returns(mods,
     keeping it. So the assertion is identity of CONTENT with the reported replacement levels:
     if the board were rebuilt separately, or built from different lines, these would drift.
     """
-    _boards, _markets, _room, _roundtrip, _runner, _seat, _weekly = mods
-    board = built[SEASON].board
+    boards, _markets, room, _roundtrip, _runner, _seat, _weekly = mods
+    season_boards = built[SEASON]
+    board = season_boards.board
     assert board is not None, "SeasonBoards.board is None; the production object was dropped"
     assert board.entries, "the production board is empty"
-    assert len(board.entries) > built[SEASON].pool // 2, (
-        f"the production board carries {len(board.entries)} entries against a projected pool "
-        f"of {built[SEASON].pool}; it was not built from the run's own lines"
-    )
+
     # `vorp_rank` is dense and total over the FULL pool, tail included. That is the property
     # that makes dropping the tail afterwards safe: replacement level was found over everyone.
     ranks = sorted(e.vorp_rank for e in board.entries)
@@ -99,6 +97,22 @@ def test_the_production_board_is_the_object_build_board_from_lines_returns(mods,
         "vorp_rank is not a dense 1..N over the full pool, so replacement level was not "
         "computed over the pool the projection supplied"
     )
+
+    # THE IDENTITY THAT MAKES THIS THE RIGHT OBJECT, and the first version of this gate did
+    # not have it. It asserted only that the board was large and densely ranked, and an
+    # adversarial review mutated `build` to keep the HINDSIGHT board -- the labelled leak
+    # built from the season's realised lines -- instead of the projected one. Every gate in
+    # this file stayed green and the seat's `points_for` rose by 214 at (2023, seed 0). The
+    # board arms read their orderings off the projected board through `_order_by`, so tying
+    # the kept object to those orderings is what pins WHICH board it is.
+    by_index = {f"ffc{r.rank:04d}": i for i, r in enumerate(room.load_board(SEASON).rows)}
+    for arm, field in boards.PROJECTED_ORDERS.items():
+        assert boards._order_by(board, field, by_index) == season_boards.orders[arm], (
+            f"SeasonBoards.board does not reproduce the {arm} ordering the artifact reports. "
+            f"The object kept for the seat is not the object the board arms drafted, so the "
+            f"seat is drafting a board no gate in this run describes."
+        )
+    assert season_boards.replacement, "no replacement levels were reported for this board"
 
 
 def test_the_production_board_drops_the_tail_and_keeps_every_draftable_row(mods, built) -> None:
@@ -240,6 +254,83 @@ def test_the_production_board_moves_when_replacement_moves(mods, built) -> None:
             f"under a full depth change, so `real` is still not wired to replacement level "
             f"and this session measured what audible#77 and audible#78 measured, which is "
             f"nothing."
+        )
+
+
+def test_the_seat_actually_receives_the_production_board(mods, built, tmp_path) -> None:
+    """`run_arm` must pass it through to `build_seat`, and a review proved that needs asserting.
+
+    Every other gate here calls `seat.production_board` directly, so all of them stay green
+    when `run_arm` drops the argument on the floor -- which is the exact failure this session
+    exists to fix, one layer further in. An adversarial review deleted `production=production`
+    from `run_arm`'s `build_seat` call and the whole file passed while the seat drafted the
+    market board again.
+    """
+    _boards, _markets, room, _roundtrip, _runner, seat, weekly = mods
+    league = weekly.league_config()
+    season_board = room.load_board(SEASON)
+    fit = room.fit_room(tuple(room.SEASONS))
+    week_table = weekly.weekly_points(SEASON, score_kickers=True)
+
+    def draft(production):
+        return seat.run_arm(
+            "real", SEASON, 0,
+            season_board=season_board, fit=fit, week_table=week_table, config=league,
+            state_dir=tmp_path / ("prod" if production is not None else "mkt"),
+            seat=6, orders=built[SEASON].orders, production=production,
+        )
+
+    market = draft(None)
+    production = draft(built[SEASON].board)
+    assert market.picks != production.picks, (
+        "the seat made the identical draft with and without the production board, so "
+        "`run_arm` is not passing it to `build_seat` and `real_board` reaches nothing"
+    )
+
+
+def test_the_run_config_setting_reaches_the_seat(mods, tmp_path) -> None:
+    """END TO END, through `runner.execute`, because the layer above also went unasserted.
+
+    The same review set `production=built.board if wants_production ...` to `None` inside
+    `execute` and ran the ENTIRE slow suite green while `real_board = "production"` was an
+    end-to-end no-op. Nothing between the config key and the seat was covered. This runs one
+    season and two seeds both ways and requires the `real` arm to move -- and requires `bot`
+    and `adp`, which never reach `build_seat`, NOT to move, so a run that simply differed in
+    some unrelated way could not satisfy it.
+    """
+    _boards, _markets, room, _roundtrip, runner, seat, _weekly = mods
+
+    def run(real_board):
+        config = runner.RunConfig(
+            name=f"gate-b13-{real_board}",
+            seasons=(SEASON,), seeds=(0, 1),
+            arms=("real", "shuffle", "bot", "adp"),
+            seat=6, league="espn_davis_drive", fit_seasons=tuple(room.SEASONS),
+            projection="ffa", real_board=real_board,
+            historical_deltas=True, score_kickers=True, raw={},
+        )
+        return runner.execute(
+            config, resume=False,
+            state_dir=tmp_path / real_board / "state",
+            checkpoint_dir=tmp_path / real_board,
+        )
+
+    market = run(seat.MARKET_BOARD)
+    production = run(seat.PRODUCTION_BOARD)
+
+    assert production["projection"]["real_board"] == seat.PRODUCTION_BOARD, (
+        "the artifact does not record which board the seat drafted"
+    )
+    for arm in ("real", "shuffle"):
+        assert market["arms"][arm]["points_for"] != production["arms"][arm]["points_for"], (
+            f"the {arm} arm scored identically under both settings, so the config key does "
+            f"not reach the seat and this session measured nothing"
+        )
+    for arm in ("bot", "adp"):
+        assert market["arms"][arm]["points_for"] == production["arms"][arm]["points_for"], (
+            f"the {arm} arm moved, and it never passes through `build_seat`. Something other "
+            f"than the seat's board changed between the two runs, so the comparison is not "
+            f"attributable to `real_board`."
         )
 
 

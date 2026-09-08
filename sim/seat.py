@@ -633,9 +633,19 @@ ARMS: frozenset[str] = (
 # contain. Measured: an oracle seat that picks whoever actually scored most that season clears
 # the baseline by roughly +330; the honest arm sits at -27 to -35.
 #
-# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it:
-# the real arm's distance from the ADP baseline has read between -16 and +24 across every
-# lineup policy of every run committed here, against a ceiling of 150.
+# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it.
+#
+# IT APPLIES ONLY UNDER `real_board = "market"`, and audible#79 is where that stopped being
+# implicit. Every word of the derivation above is about a board whose values are a monotone
+# transform of ADP rank; the production board has a real ordering in it, so the constant would
+# be bounding an arm by an argument that run's own `board_vs_adp` disproves.
+# `runner.leak_ceiling_failures` therefore gives the production seat the MEASURED
+# perfect-foresight bound instead, the same one the board arms get.
+#
+# THE STATED RANGE IS THE MARKET BOARD'S. Across every lineup policy of every run committed
+# here the market-board `real` arm has read between -16 and +46 against the ADP baseline --
+# audible#74's mfl_12 is the +46 and this comment said +24 until audible#79 measured it. The
+# production board reads +41 to +78, which is why it is not held to 150.
 LEAK_CEILING: float = 150.0
 
 # Arms that must all be present for the report to mean anything. `real` is the thing under

@@ -1,0 +1,135 @@
+# B13 / b13-mfl8: the same run as `b10-mfl8.toml` with the SEAT'S BOARD changed, and nothing
+# else. Same market, same projection, same seasons, seeds, arms, seat and gates.
+#
+# WHY IT IS A SEPARATE RUN RATHER THAN AN EDIT. `sim/runs/b10-mfl8.json` is committed and gates
+# read it. More importantly the two are the comparison: `real` here against `real` there is the
+# entire measurement, and it is NOT paired -- see `sim/runs/b13-real.md`.
+#
+# WHAT `real_board = "production"` CHANGES. Every arm that runs through `seat.build_seat` --
+# `real`, `shuffle`, the ablations and both legacy orderings -- drafts
+# `build_board_from_lines` -> `compute_vorp` -> `effective_score`, the object the live cockpit
+# serves, instead of a board whose value is linear in ADP rank. The board arms are untouched:
+# they already read their orderings off that same object and are byte-identical between the two
+# runs, which is what makes them the control on this change.
+[run]
+name = "b13-mfl8"
+seasons = [2021, 2022, 2023, 2024, 2025]
+seed_start = 0
+seed_count = 60
+
+# THE MARKET: a league config paired with an ADP source, declared in `sim/markets.py`
+# and named here. It selects the board `room.load_board` builds, the files
+# `runner.required_inputs` demands in preflight, and the provenance
+# `room.assert_pre_draft` checks. It is also in `config_hash`, so a checkpoint from one
+# market cannot be resumed into another.
+market = "mfl_8_std"
+
+# THE PROJECTION, and the only thing this changes. The seat, the room, the draft pool, the
+# scorer and the outcome measure are identical to B4's. `walkforward` is B4's own projection;
+# `ffa` reads the vintage files. Arms 1 and 2 still read two orderings off ONE board, so G4
+# holds exactly as it did.
+projection = "ffa"
+
+# THE SEAT'S BOARD. `market` is linear in ADP rank and is what B2 through B12 measured;
+# `production` is the cockpit's own path. Refused in preflight unless the projection is
+# `ffa`, because over a walk-forward projection it would be the value engine over a curve
+# this harness invented rather than the board the cockpit serves.
+real_board = "production"
+
+# SCORE THE BOARD UNDER THE RULEBOOK THE SEASONS WERE ACTUALLY PLAYED UNDER. This is a defect
+# fix, not a preference, and B4 does not have it. `weekly.weekly_points` applies
+# `roundtrip.HISTORICAL_DELTAS` (`{"rec": 0.0}`) when it scores an OUTCOME, because 6012 paid
+# nothing per reception in 2021-2025 and the committed TOML's 0.5 describes 2026. Nothing
+# applied them when a BOARD was built, so B4's boards ordered every pass-catcher at half a
+# point a catch under a rulebook the outcome was never scored under.
+#
+# It also settles the reception-column gap the README raised. The bare `rec` column exists in
+# 2024 and 2025 only -- NOT in "2019, 2020, 2022, 2024, 2025" as the README says, measured on
+# the files on disk -- but under this league's effective weights a reception is worth 0.0, so
+# an absent reception count changes no score here. `ffa.assert_scoreable` reads the EFFECTIVE
+# weights rather than a hardcoded season list, which is why that is a fact about the league
+# and not a fact anyone had to remember.
+historical_deltas = true
+
+# PAY THE KICKER ON BOTH SIDES, or hold him at zero on both. Not one of each.
+#
+# FFA projects kickers and `player_stats` has always carried the columns to score them, so with
+# this off the B5 board would rank a kicker on a real projection and then be paid nothing for
+# him -- which is precisely the failure `ffa.ZERO_POSITIONS` holds defences at zero to avoid.
+# A drafted kicker is worth 158-170 points a season under 6012's table, so the asymmetry is not
+# a rounding error: it would hand every board arm a slot it paid a pick for and scored zero in.
+#
+# Defences cannot follow, and that is a property of the OUTCOME source rather than a choice.
+# nflverse `player_stats` has no team-defence rows in any pinned season, so DEF stays at zero
+# on both sides. The README's "kickers and defences score for the first time" is half right and
+# this is the half that holds.
+#
+# It moves every arm's total. Paired differences between arms are what the headlines report and
+# those are unaffected by a constant, but the ARMS block is not comparable to B4's and the
+# artifact records `score_kickers` so nobody reads across the two by accident.
+score_kickers = true
+
+# THE ARMS. Every board arm drafts the same way -- best available on its own ordering, the
+# room's roster caps, the same feasibility deadline every other arm gets. Only the ORDER
+# differs, and arms 1, 2 and 4 read three orders off ONE set of projected stat lines.
+#
+#   points_greedy     -- rank by RAW PROJECTED POINTS. No replacement level, no VORP.
+#   audible_transform -- the SAME lines through build_board_from_lines, ordered on vorp_rank.
+#                        Differs from points_greedy by exactly one constant per position: the
+#                        replacement level. So their difference IS the transform.
+#   adp_board         -- the market's ordering through the same machinery.
+#   ffa_baseline      -- NEW, and the reason this run exists. FFA's replacement-baseline
+#                        DEPTH applied to OUR points under OUR rulebook, so the ONLY thing
+#                        that differs from audible_transform is how deep the baseline sits.
+#                        Both at or below adp says replacement-level thinking does not pay in
+#                        this format and ours is fine. FFA ahead of ours says the idea works
+#                        and OUR VERSION IS WEAKER -- concrete, fixable, and the most
+#                        actionable result available.
+#   ffa_vor           -- FFA's PUBLISHED points_vor column, and CONFOUNDED. FFA scores its
+#                        own export at half a point a reception in 2024 and 2025 (measured:
+#                        slope 0.499 on projected receptions) while this league pays zero, so
+#                        this arm changes the scoring table as well as the baseline. It is
+#                        kept on the page because the handoff asked for it and because
+#                        dropping a measurement for coming out awkward is not allowed; its
+#                        gap against ffa_baseline IS the size of the contamination.
+#   scarcity_only     -- COUNTERFACTUAL. `value_metric = "vorp"` in all four league configs,
+#                        so scarcity is computed, displayed, and never orders a live board.
+#   hindsight_board   -- THE CEILING, a deliberate labelled leak: the same pipeline over the
+#                        season's REALISED lines, per game. Every other arm is reported as a
+#                        fraction of `hindsight_board - adp`, because the same null means
+#                        opposite things at a +40 ceiling and a +400 one.
+#   hindsight_points  -- the ceiling board on RAW POINTS. Against hindsight_board it prices
+#                        the transform with the projection error removed, which separates "the
+#                        transform does not work" from "the input cannot carry it".
+#   hindsight_total   -- the realised lines on SEASON TOTALS, so the harness's own
+#                        indifference to games played stays on the page.
+#
+# CARRIED FORWARD, none optional:
+#   adp     -- the SKILL BASELINE. Required; `runner.preflight` refuses a config without it.
+#   bot     -- the NULL CONTROL. By symmetry it must land at chance.
+#   shuffle -- the LEAK DETECTOR. Required on every run, permanently.
+#   real    -- the cockpit's own the_call path, so this run stays comparable to B2 and B3.
+arms = [
+    "points_greedy", "audible_transform", "adp_board", "ffa_baseline", "ffa_vor",
+    "scarcity_only",
+    "hindsight_board", "hindsight_points", "hindsight_total",
+    "adp", "bot", "shuffle", "real",
+]
+
+seat = 6
+league = "espn_davis_drive"
+fit_seasons = [2021, 2022, 2023, 2024, 2025]
+
+# WALK-FORWARD on the OPPONENT MODEL, carried over and reported beside the main split. Two
+# test seasons is one degree of freedom and a t quantile of 12.706, so it resolves nothing and
+# is printed as a limit rather than as a result.
+[walk_forward]
+fit = [2021, 2022, 2023]
+test = [2024, 2025]
+
+[gates]
+# The shuffle arm is not at chance and B2 established why: it keeps audible's STRUCTURE and
+# loses only its value ordering, so it beats bots that draft a second unstartable quarterback.
+# The leak gates that matter are the null control, real-beats-shuffle, and the G6d size
+# ceiling -- the signature a real leak produces is SIZE, not collapse.
+require_shuffle_at_chance = false

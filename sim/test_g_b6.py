@@ -506,10 +506,21 @@ def test_the_three_findings_on_main_are_still_findings(swept) -> None:
 #
 # WHAT STILL COVERS THE RISK IT NAMED, so that retiring it does not quietly drop a guard:
 #
-#   the rule itself   `tests/test_replacement_baseline.py` pins `rostered` for QB, RB, WR and
-#                     TE by name and by exact value. Any change to `rostered_counts` fails it
-#                     loudly and says which positions moved. That is a stronger guard than a
-#                     path fence, because it describes the behaviour rather than the file.
+#   the rule itself   `tests/test_replacement_baseline.py` pins `rostered` by exact value
+#                     for DEF and K (8), RB (35), WR (52) and TE (17), so any change to
+#                     `rostered_counts` fails it loudly. That is a stronger guard than a path
+#                     fence, because it describes the behaviour rather than the file.
+#
+#                     TWO HOLES IN IT, BOTH FOUND BY REVIEW AND BOTH LEFT OPEN HERE rather
+#                     than fixed in the commit that retires an unrelated gate. QB is NOT
+#                     pinned by name: it is pinned only algebraically, by the conservation
+#                     assertion `drafted == teams * rounds`, which with the other five pinned
+#                     forces QB to exactly 8. So a QB change fails, but the failure names
+#                     whichever OTHER position the author also moved, or the total -- never
+#                     the quarterback. audible#78 hit exactly that and read three unrelated
+#                     count changes with nothing pointing at QB. And the whole file runs
+#                     against `espn_davis_drive` only; nothing anywhere pins `rostered` for
+#                     `sleeper_boyfun`, the superflex IDP league the same rule serves.
 #   the live cache    `sim/test_g_cacheroot.py` asserts the sim's cache root is not the
 #                     cockpit's and is not under it; `sim/test_g_b5.py` asserts the same of
 #                     `SIM_CACHE` against `LIVE_CACHE`. Those are about writes, which is the

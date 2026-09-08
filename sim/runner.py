@@ -971,7 +971,7 @@ def build_payload(
     payload["decomposition_residual"] = _decomposition_residual(
         payload, decomposition["by_slot_total"]
     )
-    payload["board_vs_adp"] = board_vs_adp(config)
+    payload["board_vs_adp"] = board_vs_adp(config, season_boards)
     if season_boards:
         payload["projection"] = _projection_block(season_boards, league, config)
         payload["ceiling"] = _ceiling_block(payload)
@@ -1245,37 +1245,58 @@ def _slot_mean(rows: Sequence[dict[str, Any]]) -> dict[str, float]:
     return {slot: round(v / n, 2) for slot, v in sorted(totals.items())}
 
 
-def board_vs_adp(config: RunConfig) -> dict[str, Any]:
-    """TASK 4. How much ordering is there for the harness to find? None, and here is why.
+def board_vs_adp(
+    config: RunConfig, season_boards: dict[int, Any] | None = None
+) -> dict[str, Any]:
+    """TASK 4. How much ordering is there for the harness to find, and it depends on the run.
 
-    `seat.board_from_season` gives audible a board whose value is a MONOTONE TRANSFORM OF ADP
-    RANK. So in this harness audible's board order and the market's order are the same list --
-    measured below, 128 of 128 exact matches and a Pearson of 1.000000 in every season. There
-    is no ordering difference to find, and no amount of ordering work could produce one.
+    UNDER `real_board = "market"` the answer is none, and here is why. `seat.board_from_season`
+    gives audible a board whose value is a MONOTONE TRANSFORM OF ADP RANK, so audible's board
+    order and the market's order are the same list -- measured below, 128 of 128 exact matches
+    and a Pearson of 1.000000 in every season. There is no ordering difference to find, and no
+    amount of ordering work could produce one. That was not a defect in the harness; it was the
+    honest consequence of a limit stated since B1, that no vintage preseason projections exist,
+    so a board could not be built the way production builds one.
 
-    That is not a defect in the harness; it is the honest consequence of a limit stated since
-    B1. No vintage preseason projections exist for any of these seasons, so a board cannot be
-    built the way production builds one, and the market's own ordering is the only defensible
-    stand-in.
+    UNDER `real_board = "production"` THAT PREMISE IS GONE and this block MUST NOT keep saying
+    it. B5 pinned FFA's vintage files and B13 wired the seat to the cockpit's own path over
+    them, so the seat drafts a board that disagrees with ADP in most of the top 128 -- Pearson
+    0.89, 6 exact of 128 in 2023 -- and `real - adp` is then the board AND the overlay
+    together. An adversarial review found this function hardcoding `board_from_season` and
+    emitting the monotone-transform note into artifacts whose seat never drafted that board,
+    which is a false statement in a committed file about the run it describes.
 
-    The production comparison is reported beside it, off the pinned QA fixtures, and it is the
-    number that matters: audible's REAL board disagrees with ADP in most of the top 128. That
-    disagreement is where audible's value would live, and it is exactly what this harness
-    cannot exercise.
+    The production comparison off the pinned QA fixtures is reported beside it either way.
     """
     import importlib.util
 
+    production = config.real_board == seat.PRODUCTION_BOARD
     out: dict[str, Any] = {
         "harness": {},
+        "real_board": config.real_board,
         "note": (
-            "the harness board is a monotone transform of ADP rank, so its ordering IS the "
-            "market's. real - adp therefore measures the OVERLAY alone, never the board."
+            (
+                "the seat drafted the PRODUCTION board (build_board_from_lines -> "
+                "compute_vorp), which disagrees with ADP. real - adp therefore measures the "
+                "board AND the overlay together, not the overlay alone."
+            )
+            if production
+            else (
+                "the harness board is a monotone transform of ADP rank, so its ordering IS "
+                "the market's. real - adp therefore measures the OVERLAY alone, never the "
+                "board."
+            )
         ),
     }
     league = weekly.league_config() if config.league == weekly.LEAGUE_KEY else _league(config)
     for season in sorted(set(config.seasons)):
         board = room.load_board(season)
-        audible = seat.board_from_season(board, league)
+        built = (season_boards or {}).get(season)
+        audible = (
+            seat.production_board(built.board, board)
+            if production and built is not None and built.board is not None
+            else seat.board_from_season(board, league)
+        )
         top = audible.entries[: room.PICKS]
         exact = sum(1 for i, e in enumerate(top, start=1) if e.adp_rank == i)
         apart = sum(1 for i, e in enumerate(top, start=1) if abs(e.adp_rank - i) > room.TEAMS)
@@ -1344,9 +1365,31 @@ def _decomposition(arms: dict[str, Any], real_minus_shuffle: Sequence[float]) ->
         ),
         "total_real": real,
     }
+    # THE READING IS DERIVED FROM THE TERMS, not asserted over them. It used to be a fixed
+    # string saying "the shuffle arm keeps audible's structure and only loses its value
+    # ordering", and under `real_board = "production"` that is false: shuffling a board with
+    # real values in it is far more destructive than shuffling a relabelling of ADP, and
+    # `structure_shuffle_minus_bot` reads -99 to -249 rather than the small positive the
+    # sentence assumes. An adversarial review found the artifact asserting the opposite of its
+    # own numbers. A description that cannot be wrong about the run it describes is worth more
+    # than one that reads well.
+    structure = out["structure_shuffle_minus_bot"]
+    if structure is None:
+        head = "machinery at chance"
+    elif structure >= 0:
+        head = (
+            "machinery at chance; the shuffle arm keeps audible's structure and only loses "
+            "its value ordering"
+        )
+    else:
+        head = (
+            f"machinery at chance; but the shuffle arm is {structure:+.1f} against the null "
+            f"control, so scrambling this board costs MORE than audible's structure is worth "
+            f"and `value_ordering_real_minus_shuffle` is not comparable to a run where it "
+            f"does not. Read it as an upper bound on the ordering, not as its size"
+        )
     out["reading"] = (
-        "machinery at chance; the shuffle arm keeps audible's structure and only loses its "
-        "value ordering. READ `real_minus_adp` BEFORE THIS: the terms below are audible "
+        f"{head}. READ `real_minus_adp` BEFORE THIS: the terms below are audible "
         "against BOTS, and the bots reach by fitted amounts while the seat does not, so a "
         "noiseless seat of any kind collects what they pass. The baseline arm is what says "
         "whether any of it is audible's doing."
@@ -1533,16 +1576,47 @@ def leak_ceiling_failures(payload: dict[str, Any]) -> list[str]:
     reads as a result. The leak arms are exempt by construction -- they ARE the ceiling.
     """
     out: list[str] = []
+    ceiling = payload.get("ceiling_minus_adp")
+    # WHICH BOUND THE `real` ARM GETS DEPENDS ON WHICH BOARD IT DREW, and until audible#79 it
+    # silently got the constant either way. The constant's whole derivation is the paragraph
+    # above -- "the values are a monotone transform of ADP rank, so there is no better ordering
+    # of it to find" -- and `real_board = "production"` is precisely the removal of that
+    # property. An adversarial review pointed out that the failure string 150 would have
+    # printed ("the board is a monotone transform of ADP rank") is contradicted by the SAME
+    # artifact's `board_vs_adp`, which reports Pearson 0.89 against ADP.
+    #
+    # So under `production` the seat gets the bound this function already argues is the right
+    # one for a projection board: the MEASURED perfect-foresight ceiling, `ceiling_minus_adp`,
+    # exactly as `audible_transform` and `points_greedy` do. That is not a relaxation chosen to
+    # let a number through -- it is stricter in kind, being measured on this run rather than
+    # fixed, and the arm sits far below it (+49 to +78 against +300 to +410). It is looser in
+    # magnitude, and the honest reason is that a board with a real ordering in it HAS more than
+    # 150 points of honest ordering to find, which is the sentence the constant denies.
+    seat_board = str(payload.get("projection", {}).get("real_board", seat.MARKET_BOARD))
     baseline = payload.get("real_minus_adp")
-    if baseline is not None and float(baseline["mean"]) > seat.LEAK_CEILING:
+    if baseline is not None and seat_board != seat.PRODUCTION_BOARD:
+        if float(baseline["mean"]) > seat.LEAK_CEILING:
+            out.append(
+                f"G6d leak-ceiling: the real arm beats the ADP baseline by "
+                f"{baseline['mean']:+.1f}, past the {seat.LEAK_CEILING:+.0f} ceiling. The "
+                f"board is a monotone transform of ADP rank and contains no ordering worth "
+                f"that much, so the arm is reading something that is not on it."
+            )
+    elif (
+        baseline is not None
+        and ceiling is not None
+        and not isinstance(ceiling.get("mean"), str)
+        and float(baseline["mean"]) > float(ceiling["mean"])
+    ):
         out.append(
             f"G6d leak-ceiling: the real arm beats the ADP baseline by "
-            f"{baseline['mean']:+.1f}, past the {seat.LEAK_CEILING:+.0f} ceiling. The board "
-            f"is a monotone transform of ADP rank and contains no ordering worth that much, "
-            f"so the arm is reading something that is not on it."
+            f"{baseline['mean']:+.1f} on the PRODUCTION board, past the "
+            f"{float(ceiling['mean']):+.1f} a board built from the season's realised lines "
+            f"managed. Perfect foresight is the most any projection can be worth, so an arm "
+            f"past it is reading the outcome."
         )
 
-    ceiling = payload.get("ceiling_minus_adp")
+
     if ceiling is not None and not isinstance(ceiling.get("mean"), str):
         limit = float(ceiling["mean"])
         for name, label in (

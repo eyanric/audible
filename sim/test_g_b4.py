@@ -77,6 +77,18 @@ def built(mods):
     return boards.build(2023, weekly.league_config())
 
 
+@pytest.fixture(scope="module")
+def built_2022(mods):
+    """2022's boards. A SECOND SEASON, and audible#79 added it for a specific reason.
+
+    The gate this feeds replaced a draft-count control that ran two seasons and two seeds, and
+    the first version of the replacement ran one season -- a coverage loss nobody had asked
+    for, found by an adversarial review. Two seasons is what the control it replaces had.
+    """
+    _a, _art, boards, _proj, _room, _runner, _seat, weekly = mods
+    return boards.build(2022, weekly.league_config())
+
+
 # --- G0: the pre-registration is pinned -------------------------------------------------------
 
 
@@ -328,64 +340,88 @@ def test_g4_the_two_arms_share_one_projection(mods, built) -> None:
     assert len(points) == len(set(points)), "an ordering repeats a board index"
 
 
-def test_the_transform_demotes_quarterbacks_on_the_board(mods, built) -> None:
+def test_the_transform_demotes_quarterbacks_on_the_board(mods, built, built_2022) -> None:
     """Replacement level's first-order effect in a one-QB league, measured without a cap.
 
     THIS IS THE CLAIM the draft-count control in `test_the_b4_producers_are_actually_executed`
     used to assert and could not. That one read `points_greedy` QB > `audible_transform` QB in
-    a live run, and `points_greedy` sits on the fitted roster cap of 3 at every replacement
-    depth, so it was a strict inequality against a ceiling that one team-season in forty set.
-    It went red at QB depth 11 while the league's own drafts roster 13.0.
+    a live run. `room.fit_room` caps QB at 3 from a per-team histogram of {1: 16, 2: 23, 3: 1}
+    -- one team-season in forty -- `boards.greedy` hard-skips a position at its cap, and
+    `points_greedy` sits on that cap at every replacement depth. So it was a strict inequality
+    against a ceiling no ordering can exceed. It went red at QB depth 11 while the league's own
+    completed drafts roster 13.0, and it vetoed audible#73 and audible#78 on that.
 
-    BOARD ORDER HAS NO CAP IN IT. Both arms are orderings of the SAME entries -- G4 directly
-    above asserts that there is only one board object to share -- so the demotion is readable
-    off the two orderings, and it is there at every depth. QB replacement forced from 8 to 32
-    on this fixture, quarterbacks inside the first two rounds of the board, points ->
-    transform, and mean board ranks lost by the top five quarterbacks:
+    TWO ASSERTIONS, AND THE FIRST IS WHY THE SECOND MEANS ANYTHING. audible#79's first attempt
+    asserted only that fewer quarterbacks appear in the first two rounds under the transform
+    and that no top-five quarterback is promoted. An adversarial review broke it: a UNIFORM
+    RANDOM PERMUTATION of the board passes both, 1900 times in 2000, and so do `adp_board`,
+    the reversed points order and a one-slot nudge. The reason is that quarterbacks are
+    top-heavy under raw points -- 10 or 11 of the first 16 -- so merely SCATTERING them looks
+    identical to demoting them. A gate that cannot tell dilution from demotion is not a gate.
 
-        depth        8     11     13     14     16     20     24      32
-        2022     11->0  11->3  11->3  11->4  11->4  11->5  11->7   11->11
-        2023     10->2  10->3  10->3  10->4  10->5  10->5  10->6    10->9
-        2022 mean  +42.8  +15.6  +14.4   +9.8   +8.0   +5.6   +2.6
-        2023 mean  +20.2   +8.0   +7.8   +7.6   +6.0   +2.2   +1.6
+    THE FIX IS THE TRANSFORM'S OWN DEFINITION. `audible_transform` and `points_greedy` are two
+    orderings of ONE set of entries that differ by exactly one constant per position, the
+    replacement level -- that is the claim `sim/configs/b10-*.toml` makes and the whole reason
+    their difference is attributable. Subtracting a per-position constant CANNOT reorder
+    players inside a position. So:
 
-    Deeper replacement ERODES the effect without reversing it, which is exactly what the prose
-    claims, and the count separates at every depth the depth line will plausibly visit. THE
-    GATE'S OWN CEILING IS STATED RATHER THAN LEFT TO BE DISCOVERED: at QB 32 the 2022 count
-    ties and this gate stops separating. That is four quarterbacks per team in an eight-team
-    one-QB league, so a run that reaches it has a depth defect this gate is not the right
-    instrument for -- but it is a limit, and the control it replaces failed by hiding one.
+      1. within every position, the two orderings must be IDENTICAL, and
+      2. every quarterback -- all 22 or 23 of them, not the top five -- must be demoted or
+         unmoved, with the group's mean displacement positive.
 
-    The count is the assertion because it is an integer over a fixed number of board slots
-    with no fitted quantity anywhere in it. The per-player check is the shape: from QB 20 on,
-    the top one or two quarterbacks stop moving at all, so it asserts that none is PROMOTED
-    and that the group moves, not that every one of them does.
+    Together those say the only thing that changed is a per-position shift and the shift moved
+    quarterbacks down, which is the sentence the transform is reported on. Measured against
+    every impostor available, assertion 1 alone is decisive: `adp_board`, `scarcity_only`,
+    `hindsight_board` and 200 of 200 random permutations each break the internal order of FOUR
+    positions. Assertion 2 alone is not -- a permutation reproduces it -- which is why the two
+    are not interchangeable and neither is dropped.
+
+    Assertion 2, all quarterbacks, QB replacement forced from 8 to 40:
+
+        depth              8     11     13     14     16     20     24     29     32     40
+        2022 demoted   22/22  22/22  22/22  22/22  22/22  22/22  22/22  22/22  22/22   2/22
+        2022 mean      +98.0  +71.5  +68.7  +58.2  +53.6  +43.8  +28.3  +16.7   +2.3  -12.4
+        2023 demoted   23/23  23/23  23/23  23/23  23/23  23/23  23/23  23/23  23/23   7/23
+        2023 mean      +88.7  +71.7  +68.7  +67.0  +58.7  +40.8  +33.8  +17.5   +9.7   -9.1
+
+    Deeper replacement ERODES the effect without reversing it, exactly as the prose claims,
+    and it survives to QB 32 in both seasons. THE GATE'S CEILING IS STATED RATHER THAN LEFT TO
+    BE FOUND BY A RUN IT VETOES: it inverts at QB 40 -- five quarterbacks per team in an
+    eight-team one-QB league -- where the baseline sits below most of the position and the
+    transform starts PROMOTING them. A run that reaches 40 has a defect this is not the
+    instrument for; the control this replaces failed by hiding a limit at 11.
     """
     _a, _art, _b, _proj, room, _runner, _seat, _weekly = mods
-    rows = room.load_board(built.season).rows
-    points = built.orders["points_greedy"]
-    transform = built.orders["audible_transform"]
+    for season_boards in (built_2022, built):
+        rows = room.load_board(season_boards.season).rows
+        points = season_boards.orders["points_greedy"]
+        transform = season_boards.orders["audible_transform"]
+        where = f"{season_boards.season}"
 
-    two_rounds = 2 * room.TEAMS
-    greedy_qb = sum(1 for i in points[:two_rounds] if rows[i].position == "QB")
-    transform_qb = sum(1 for i in transform[:two_rounds] if rows[i].position == "QB")
-    assert transform_qb < greedy_qb, (
-        f"the transform put {transform_qb} quarterbacks in the first {two_rounds} board slots "
-        f"against raw points' {greedy_qb}, so replacement level is not demoting them in a "
-        f"one-QB league. This is the claim the transform is reported on, and unlike the draft "
-        f"count it has no roster cap in it."
-    )
+        # 1. THE STRUCTURAL HALF. One constant per position cannot reorder within a position.
+        for position in sorted({row.position for row in rows}):
+            assert [i for i in points if rows[i].position == position] == [
+                i for i in transform if rows[i].position == position
+            ], (
+                f"{where}: the transform reordered {position} players among themselves. It is "
+                f"reported as raw points shifted by one constant per position, which cannot do "
+                f"that, so the difference between these two arms is not the replacement level."
+            )
 
-    place_points = {index: place for place, index in enumerate(points, start=1)}
-    place_transform = {index: place for place, index in enumerate(transform, start=1)}
-    top_qb = [i for i in points if rows[i].position == "QB"][:5]
-    moved = {rows[i].name: place_transform[i] - place_points[i] for i in top_qb}
-    assert all(lost >= 0 for lost in moved.values()), (
-        f"the transform PROMOTED a top-five quarterback rather than demoting him: {moved}"
-    )
-    assert sum(moved.values()) > 0, (
-        f"not one of the top five quarterbacks moved on the board: {moved}"
-    )
+        # 2. THE CLAIM. Every quarterback, not a top slice that dilution could fake.
+        place_points = {index: place for place, index in enumerate(points, start=1)}
+        place_transform = {index: place for place, index in enumerate(transform, start=1)}
+        quarterbacks = [i for i in points if rows[i].position == "QB"]
+        moved = {rows[i].name: place_transform[i] - place_points[i] for i in quarterbacks}
+        promoted = {name: lost for name, lost in moved.items() if lost < 0}
+        assert not promoted, (
+            f"{where}: the transform PROMOTED {len(promoted)} of {len(moved)} quarterbacks in "
+            f"a one-QB league, which is the reverse of what replacement level does: {promoted}"
+        )
+        assert sum(moved.values()) > 0, (
+            f"{where}: not one of the {len(moved)} quarterbacks moved on the board, so "
+            f"replacement level is not demoting them at all: {moved}"
+        )
 
 
 def g4_failures(arm_digest: dict) -> list[str]:
@@ -876,36 +912,29 @@ def test_the_b4_producers_are_actually_executed(mods, tmp_path) -> None:
     }
     assert counts["points_greedy"] != counts["audible_transform"], counts
 
-    # THE QUARTERBACK CLAIM MOVED TO BOARD ORDER, and audible#78 is why. This read
-    # `points_greedy` QB > `audible_transform` QB, which is a strict inequality against a
-    # CLAMPED CEILING. `room.fit_room` caps QB at 3, fitted as the max over forty real
-    # team-seasons from a histogram of {1: 16, 2: 23, 3: 1} -- one team-season set it -- and
-    # `points_greedy` sits on that cap at every replacement depth. So the assertion fails the
-    # moment the transform also reaches 3, which happens at QB depth 11, below the 13.0 the
-    # league's own completed drafts roster. It vetoed audible#73 at QB 16 and audible#78 at
-    # QB 14, both times on correct behaviour. An assertion against a ceiling one team-season
-    # in forty set is not an assertion about replacement level.
+    # NO QUARTERBACK DRAFT-COUNT ASSERTION LIVES HERE ANY MORE, and the reason is worth more
+    # than the assertion was. This read `points_greedy` QB > `audible_transform` QB, on the
+    # ground that replacement level's first-order effect in a one-QB league is to demote
+    # quarterbacks. `room.fit_room` caps QB at 3, fitted as the max over forty real
+    # team-seasons from a histogram of {1: 16, 2: 23, 3: 1} -- ONE team-season set it -- and
+    # `points_greedy` sits on that cap at every replacement depth. So it was a strict `>`
+    # against a clamped ceiling and went red the moment the transform also reached 3, which
+    # happens at QB depth 11 while the league's own completed drafts roster 13.0. It vetoed
+    # audible#73 at QB 16 and audible#78 at QB 14, both times on correct behaviour.
     #
-    # WHAT SURVIVES HERE IS THE DIRECTION, which is falsifiable and cannot saturate the wrong
-    # way: in a one-QB league the transform must not draft MORE quarterbacks than raw points
-    # does. A tie is admissible only when the cap is what ties them -- a tie BELOW the cap is
-    # the transform failing to demote, and still fails. The claim itself, that replacement
-    # level demotes quarterbacks, is measured where there is no cap in the arithmetic, by
-    # `test_the_transform_demotes_quarterbacks_on_the_board`.
-    cap = payload["fit"]["caps"]["QB"]
-    greedy_qb = counts["points_greedy"].get("QB", 0)
-    transform_qb = counts["audible_transform"].get("QB", 0)
-    assert transform_qb <= greedy_qb, (
-        f"audible_transform drafted MORE quarterbacks than points_greedy ({transform_qb} vs "
-        f"{greedy_qb}) in a one-QB league, which is the reverse of what replacement level "
-        f"does: {counts}"
-    )
-    if transform_qb == greedy_qb:
-        assert greedy_qb >= cap, (
-            f"the two arms tie at {greedy_qb} quarterbacks BELOW the fitted cap of {cap}, so "
-            f"the tie is the transform failing to demote rather than both arms clamped by the "
-            f"room: {counts}"
-        )
+    # audible#79 FIRST TRIED TO KEEP A GUARDED VERSION -- `transform <= greedy`, with a tie
+    # admissible only at the cap -- and an adversarial review showed that has no red state at
+    # all. `boards.greedy` hard-skips a position once the roster hits its cap, so NO ordering
+    # whatsoever can put more than three quarterbacks on a roster: measured, an
+    # every-quarterback-first board drafts QB 3.00, identical to `points_greedy`. Both halves
+    # are therefore tautologies. The tie branch was also a category error, comparing a MEAN
+    # over units against an integer cap.
+    #
+    # So there is no informative draft-count assertion available at this position, and one
+    # that cannot fail is worse than none: it reads as coverage. The claim is asserted where
+    # the cap is not in the arithmetic, on board order, by
+    # `test_the_transform_demotes_quarterbacks_on_the_board`. What remains here is the
+    # whole-composition inequality above, which is about the producers running at all.
 
 
 def test_the_committed_run_matches_its_config(committed) -> None:
