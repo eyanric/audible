@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import room
+from . import markets, room
 from .invariants import Ledger
 
 REPO = Path(__file__).resolve().parents[1]
@@ -103,12 +103,41 @@ def main(argv: list[str] | None = None) -> int:
         help="collect every violation instead of stopping at the first. LABELLED as a survey "
              "in the artifact; it is for counting what exists before anything is fixed.",
     )
-    parser.add_argument("--out", type=Path, default=RUNS / "b6-invariants.json")
+    parser.add_argument(
+        "--market", default=None,
+        help="the (league config, ADP source) pair to run the invariants in. Omitted leaves "
+             "whatever market is already active, which is what a programmatic caller wants.",
+    )
+    parser.add_argument(
+        "--out", type=Path, default=None,
+        help="artifact path. Defaults to sim/runs/b6-invariants[-<market>].json, per market, "
+             "because three markets writing one path is three runs pretending to be one.",
+    )
     parser.add_argument(
         "--families", nargs="+", default=["seat", "sync", "order", "exec"],
         help="which invariant families to run",
     )
     args = parser.parse_args(argv)
+
+    # BEFORE ANY BOARD IS READ, which here means before `run_drafts` reaches `room.fit_room`.
+    # `fit_room` calls `load_board` itself, so the first board read is inside the fit and not
+    # at the visible `load_board` line below it.
+    #
+    # DEFAULTS TO NONE RATHER THAN TO markets.DEFAULT, and that is load-bearing. `main` is
+    # called programmatically -- `sim/test_g_b6.py` does it -- and a caller that wraps the call
+    # in `markets.use("mfl_8_std")` would have its choice silently overwritten by a flag it
+    # never passed, because `use()` restores on exit but does not defend against a `set_active`
+    # inside the block. Omitting the flag therefore means "leave the active market alone".
+    if args.market is not None:
+        markets.set_active(args.market)
+    market = markets.active()
+
+    out = args.out
+    if out is None:
+        # Per market, so the three artifacts cannot clobber one another. The FFC name is kept
+        # bare because it is the path B6 committed and every reference to it still resolves.
+        suffix = "" if market.name == markets.DEFAULT else f"-{market.name}"
+        out = RUNS / f"b6-invariants{suffix}.json"
 
     ledger = Ledger(strict=not args.survey)
     swept: dict[str, Any] = {}
@@ -137,10 +166,10 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(exc, InvariantViolation):
             raise
         print(f"INVARIANT VIOLATION\n  {exc}", file=sys.stderr)
-        _write(args.out, ledger, swept)
+        _write(out, ledger, market, swept)
         return 1
 
-    _write(args.out, ledger, swept)
+    _write(out, ledger, market, swept)
     print(ledger.report())
     if ledger.violations:
         print(f"\n{len(ledger.violations)} violation(s) collected in SURVEY mode",
@@ -149,9 +178,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _write(path: Path, ledger: Ledger, swept: dict[str, Any]) -> None:
+def _write(path: Path, ledger: Ledger, market: Any, swept: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"sweep": swept, **ledger.summary()}
+    # WHICH MARKET THE INVARIANTS RAN IN. The check counts are market-dependent -- the order
+    # family walks every pick of every simulated draft, and a deeper board yields more picks --
+    # so an artifact that does not name its market cannot be compared with another one.
+    payload = {
+        "market": {"name": market.name, "league": market.league, "source": market.source},
+        "sweep": swept,
+        **ledger.summary(),
+    }
     path.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n", "utf-8")
 
 

@@ -114,6 +114,15 @@ def fit_block(fit: room.Fit) -> dict[str, Any]:
             "joined": fit.joined,
             "total": fit.total,
             "scheduled": fit.scheduled,
+            # THE CLASSIFIER THAT DECIDED `scheduled`, so `runner.gate_failures` can name the
+            # disagreeing position and a reader can check the verdict without refitting.
+            "clock_ratio": fit.clock_ratio,
+            "clock_sd_pick": fit.clock_sd_pick,
+            "clock_sd_resid": fit.clock_sd_resid,
+            "clock_n": fit.clock_n,
+            "clock_unclassified": fit.clock_unclassified,
+            "clock_resolvable": fit.clock_resolvable,
+            # Diagnostic from B9 on; it decides nothing. See room.SUPPLY_RATIO_CUT.
             "supply_ratio": fit.supply_ratio,
             "supply_avail": fit.supply_avail,
             "supply_drafted": fit.supply_drafted,

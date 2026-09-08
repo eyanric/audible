@@ -225,31 +225,105 @@ def test_i2_an_unaliased_team_code_fails_that_gate(monkeypatch) -> None:
 # --- G3: the board is pre-draft, by content -----------------------------------------------
 
 
-@pytest.mark.parametrize("market", MFL_MARKETS)
+def _draft_classes() -> dict[int, set[str]]:
+    """NFL draft year -> normalised player names, from nflverse's id spine.
+
+    THIS REPLACED A GITIGNORED SUBSCRIPTION FILE, and that is the whole point. The gate used to
+    read `sim/data/ffa/raw_stats_<S+1>_wk0.csv`, which `.gitignore` excludes by design, so on a
+    fresh clone it called `pytest.skip` -- and B8 recorded, in this same file, that a gate which
+    skips is a gate that does not exist. It was skipping in exactly the situation it was written
+    for: someone else's checkout.
+
+    `nflverse/ff_playerids.parquet` carries `draft_year` for 12,391 players across the 2019-2026
+    classes (356-409 players in each of the ones this gate needs). It is not committed either --
+    every cache root is gitignored -- but it is RE-FETCHABLE FROM AN OPEN SOURCE, it is already
+    the first entry in `runner.required_inputs`, and `sim/test_g_room.py` already requires it by
+    name. So a checkout that can run any other sim gate can run this one.
+
+    MEASURED EQUIVALENT: on all twelve market-seasons where the CSV is present, the two sources
+    return the same verdict (zero leaks from both). The corroboration test below keeps the CSV
+    in play whenever it happens to be on disk, so nothing is lost by switching the primary
+    source; what is gained is that the primary no longer skips.
+    """
+    import polars as pl
+
+    path, _root = room.resolve_input("nflverse/ff_playerids.parquet")
+    frame = pl.read_parquet(path)
+    out: dict[int, set[str]] = {}
+    for name, year in frame.select(["name", "draft_year"]).iter_rows():
+        if year is None or not name:
+            continue
+        out.setdefault(int(year), set()).add(room.normalize(str(name)))
+    return out
+
+
+@pytest.mark.parametrize("market", ALL_MARKETS)
 def test_g3_no_board_carries_the_following_years_rookies(market) -> None:
     """G3. The vintage check that MFL's `asof` cannot carry on its own.
 
     `PERIOD=AUG15` selects drafts from 15 August ONWARD and MFL publishes no window end, so
     `Market.asof` is a lower bound rather than a measurement. What actually establishes that a
     2021 board was built before the 2021 season is that it contains no member of the 2022
-    draft class -- the same evidence `ffa.assert_vintage` uses, off the same `draft_year`.
+    draft class.
     """
+    classes = _draft_classes()
     for season in room.SEASONS[:-1]:
-        path = REPO / "sim" / "data" / "ffa" / f"raw_stats_{season + 1}_wk0.csv"
-        if not path.exists():
-            pytest.skip(f"{path.name} is not on disk; this gate needs the FFA drop")
-        with path.open(encoding="utf-8", newline="") as handle:
-            rookies = {
-                room.normalize(row["player"])
-                for row in csv.DictReader(handle)
-                if str(row.get("draft_year") or "") == str(season + 1)
-            }
+        rookies = classes.get(season + 1, set())
+        assert len(rookies) >= 200, (
+            f"only {len(rookies)} players in the {season + 1} draft class; a class that small "
+            f"would make this gate pass by having nothing to find"
+        )
         with markets.use(market):
             names = {room.normalize(r.name) for r in room.load_board(season).rows}
         leaked = sorted(names & rookies)
         assert not leaked, (
             f"{market} {season} board carries {len(leaked)} member(s) of the {season + 1} "
             f"draft class: {leaked[:8]}. That board was not built before that season."
+        )
+
+
+@pytest.mark.parametrize("market", ALL_MARKETS)
+def test_i8_a_board_carrying_next_years_class_is_caught(market) -> None:
+    """INJECTION. Ask the gate for the WRONG year and it must fire.
+
+    Without this the gate is green whenever the draft-class lookup returns nothing useful, and
+    the `>= 200` floor above only rules out one way of that happening. Every season's board is
+    full of players from ITS OWN draft class and earlier, so comparing season S's board against
+    class S must find someone -- if it does not, the join is broken rather than the board clean.
+    """
+    classes = _draft_classes()
+    for season in room.SEASONS[:-1]:
+        with markets.use(market):
+            names = {room.normalize(r.name) for r in room.load_board(season).rows}
+        assert names & classes.get(season, set()), (
+            f"{market} {season} board shares no name with the {season} draft class, so the "
+            f"name join is not working and the real check above cannot fire either"
+        )
+
+
+@pytest.mark.parametrize("market", ALL_MARKETS)
+def test_the_ffa_drop_agrees_with_nflverse_when_it_is_present(market) -> None:
+    """Corroboration, skipped by design when the subscription drop is absent.
+
+    THIS ONE IS ALLOWED TO SKIP because it is not the gate -- it is a second opinion on the
+    gate's source. The gate itself now runs off nflverse and cannot skip.
+    """
+    classes = _draft_classes()
+    for season in room.SEASONS[:-1]:
+        path = REPO / "sim" / "data" / "ffa" / f"raw_stats_{season + 1}_wk0.csv"
+        if not path.exists():
+            pytest.skip(f"{path.name} is not on disk; the FFA drop is gitignored by design")
+        with path.open(encoding="utf-8", newline="") as handle:
+            ffa = {
+                room.normalize(row["player"])
+                for row in csv.DictReader(handle)
+                if str(row.get("draft_year") or "") == str(season + 1)
+            }
+        with markets.use(market):
+            names = {room.normalize(r.name) for r in room.load_board(season).rows}
+        assert bool(names & ffa) == bool(names & classes.get(season + 1, set())), (
+            f"{market} {season}: the FFA drop and nflverse disagree about whether the board "
+            f"carries the {season + 1} draft class"
         )
 
 
@@ -514,19 +588,21 @@ def test_g7_which_room_each_market_actually_produces(market) -> None:
     the board's top 128 supplies, and `room._best` then removes every scheduled position from
     the board the bots pick off. B1 validated a room whose scheduled set is exactly {DEF, K}.
 
-    THIS ASSERTS THE MEASUREMENT, NOT A PASS. MFL's eight-team board genuinely puts RB and WR
-    on the schedule, and that is reported rather than tuned away -- `SUPPLY_RATIO_CUT` is not a
-    knob to turn until a market behaves. What must hold is that the condition is VISIBLE, and
-    the next two tests are where that is enforced.
+    B8 RECORDED `{DEF, K, RB, WR}` FOR mfl_8_std HERE and called it a measurement to be
+    reported rather than tuned away. That was right about the reporting and wrong about the
+    measurement: the number came from the supply ratio, whose numerator is a whole eight-team
+    draft and whose denominator is the market board's top 128, so the two windows coincide
+    exactly when the market's team count matches the room's and every ratio collapses toward
+    1.0. It was not measuring the room; it was measuring the mismatch between two windows.
+
+    B9's clock ratio -- sd(pick) / sd(pick - rank) -- conditions on nothing and reads no
+    window, and derives {DEF, K} in all three markets. So the assertion is now the same in
+    every market, and it is checked against `expected_scheduled()`, which reads the league's
+    own starting slots and shares no input with the classifier.
     """
-    expected = {
-        "ffc_12_std": {"DEF", "K"},
-        "mfl_12_std": {"DEF", "K"},
-        # Measured, not chosen: RB 1.047 and WR 1.111 against a cut of 1.0.
-        "mfl_8_std": {"DEF", "K", "RB", "WR"},
-    }[market]
     with markets.use(market):
-        assert set(room.fit_room().scheduled) == expected
+        fit = room.fit_room()
+    assert set(fit.scheduled) == set(room.expected_scheduled()) == {"DEF", "K"}
 
 
 def test_g7_a_wider_scheduled_set_fails_the_run() -> None:
@@ -546,11 +622,26 @@ def test_g7_a_wider_scheduled_set_fails_the_run() -> None:
 def test_g7_a_real_fit_block_carries_the_field_the_gate_reads() -> None:
     """The dict-mutation test above proves `gate_failures` READS `fit.scheduled`. This proves a
     real run WRITES it -- without both, `artifact.fit_block` could stop emitting the key and
-    G7 would never fire on anything again while every test stayed green."""
+    G7 would never fire on anything again while every test stayed green.
+
+    B8 ASSERTED `{DEF, K, RB, WR}` HERE, which was the defect rather than the design: its
+    classifier was the supply ratio, whose numerator is an eight-team draft and whose
+    denominator is the market board's top 128, so it collapsed toward 1.0 exactly when the
+    market matched the room and scheduled two skill positions on mfl_8_std. B9 replaced it with
+    the clock ratio and this now reads `{DEF, K}` in every market. The retired ratio is still
+    emitted, and still says WR 1.111, which is why the second assertion below is kept -- it is
+    the evidence that the number changed because the CLASSIFIER changed and not because the
+    board did.
+    """
     with markets.use("mfl_8_std"):
         block = artifact.fit_block(room.fit_room())
-    assert set(block["scheduled"]) == {"DEF", "K", "RB", "WR"}
-    assert block["supply_ratio"]["WR"] > room.SUPPLY_RATIO_CUT
+    assert set(block["scheduled"]) == {"DEF", "K"}
+    assert set(block["scheduled"]) == set(room.expected_scheduled())
+    assert block["supply_ratio"]["WR"] > room.SUPPLY_RATIO_CUT, (
+        "the retired supply ratio no longer mis-classifies WR on mfl_8_std, so the defect B9 "
+        "fixed is no longer reproducible from this artifact"
+    )
+    assert block["clock_ratio"]["WR"] > room.CLOCK_RATIO_CUT
 
 
 def test_g7_the_shipped_mfl8_artifact_carries_the_failure() -> None:
