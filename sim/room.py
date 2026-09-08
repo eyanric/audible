@@ -491,7 +491,37 @@ def kickoff(season: int) -> date:
     return date.fromordinal(labor_day.toordinal() + 3)
 
 
-SEASON_START: dict[int, date] = {s: kickoff(s) for s in SEASONS}
+# EVERY SEASON A RUN MAY DRAFT, which is not the same set as `SEASONS` and B15 is where
+# they separated. `SEASONS` is the seasons league 6012 has COMPLETED DRAFTS for, and it is
+# what the room is fitted from, what `real_stats` reads, and what every B1 validation number
+# in `report()` compares against. Those files exist for 2021-2025 and cannot be fetched for
+# earlier years: the league's own history is the limit, not a pin anyone forgot.
+#
+# A season only needs three things to be DRAFTABLE, and none of them is a 6012 draft: a
+# market board (`ffc_adp_standard_8_<S>` or the MFL pair), an outcome
+# (`nflverse/player_stats_<S>`), and a vintage projection (`sim/data/ffa`). 2019 and 2020
+# have all three. So a seven-season run fits the opponent model on five seasons and applies
+# it to seven, which IS an extrapolation and is measured rather than assumed --
+# `sim/runs/b15-seasons.md` carries the leave-one-season-out cost. The short version is that
+# `pick-ADP spread` does not survive it in any market -- 3/5, 1/5 and 0/5 covered in ffc_12,
+# mfl_12 and mfl_8 -- and the other five statistics survive in ffc_12 while `first DEF round`
+# also drops to 4/5 in both MFL markets.
+#
+# AND LEAVE-ONE-OUT FLATTERS THIS. It holds out a season INSIDE 2021-2025 and refits on four
+# of the same era, which is interpolation for the three interior folds and extrapolation only
+# for the two endpoints. In ffc_12 the two `pick-ADP spread` misses ARE the two endpoints,
+# 2021 and 2025: 3/3 interpolating, 0/2 extrapolating. 2019 and 2020 are one and two years
+# further outside that hull than 2021 is. The room's fitted `mu` also trends over the fit
+# window in ffc_12 -- RB -3.64 picks a year (t = -4.01), WR +2.93 (t = +8.75) -- so holding a
+# pooled constant back to 2019 is off the trend line by about 2.4 and 2.5 per-season standard
+# deviations. Neither MFL market shows a significant trend.
+#
+# NOTHING BEFORE 2019. 2018 is scoreable and its board would build, but `player_stats_2018`
+# is not pinned and player counts collapse to about 240 by 2016-2017, where a short pool lets
+# replacement level fall off the end and read 0.0.
+RUNNABLE_SEASONS: tuple[int, ...] = (2019, 2020, 2021, 2022, 2023, 2024, 2025)
+
+SEASON_START: dict[int, date] = {s: kickoff(s) for s in RUNNABLE_SEASONS}
 
 
 # --- inputs -----------------------------------------------------------------------------
