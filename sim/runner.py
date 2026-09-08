@@ -115,6 +115,16 @@ class RunConfig:
     # cannot resume across markets) and `markets.set_active` in `execute` (so `room.load_board`
     # builds the right board).
     market: str = markets.DEFAULT
+    # B13. WHICH BOARD THE SEAT DRAFTS -- `market` (linear in ADP rank, every result from B2 to
+    # B12) or `production` (`build_board_from_lines` -> `compute_vorp` -> `effective_score`, the
+    # object the live cockpit serves). Defaults to `market` so an existing config file runs
+    # unchanged. It is in `config_hash`, because it changes what every non-board arm computes.
+    #
+    # THE REASON IT EXISTS is that `real` was byte-identical across audible#77 and audible#78,
+    # two sessions that spent themselves changing replacement level. Nothing they could change
+    # reaches a board that is a relabelling of ADP, so the arm named "the cockpit's own path"
+    # was the one arm in the run guaranteed not to move. Under `production` it moves.
+    real_board: str = seat.MARKET_BOARD
     raw: dict[str, Any] = field(default_factory=dict)
 
     def splits(self) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
@@ -145,6 +155,7 @@ class RunConfig:
                     # silently missing. No committed artifact pins a literal hash, so widening
                     # it costs a stale checkpoint and nothing else.
                     "market": self.market,
+                    "real_board": self.real_board,
                     "projection": self.projection,
                     "historical_deltas": self.historical_deltas,
                     "score_kickers": self.score_kickers,
@@ -246,6 +257,23 @@ def load_config(path: Path) -> RunConfig:
             f"but sets projection = {source!r}. That arm would have no values to order on and "
             f"would fall through to the player-id tie-break."
         )
+    real_board = str(run.get("real_board", seat.MARKET_BOARD))
+    if real_board not in seat.REAL_BOARDS:
+        raise SystemExit(
+            f"PREFLIGHT: {path} sets real_board = {real_board!r}; expected one of "
+            f"{list(seat.REAL_BOARDS)}."
+        )
+    # THE PRODUCTION BOARD IS ONLY REAL IF THE PROJECTION IS. Under `walkforward` the seat
+    # would run `compute_vorp` over a projection this harness fitted from prior seasons, which
+    # is a defensible thing to measure but is NOT the cockpit's board, and calling it one is
+    # the confusion the whole option exists to remove. `sim/seat.board_from_season` records the
+    # measured cost of feeding that engine a manufactured curve.
+    if real_board == seat.PRODUCTION_BOARD and source != b4boards.FFA_SOURCE:
+        raise SystemExit(
+            f"PREFLIGHT: {path} sets real_board = {real_board!r} with projection = {source!r}. "
+            f"The production board is the cockpit's path over REAL vintage projections; over "
+            f"{source!r} it would be the same engine over a projection this harness invented."
+        )
     market = str(run.get("market", markets.DEFAULT))
     declared = markets.REGISTRY.get(market)
     if declared is not None and declared.league != str(run["league"]):
@@ -280,6 +308,7 @@ def load_config(path: Path) -> RunConfig:
         wf_fit=wf_fit,
         wf_test=wf_test,
         projection=source,
+        real_board=real_board,
         historical_deltas=bool(run.get("historical_deltas", False)),
         score_kickers=bool(run.get("score_kickers", False)),
         market=market,
@@ -598,7 +627,8 @@ def execute(
     # 4,800-unit sweep would pay it 4,800 times. They are pure functions of the season and the
     # league, so hoisting them changes no number.
     season_boards: dict[int, Any] = {}
-    if any(a in seat.BOARD_ARMS for a in config.arms):
+    wants_production = config.real_board == seat.PRODUCTION_BOARD
+    if wants_production or any(a in seat.BOARD_ARMS for a in config.arms):
         deltas = roundtrip.HISTORICAL_DELTAS if config.historical_deltas else None
         for season in every:
             season_boards[season] = b4boards.build(
@@ -623,6 +653,7 @@ def execute(
             season_board=boards[season], fit=fit_for[split], week_table=weeks[season],
             config=league, state_dir=state_dir, seat=config.seat, prior=priors[season],
             orders=built.orders if built else None,
+            production=built.board if wants_production and built else None,
         )
         structural = artifact.structural_for(
             result.picks, config.seat, weeks[season].byes, boards[season]
@@ -997,6 +1028,7 @@ def _projection_block(
         # rulebook the historical seasons were actually played under. Both change every board
         # number and neither is visible anywhere else in the artifact.
         "projection_source": config.projection,
+        "real_board": config.real_board,
         "historical_deltas": config.historical_deltas,
         "score_kickers": config.score_kickers,
     }
