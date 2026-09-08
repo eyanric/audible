@@ -489,31 +489,33 @@ def test_the_three_findings_on_main_are_still_findings(swept) -> None:
         )
 
 
-def test_the_qb_baseline_defect_is_reported_not_touched() -> None:
-    """`rostered_counts` is B5's finding, measured at -68.0, and is NOT this session's to fix.
-
-    It changes the live cockpit's board during a frozen draft. Asserting that `sim/` has not
-    edited it is how "report it, do not touch it" stays true after this session ends.
-    """
-    # `git diff origin/main...HEAD` was the first version and it saw NOTHING: on this branch
-    # origin/main == HEAD and every change was still uncommitted, so the assertion reduced to
-    # `assert not []`. It also cannot see the working tree, which is exactly where an edit to
-    # `src/audible/value/replacement.py` would sit. `status --porcelain` sees both.
-    committed = subprocess.run(
-        ["git", "diff", "--name-only", "origin/main...HEAD"],
-        cwd=REPO, capture_output=True, text=True, check=False,
-    )
-    working = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=REPO, capture_output=True, text=True, check=False,
-    )
-    if committed.returncode != 0 or working.returncode != 0:
-        pytest.skip("git is unavailable here")
-    changed = [line for line in committed.stdout.splitlines() if line.strip()]
-    changed += [line[3:].strip() for line in working.stdout.splitlines() if line.strip()]
-    outside = sorted({c for c in changed if c and not c.startswith("sim/")})
-    assert not outside, (
-        f"this session must write only inside sim/; it also touched {outside}. "
-        f"`rostered_counts` in src/audible/value/replacement.py is B5's finding, measured at "
-        f"-68.0, and changing it moves the live cockpit's board during a frozen draft."
-    )
+# RETIRED IN audible#79: `test_the_qb_baseline_defect_is_reported_not_touched`.
+#
+# It ran `git diff --name-only origin/main...HEAD` plus `git status --porcelain` and asserted
+# that every changed path started with `sim/`, naming `src/audible/value/replacement.py` in its
+# failure message. B6's brief was "report `rostered_counts`, do not touch it" -- the finding was
+# measured at -68.0 and the draft was frozen -- and this was how that brief outlived its session.
+#
+# IT WENT STALE THE MOMENT THE BRIEF CHANGED, and it was still committed and still green two
+# sessions later only because both of those sessions reverted their changes before running the
+# suite. audible#77 and audible#78 were each explicitly authorised to edit
+# `src/audible/value/replacement.py`, and audible#79 is authorised to edit it again. A gate that
+# encodes one session's scope cannot survive the next one; it can only be silently right for the
+# wrong reason, and then wrong. Deleting it is the deliberate act audible#78 asked for in
+# writing rather than the silent edit it refused to make.
+#
+# WHAT STILL COVERS THE RISK IT NAMED, so that retiring it does not quietly drop a guard:
+#
+#   the rule itself   `tests/test_replacement_baseline.py` pins `rostered` for QB, RB, WR and
+#                     TE by name and by exact value. Any change to `rostered_counts` fails it
+#                     loudly and says which positions moved. That is a stronger guard than a
+#                     path fence, because it describes the behaviour rather than the file.
+#   the live cache    `sim/test_g_cacheroot.py` asserts the sim's cache root is not the
+#                     cockpit's and is not under it; `sim/test_g_b5.py` asserts the same of
+#                     `SIM_CACHE` against `LIVE_CACHE`. Those are about writes, which is the
+#                     part of "do not touch production" a test can actually hold.
+#
+# WHAT NO TEST COVERS, stated because the retired gate was the only place it was written down:
+# whether a measured `rostered_counts` change should MERGE while a draft is frozen is a human
+# decision about release timing, not a property of the tree. Nothing here asserts it, nothing
+# here ever could, and audible#77 and audible#78 both ended by not merging one.
