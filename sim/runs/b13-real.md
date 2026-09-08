@@ -287,3 +287,136 @@ was dirty, never WHAT was dirty, so an artifact produced
 under a patched module constant is not distinguishable
 from a clean one by its own provenance. That ablation is
 not committed for exactly this reason.
+
+# Task 4 — two iterations against the depth table
+
+Objective: distance from the league's own completed
+drafts, per position, now that `real` can finally respond
+to it. Main sits at 37.2.
+
+```
+  rostered, FFA pool     QB    RB    WR    TE   K   DEF  |err|
+  main                  8.0  52.0  35.0  17.0 8.0   8.0   37.2
+  the real drafts      13.0  40.0  48.0  10.4 8.2   8.4      -
+```
+
+## The diagnosis, which is not the one B11 and B12 had
+
+League B starts QB/RB/RB/WR/WR/TE/FLEX/DEF/K. The bench
+was split by the number of starters the projection
+ACTUALLY ASSIGNED, and the FLEX goes to whichever of RB,
+TE and WR the projection likes best — on the FFA pool, a
+running back in all eight seats, every season. That gave
+RB 24 assigned starters against WR's 16, which bought RB a
+50% larger bench share, which pushed RB replacement deeper
+still. RB 52 / WR 35 against a league of RB 40 / WR 48:
+the rule INVERTS the two positions it matters most for.
+
+That is also the direct cause of the board in this
+session's headline. Replacement at RB 72-81 against WR
+122-135 is what makes the first twelve board slots running
+backs in all five seasons.
+
+## Iteration 1 — share the contested slot
+
+One change: bench weight from `_startable_slots` (which
+counts the FLEX whole for RB, TE and WR alike, summing 9
+starting slots to 10) to `_shared_slots`, where a slot
+open to k positions is worth 1/k. RB 2.33, WR 2.33,
+TE 1.33. Membership untouched.
+
+PREDICTED before the run: RB 46, WR 38, TE 20, err 31.2.
+ACTUAL: RB 46, WR 38, TE 20, err 31.2. Exact.
+
+```
+  paired on the same units, i1 minus baseline
+                       real                    audible_transform
+  ffc_12   -4.61 [-26.35,+17.13] 3/5    -4.06 [-18.25,+10.13] 1/5
+  mfl_12   +3.49 [ -6.08,+13.07] 2/5   +13.66 [ +2.51,+24.82] 5/5 *
+  mfl_8    +4.73 [ -1.97,+11.43] 4/5    +7.90 [ -7.42,+23.23] 4/5
+                                        * excludes zero
+```
+
+The board moved the way the diagnosis says it should —
+`real` drafts RB 7.46 -> 6.68 and WR 2.99 -> 3.34 on
+ffc_12 — and structural improved on every measure:
+wasted 0.050 -> 0.043, surplus 5.217 -> 5.050, byes
+2.390 -> 2.187.
+
+`real` MOVED BY AN AMOUNT INDISTINGUISHABLE FROM ZERO IN
+ALL THREE MARKETS, and the sign is not even consistent.
+
+### Disposition: REVERTED
+
+Not because the rule is wrong — it is better than what it
+replaces on every measure available — but because the
+objective did not move and the change is not free. It
+makes `sim/runs/b4-transform.json` stale: G0
+(`test_g0_the_live_projection_matches_the_committed_one`)
+fires, and correctly, reporting RB 113.172 -> 105.738,
+WR 107.100 -> 117.750, TE 102.731 -> 97.582 with the
+projection digest unchanged. That gate is doing its job;
+shipping the rule means regenerating that artifact, which
+this session did not budget.
+
+## Iteration 2 — narrow the membership test to match
+
+One change, on top of iteration 1: bench membership from
+`_startable_slots >= 2` to `_shared_slots >= 2`. One
+dedicated slot plus a contested FLEX is not two
+uncontested slots. The position it moves is the tight end,
+which cleared the old test only by claiming a slot it
+shares with RB and WR.
+
+PREDICTED: QB 8, RB 52, WR 44, TE 8, err 24.0.
+ACTUAL: identical. WR 35 -> 44 against a league 48, and
+TE 20 -> 8 against a league 10.4 — eight is UNDER the
+truth where twenty was nearly double it.
+
+### Disposition: REVERTED BEFORE THE RUN, and why
+
+`tests/test_rankdelta.py::test_movement_with_no_reception_
+pattern_is_not_called_reception_driven` fails. Its fixture
+builds 30 receivers and 20 tight ends ranked late by ESPN
+and early by us, and asserts `report.diverges() is True`
+as the PRECONDITION for its actual claim, which is about
+reception attribution. With TE replacement at 8 instead of
+17 our board no longer ranks those tight ends early, the
+precondition fails, and the test can no longer exercise
+what it exists to test.
+
+That test is not wrong and the new depth is not wrong. But
+repairing the fixture in the iteration that needs it
+repaired is fixing a test to make an iteration pass, and
+the arms were not run for that reason. What iteration 2
+measured is the depth table and nothing else.
+
+## What Task 4 actually established
+
+B11 and B12 each iterated on this rule and each reported
+`real` unmoved. Neither could say whether that was a
+result or a wiring defect, and audible#79 Task 3 showed it
+was a wiring defect: no depth change could reach a board
+that is a relabelling of ADP.
+
+THIS IS THE FIRST TIME THE ARM COULD RESPOND. A change
+that removes a genuine circularity, corrects a measured
+inversion, takes the depth table from 37.2 to 31.2, moves
+the seat's composition the predicted way and improves
+every structural outcome moves the cockpit's own arm by
+-4.6 / +3.5 / +4.7, with an interval that includes zero in
+all three markets and a sign that is not consistent.
+
+That is a stronger negative than B11 or B12 could produce.
+The depth table is a proxy, and on the arm that runs the
+cockpit the proxy is now measured, not assumed, to be
+worth approximately nothing over this range.
+
+Three positions still sit a long way from the league --
+QB 8 against 13.0, TE 17 against 10.4, and whichever of
+RB/WR the projection hands the FLEX to. The remaining
+circularity is the STARTER half of the count, which is
+still the projection's own assignment and which flips
+which position wins between the FFA pool and the fixture
+`tests/` uses. Closing that is the next single change and
+it was not attempted here.
