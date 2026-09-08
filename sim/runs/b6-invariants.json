@@ -53,18 +53,18 @@
    "kind": "sync_stale_blip",
    "repro": {
     "after_blip": null,
-    "anchored": 1788824980.4493244,
-    "rearmed": 1788824980.4493387,
+    "anchored": 1788828002.6961637,
+    "rearmed": 1788828002.696179,
     "sequence": "apply"
    }
   },
   {
-   "detail": "an emptied slate followed by the same three picks returning reset the pick clock with NO new pick made (empty -> None, refill -> 1788824980.4503095). The shrink itself is refused, but `session.picks` is overwritten unconditionally, so the refill is measured against an empty baseline. On ESPN an emptied slate almost always arrives WITH status pre_draft, which trips the blip in the same tick.",
+   "detail": "an emptied slate followed by the same three picks returning reset the pick clock with NO new pick made (empty -> None, refill -> 1788828002.6970282). The shrink itself is refused, but `session.picks` is overwritten unconditionally, so the refill is measured against an empty baseline. On ESPN an emptied slate almost always arrives WITH status pre_draft, which trips the blip in the same tick.",
    "family": "sync",
    "kind": "sync_stale_shrink",
    "repro": {
     "after_empty": null,
-    "after_refill": 1788824980.4503095,
+    "after_refill": 1788828002.6970282,
     "sequence": "apply"
    }
   }

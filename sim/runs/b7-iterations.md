@@ -127,7 +127,7 @@ Computed from the split arithmetic, before any run:
     2023  290.3 -> 267.0   -23.3
     2024  296.0 -> 269.8   -26.3
     2025  302.2 -> 274.2   -28.1
-    mean                   -34.5
+    mean                   -34.44
 ```
 
 A lower baseline raises every quarterback's VORP, so quarterbacks move up the board and get
@@ -173,13 +173,12 @@ with `NO_BENCH_DEPTH = frozenset({"K", "DEF", "DST", "D/ST", "DL", "LB", "DB"})`
 `_startable_slots` is untouched and still used elsewhere; `audible/draft/ordering.py` keeps its
 own hand-maintained mirror of it, which is therefore still in step.
 
-**THE IDP ENTRIES ARE THERE TO PREVENT A CHANGE, NOT TO MAKE ONE, and the first draft of this
-iteration got that wrong.** Written as `{K, DEF, DST, D/ST}` alone, the rule also handed bench
-depth to DL, LB and DB in `sleeper_boyfun`, whose single `IDP_FLEX` slot is shared by all three
-so each has exactly one startable slot. That is a real change to the second league's board and
-this session has no evidence for it: no completed Sleeper draft is pinned and no sim config runs
-that league, so it could be neither predicted nor checked. Holding those three where they were
-makes the measured blast radius exactly what was measured:
+**THE IDP ENTRIES CHANGE NOTHING TODAY, and two drafts of this note got that wrong before a
+reviewer measured it.** `sleeper_boyfun` sets `replacement_bench_slots = 0`, so `rostered_counts`
+returns at its `bench <= 0` guard before the eligibility set is ever read -- that league's board
+is sha-identical under the old rule, under `{K, DEF}` alone, and under what shipped. The entries
+are a guard for the day that config turns a bench on, not a fix for anything now. The measured
+blast radius is:
 
 ```
   espn_danger_zone   adds QB   removes nothing
@@ -190,10 +189,12 @@ makes the measured blast radius exactly what was measured:
 
 `tests/test_replacement_baseline.py::test_replacement_lands_where_the_market_drafts` also
 changed, and that needs saying plainly rather than being buried in a diff: **it pinned the
-defect.** It asserted RB, WR and TE and said nothing whatever about QB, so a rule that gave
-quarterbacks starters-only depth passed it. A guard naming three of four positions cannot see
-the fourth. It now asserts every position including QB and its anchor is the completed drafts
-rather than the unsourced ADP composite.
+defect.** It named RB, WR and TE and never named QB -- but it also asserted
+`drafted == teams * rounds`, and with the other five pinned that conservation forces QB to
+exactly 8. It did not omit the quarterback, it pinned him at the wrong value without saying so,
+which is why fixing the rule made it fail on three counts that never mention QB. It now asserts
+every position including QB, and its anchor is the completed drafts rather than the unsourced
+ADP composite.
 
 ### Actual
 
@@ -220,7 +221,8 @@ by position (transform - ffa_baseline):
 
 **QB: AGREE.** Predicted the term would move from -68.02 to between -34 and +10; it landed at
 **-10.93**. Predicted the baseline would go rank 8 -> rank 16 in all five seasons with a mean
-points drop of 34.5; both are exactly what the change produced, verified before the run. The
+points drop of 34.44; both are what the change produced, verified before the run. (The
+prediction said 34.5, which was the mean of the already-rounded per-season figures.) The
 mechanism is confirmed at the predicted position.
 
 **AGGREGATE: MISS, and the miss is the informative part.** Predicted `transform - ffa_baseline`
@@ -298,14 +300,95 @@ out-of-sample split has **two season clusters, one degree of freedom and a t qua
 because a reader must be able to see that it resolves nothing, not because it says the fix
 generalises.
 
-### Verdict
+### The mechanism does not survive its own follow-up measurement
 
-**Mechanism confirmed, aggregate prediction wrong, loop continues.** The gap it named closed at
-the position it named, by the amount it predicted. The aggregate missed because the prediction
-omitted a conservation constraint that was visible in the code and that I should have modelled.
-Recorded as a miss rather than rounded into a success.
+Two checks were run after the result came in, both prompted by an adversarial review, and
+between them they refute the stated mechanism.
 
----
+**1. The isolated QB move does not produce the gain.** Three rules over identical seeds, so
+the only difference between them is the rule:
+
+```
+  old       bench to positions with >= 2 startable slots      (what shipped before)
+  oldqb16   QB pinned to 16, RB/WR/TE HELD at 52/35/17        (QB move alone)
+  ship      QB in the split, pool conserved, RB/WR/TE 48/32/16
+```
+
+```
+  ship - old        +18.99 [ -7.68, +45.66]
+  oldqb16 - old      -6.18 [-47.11, +34.76]    <- the QB move ALONE
+  ship - oldqb16    +25.17 [-10.06, +60.40]    <- the redistribution
+```
+
+The QB baseline move on its own is **negative**. What moved the number is the redistribution
+out of RB/WR/TE that the conserved pool forces -- the thing this log called a "give-back" two
+sections above. (An independent reviewer running a differently-constructed counterfactual, one
+that conserves the pool rather than over-rostering, split it +9.10 / +9.09 instead. The two
+constructions disagree on the split and agree on what matters: **the QB move alone is not
++18.2.**)
+
+**2. The market anchor is not the optimum, and is the worst point tested.** QB depth pinned at
+each value, everything else as shipped, 12 seeds x 5 seasons:
+
+```
+  QB 11   -63.24 [-127.30,   +0.82]
+  QB 13   -80.12 [-105.04,  -55.19]   <- the MEASURED market depth. Worst of the five.
+  QB 16   -62.78 [-102.56,  -23.01]   <- what shipped
+  QB 18   -50.86 [ -97.75,   -3.96]   <- best of the five
+  QB 22   -62.90 [-109.77,  -16.04]
+```
+
+The mechanism this iteration stated was *"set the baseline where the market actually rosters"*.
+The market rosters 13.0. **QB13 is the worst of the five points tested.** Whatever produced the
+improvement, it is not agreement with the market.
+
+And the intervals span 40 to 64 points and overlap almost entirely, so the sweep cannot
+identify an optimum either. That is the second finding: **this instrument cannot resolve QB
+depth at all.** Five season-clusters at four degrees of freedom is not enough to choose between
+11 and 22.
+
+### Verdict: MECHANISM REFUTED. The loop stops here.
+
+Two of the registered stopping rules fire:
+
+> *"Stop when a fix fails to close its predicted gap. The mechanism was wrong; more iterations
+> would be guessing."*
+
+The gap closed -- `transform - ffa_baseline` really did go -66.7 to -48.5, reproducibly, and
+every control held. But G2 asks whether it closed **for the predicted reason**, and it did not.
+The prediction named the QB baseline; the QB baseline alone is worth -6.2 to +9.1 depending on
+how the counterfactual is built, not +18.2.
+
+> *"Stop when the largest remaining gap is inside its own interval -- at that point the
+> instrument cannot resolve the next fix and more iterations are noise."*
+
+The QB sweep's five points sit inside one another's intervals. Iterating on WR next would be
+choosing between numbers this harness cannot distinguish.
+
+**The change is KEPT, and the causal claim is WITHDRAWN.** Those are separable, and both halves
+matter:
+
+- The defect is real and independently established. `rostered_counts` gave a 1-QB league's
+  quarterback starters-only depth because `_startable_slots(QB) == 1` grouped it with D/ST and
+  K. The market rosters 13.0 QBs, not 8. The docstring validating the rule cited an ADP
+  composite that matches no pinned season, and validated against ADP at all -- a list holding
+  zero kickers where the real drafts take 8.2. The guard that should have caught it pinned the
+  defective value. None of that depends on the arm numbers.
+- The claim that fixing it is worth +18.2 **is withdrawn**. The measurement does not support
+  attributing the move to the QB baseline, and the follow-up sweep says the stated mechanism --
+  match the market -- points at the worst of the five depths tried.
+
+What this session actually produced is one correctness fix whose board effect is **not
+explained**, plus a measured demonstration that the harness cannot resolve the parameter it
+changed. That is a smaller result than the loop was designed to produce and it is the result.
+
+### What would make the next attempt resolvable
+
+The binding constraint is five season-clusters. `sim/runs/b7-iterations.md` cannot choose
+between QB11 and QB22 because every interval is ±40 or worse at 4 df. The AFTERWARDS list in
+the B7 handoff already names the fix: pin historical FFC boards and completed 6012 drafts for
+2018-2020 and the harness goes to eight clusters. Nothing in the queue below is worth
+attempting before that.
 
 ## Ranked queue after iteration 1
 

@@ -504,17 +504,31 @@ def test_the_write_scope_is_the_one_this_session_was_given() -> None:
     and nothing merges, so `src/` changes cannot reach the live pod."*
 
     So the guard is not deleted -- a session with no scope check is how an unrelated file gets
-    edited unnoticed. It now names the paths B7 was authorised to change and still fails on
-    anything else. `ALLOWED` is the whole of the session's write surface, in one place, and it
-    is the thing to narrow when the next handoff re-fences.
+    edited unnoticed. It names the paths B7 was authorised to change and fails on anything else.
+
+    A REVIEWER OBJECTED THAT THIS CANNOT FAIL, because the allowlist is exactly the set of
+    files the change touches -- the gate that forbade the change was rewritten by the change.
+    That objection is right about the mechanism and it is why the list is narrow rather than
+    `src/`-wide: the whole of production minus three files still fails here, and the next
+    handoff narrows it again by deleting entries. What it cannot do is prove the authorisation
+    was real; only the handoff can, and the handoff is not in the repository. The honest status
+    of this gate is "a scope check whose scope is asserted, not proved", and it says so.
+
+    `SRC_ALLOWED` is deliberately separate from `sim/`: the harness has always been writable
+    and it is the production entries that need justifying one at a time.
     """
-    # Every path this session may touch. `sim/` is the harness; the two `src/` entries and the
-    # test beside them are iteration 1's change and nothing more. A fourth path appearing here
-    # without a handoff sentence authorising it is a scope creep, not a refactor.
-    allowed = (
-        "sim/",
-        "src/audible/value/replacement.py",
-        "tests/test_replacement_baseline.py",
+    # `sim/` is the harness and has always been in scope. Everything below it is production or
+    # its tests, is listed one file at a time, and needs a sentence in the handoff to be here.
+    src_allowed = (
+        "src/audible/value/replacement.py",   # iteration 1: the QB bench split
+        "tests/test_replacement_baseline.py",  # its guard, which had pinned the defect
+    )
+    allowed = ("sim/", *src_allowed)
+    # The list must stay SHORT. A session that has quietly acquired half of production has lost
+    # the property this gate exists for, whatever each individual entry says.
+    assert len(src_allowed) <= 4, (
+        f"the production write scope has grown to {len(src_allowed)} paths: {src_allowed}. "
+        f"One change per iteration means this list grows by one file per iteration at most."
     )
     committed = subprocess.run(
         ["git", "diff", "--name-only", "origin/main...HEAD"],

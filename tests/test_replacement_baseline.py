@@ -119,19 +119,20 @@ def test_replacement_lands_where_the_market_drafts(
     """Baselines must sit at the waiver line, not the starter line.
 
     THIS TEST PINNED THE DEFECT IT WAS MEANT TO GUARD, and the way it did so is worth naming.
-    It asserted RB, WR and TE and said nothing at all about QB -- so when `rostered_counts`
-    withheld bench depth from every position with fewer than two starting slots, and a 1-QB
-    league's quarterback was swept up with D/ST and K, this test stayed green with the QB
-    baseline at QB8 against a real market of 13. A guard that names three of four positions
-    cannot see the fourth. Every position is asserted now, specialists included.
+    It named RB, WR and TE and never named QB. It also asserted `drafted == teams * rounds`,
+    and with the other five positions pinned that conservation forces QB to exactly 8 -- so it
+    did not merely omit QB, it PINNED QB at the defective value without ever mentioning it.
+    That is worse than an omission: the failure it produces when the defect is fixed reads as
+    three unrelated count changes, and nothing points at the quarterback. Every position is
+    named explicitly now, specialists included.
 
     THE ANCHOR ALSO CHANGED, because the old one was unsourced. This docstring used to cite
     "the market's own first 128 picks (43 RB / 53 WR / 16 QB / 16 TE, no D/ST or K)" as "the
     only ground truth for how many of each position get drafted". Measured against every FFC
     board pinned in this repo (2021-2025), that composite matches no season: RB runs 39-50,
     WR 48-58, QB 15-18, TE 10-13. Worse, ADP is the wrong instrument for the question -- its
-    top 128 holds ZERO kickers while the five completed league-6012 drafts take 8.2 of them,
-    one per team, every year.
+    top 128 holds ZERO kickers while the five completed league-6012 drafts take 8.2 of them --
+    about one per team every year, and 9 in 2024.
 
     The anchor is now those completed drafts, which are pinned in the same cache and are the
     actual answer to "how many of each position get drafted":
@@ -139,10 +140,12 @@ def test_replacement_lands_where_the_market_drafts(
         rostered inside 128 picks, mean of 2021-2025:
         QB 13.0   RB 40.0   WR 48.0   TE 10.4   K 8.2   DEF 8.4
 
-    What this fixture produces is checked against that below. It is not expected to match
-    exactly -- the fixture is one season's projection curve and the anchor is a five-season
-    mean -- so each position is bounded rather than pinned to a point, except the specialists,
-    which are exact by construction.
+    What this fixture produces is pinned exactly below, and it does NOT equal that anchor --
+    the fixture is one season's projection curve and the anchor is a five-season mean of a
+    different quantity. The pins are there to make any further change to the bench split fail
+    loudly and say which positions moved; they are not a claim that the rule reproduces the
+    market. RB 32 against a market 40.0 and TE 16 against 10.4 are both still wrong, and the
+    log in `sim/runs/b7-iterations.md` records that they are.
     """
     levels = replacement_levels(board_projections, espn_config)
     teams = espn_config.num_teams
@@ -151,8 +154,9 @@ def test_replacement_lands_where_the_market_drafts(
         assert levels[position].rostered == teams
         assert levels[position].starters_used == teams
 
-    # QB IS THE ONE THIS TEST USED TO OMIT. A 1-QB league starts 8 and the real drafts roster
-    # 13, so a baseline at the starting-slot count is the defect and 8 must fail here.
+    # QB IS THE ONE THIS TEST USED TO PIN SILENTLY, through the conservation assertion below
+    # rather than by name. A 1-QB league starts 8 and the real drafts roster 13, so a baseline
+    # at the starting-slot count is the defect and 8 must fail here, visibly.
     assert levels["QB"].rostered == 16
     assert levels["QB"].rostered > levels["QB"].starters_used, (
         "QB got starters only, which is the pre-B7 defect: `rostered_counts` grouped a 1-QB "

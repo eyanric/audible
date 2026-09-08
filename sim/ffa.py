@@ -671,8 +671,12 @@ def ffa_baseline_ranks(season: int) -> dict[str, int]:
     baseline it subtracted, constant within a position. The mode of that difference is the
     baseline value, and the rank is how many players at the position FFA scores above it.
 
-    THE DEPTHS ARE NOT CLOSE. FFA lands near QB12-14, TE12-14, RB35-36, WR36-38; audible's
-    `rostered_counts` over the same pool gives QB9, TE18, RB53, WR36. Note also that FFA serves
+    THE DEPTHS ARE NOT CLOSE, AND B7 MOVED ONE OF THEM. FFA lands near QB12-14, TE12-14,
+    RB35-36, WR36-38. Audible's `rostered_counts` over the same pool gave QB9, TE18, RB53,
+    WR36 when this was written; since B7 put QB into the bench split it gives QB17, TE17,
+    RB49, WR33 -- so QB has crossed to the OTHER side of FFA's depth rather than converging on
+    it. (These are replacement RANKS, one more than the rostered counts quoted elsewhere.)
+    Note also that FFA serves
     a TWELVE-team baseline and this league is eight, so part of what this arm prices is that
     difference rather than pure implementation quality. It is reported as such.
     """

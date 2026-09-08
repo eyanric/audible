@@ -88,11 +88,6 @@ def assign_starters(players: list[PlayerProjection], config: LeagueConfig) -> se
     return starters
 
 
-def _startable_slots(config: LeagueConfig, position: str) -> int:
-    """How many starting slots ONE team could play *position* in (RB: 2 RB + FLEX = 3)."""
-    return sum(1 for slot in config.starting_slots if position in config.slot_eligibility[slot])
-
-
 # Positions that get STARTERS ONLY and no share of the bench.
 #
 # NAMED, AND THE PREVIOUS RULE'S REFUSAL TO NAME ANYTHING IS WHAT BROKE IT. `rostered_counts`
@@ -107,22 +102,32 @@ def _startable_slots(config: LeagueConfig, position: str) -> int:
 #
 # STREAMED, measured on the five completed league-6012 drafts, rostered inside 128 picks:
 #
-#     K     8.2 / 8 = 1.02 per team   never a second one
-#     DEF   8.4 / 8 = 1.05 per team   never a second one
-#     QB   13.0 / 8 = 1.63 per team   most teams carry a backup  <- NOT streamed
+#     K     8.2 / 8 = 1.02 per team   one team in 40 held two
+#     DEF   8.4 / 8 = 1.05 per team   two teams in 40 held two
+#     QB   13.0 / 8 = 1.63 per team   24 of 40 held two or more  <- NOT streamed
+#
+# ("Never a second" was the first wording and it is false on its own arithmetic: 8.2 kickers
+# across 8 teams requires one team to hold two. Measured per team-season, K is {1: 39, 2: 1}
+# and DEF is {1: 38, 2: 2}, against QB's {1: 16, 2: 23, 3: 1}. The separation is 1.02 against
+# 1.63, not 1.00 against 1.63, and it is still the separation slot count could not see.)
 #
 # That is the separation slot count was standing in for, and it does not hold for QB. A backup
 # quarterback is injury insurance for a position whose starter plays every snap and whose
 # replacement is not free; a second kicker is nothing, which is why the wire holds K9 and D/ST9
 # all season.
 #
-# UNMEASURED, BEHAVIOUR PRESERVED. `sleeper_boyfun` has one `IDP_FLEX` slot shared by DL, LB
-# and DB, so each of the three has exactly one startable slot and each was excluded by the old
-# rule. Whether an IDP league streams those positions is a real question and this repository
-# has no data on it: no completed Sleeper draft is pinned, and no sim configuration runs that
-# league. Dropping them here would change that board on no evidence, so they keep the treatment
-# they already had. This entry is a placeholder for a measurement, not a claim -- pin a
-# completed `sleeper_boyfun` draft and the question answers itself the way QB's did.
+# UNMEASURED, AND CURRENTLY INERT. `sleeper_boyfun` has one `IDP_FLEX` slot shared by DL, LB
+# and DB, so each has exactly one startable slot and each was excluded by the old rule. Whether
+# an IDP league streams those positions is a real question this repository has no data on: no
+# completed Sleeper draft is pinned and no sim configuration runs that league.
+#
+# THEY CHANGE NOTHING TODAY, and an earlier version of this comment claimed otherwise. That
+# league sets `replacement_bench_slots = 0`, so `rostered_counts` returns at the `bench <= 0`
+# guard below before `depth` is ever built -- measured, its board is sha-identical with these
+# three present, absent, or under the old rule. They are here so that the day that config turns
+# a bench on, IDP keeps the treatment it has always had rather than silently acquiring depth
+# nobody measured. Pin a completed Sleeper draft and the question answers itself the way QB's
+# did.
 NO_BENCH_DEPTH: frozenset[str] = frozenset(
     {"K", "DEF", "DST", "D/ST"} | {"DL", "LB", "DB"}
 )
@@ -172,21 +177,22 @@ def rostered_counts(
       is off by half, and it was the defect this rule now fixes.
 
     Rostered inside 128 picks, measured over the five completed league-6012 drafts
-    (2021-2025), against what this rule now produces for that league:
+    (2021-2025), against what this rule produces on two different inputs for the SAME league:
 
-        position    real (mean)    this rule
-        QB              13.0            16
-        RB              40.0            48
-        WR              48.0            32
-        TE              10.4            16
-        K                8.2             8
-        DEF              8.4             8
+        position    real (mean)    on the FFA board    on tests/fixtures
+        QB              13.0             16                  16
+        RB              40.0             48                  32
+        WR              48.0             32                  48
+        TE              10.4             16                  16
+        K                8.2              8                   8
+        DEF              8.4              8                   8
 
-    QB is now in the right region and was not before. RB and WR are still inverted -- the real
-    drafts take more receivers than backs and this rule does the reverse, because
-    `assign_starters` gives every FLEX to a running back and the bench is then split in
-    proportion to starter count. That is a separate defect in a different function, measured
-    and recorded rather than quietly folded into this change.
+    QB is in the right region on both and was 8 on both before. RB AND WR ARE NOT A PROPERTY OF
+    THIS RULE AT ALL -- they invert between the two inputs. The bench is split in proportion to
+    starter count and `assign_starters` gives the FLEX to whichever position the projection
+    ranks higher there, so the flex allocation decides the bench allocation twice over. Which
+    way it lands is a property of the projection curve, not of this function, and no claim
+    about RB/WR belongs in this docstring.
     """
     counts = {
         position: sum(

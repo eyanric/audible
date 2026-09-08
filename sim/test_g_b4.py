@@ -124,12 +124,14 @@ def test_g0_the_live_projection_matches_the_committed_one(mods, committed, built
     assert built.hindsight_digest == got["hindsight_digest"]
 
     # THE ORDERINGS THAT DO NOT CONSUME REPLACEMENT LEVEL MUST STILL MATCH EXACTLY. `vs_adp`
-    # holds one row per arm, and B7 moved the baselines, so the arms that sort on `vorp_rank`
-    # -- `audible_transform` and the three hindsight boards -- legitimately disagree with B4's
-    # record now. `points_greedy` sorts on raw points and `adp_board` on the market's own
-    # order; neither touches replacement level, so a change there would mean B7 reached
-    # something it had no business reaching.
-    for arm in ("points_greedy", "adp_board"):
+    # holds one row per arm, and B7 moved the baselines, so the arms sorting on `vorp_rank` --
+    # `audible_transform`, `hindsight_board` and `hindsight_total`, which is TWO of the three
+    # hindsight arms and not all three -- legitimately disagree with B4's record now.
+    # `hindsight_points` sorts on `consensus_rank` (`boards.py:79-82`), `points_greedy` on raw
+    # points, `adp_board` on the market's own order, `scarcity_only` on `scarcity_rank`, and
+    # `value/scarcity.py` never reads a replacement level. All four must be untouched, and an
+    # earlier version of this gate checked only two of them.
+    for arm in ("points_greedy", "adp_board", "hindsight_points", "scarcity_only"):
         if arm in built.vs_adp and arm in got["vs_adp"]:
             assert dict(built.vs_adp[arm]) == got["vs_adp"][arm], (
                 f"{arm} disagrees with B4's committed run, and it sorts on an ordering that "
@@ -149,22 +151,39 @@ def test_g0_the_live_projection_matches_the_committed_one(mods, committed, built
     #
     # What survives is the part that was actually load-bearing: the PROJECTION digests above
     # are unchanged, so the eight projection mutations this gate was built to catch are still
-    # caught. Below, the blast radius of the B7 change is asserted directly, which is a
-    # stronger statement than the equality it replaces -- an unintended move at a specialist
-    # position, or a QB baseline that did not fall, both fail here.
+    # caught.
+    #
+    # THE FIRST VERSION OF THIS REPLACEMENT WAS WEAKER THAN THE EQUALITY IT REPLACED AND SAID
+    # IT WAS STRONGER. It pinned K and DEF, asserted a direction for QB, and dropped RB, WR and
+    # TE entirely -- so adding "RB" to `NO_BENCH_DEPTH`, silently reverting backs to
+    # starters-only, left it green. An adversarial review found that by mutation. Worse, K and
+    # DEF are both 0.0 in B4's artifact, so those two assertions were comparing zero to zero.
+    #
+    # Every position is pinned again. The committed numbers stay the reference for the ones
+    # B7 did not touch; the ones it did are pinned to the values it produces, so a further
+    # change to the bench split fails here and has to say so.
     live, was = dict(built.replacement), got["replacement_level"]
-    for position in ("K", "DEF"):
-        if position in live and position in was:
-            assert live[position] == was[position], (
-                f"{position} replacement moved from {was[position]} to {live[position]}. B7's "
-                f"change was supposed to leave the streamed specialists exactly alone."
+    moved_by_b7 = {"QB", "RB", "WR", "TE"}
+    for position, before in sorted(was.items()):
+        if position not in live:
+            continue
+        if position not in moved_by_b7:
+            assert live[position] == before, (
+                f"{position} replacement moved from {before} to {live[position]}. B7 changed "
+                f"the bench split, which cannot reach a position that never had a bench share."
             )
-    if "QB" in live and "QB" in was:
-        assert live["QB"] < was["QB"], (
-            f"the QB baseline is {live['QB']} against B4's committed {was['QB']}. B7 put QB "
-            f"into the bench split, which moves the baseline DEEPER and therefore LOWER; a "
-            f"QB baseline that did not fall means that change is not in effect."
-        )
+    assert live["QB"] < was["QB"], (
+        f"the QB baseline is {live['QB']} against B4's committed {was['QB']}. B7 put QB into "
+        f"the bench split, which moves the baseline DEEPER and therefore LOWER; a QB baseline "
+        f"that did not fall means that change is not in effect."
+    )
+    # The exact post-B7 values, so a fifth position quietly joining or leaving the split fails.
+    assert {p: round(v, 3) for p, v in live.items() if p in moved_by_b7} == {
+        "QB": 217.623, "RB": 117.927, "TE": 104.044, "WR": 111.142
+    }, (
+        f"the positions B7 moved no longer produce the values B7 measured: "
+        f"{ {p: round(v, 3) for p, v in live.items() if p in moved_by_b7} }"
+    )
 
 
 # --- G1: the projection cannot see the season it projects -------------------------------------
