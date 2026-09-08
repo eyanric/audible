@@ -88,7 +88,20 @@ UNPLAYED: frozenset[int] = frozenset({2026})
 # authenticated live ESPN access to a league whose draft is frozen. Neither is substitutable
 # -- `room.resolve_input` refuses a nearby season by design -- so they are reported and not
 # worked around.
-SCOREABLE: tuple[int, ...] = (2021, 2022, 2023, 2024, 2025)
+# Seasons with BOTH a vintage projection file and a pinned outcome to score it against.
+# B15 added 2019 and 2020: both carry `raw_stats`/`projections` here, both pass
+# `assert_vintage`, and `nflverse/player_stats_<S>` is pinned for both. 2018 is deliberately
+# absent -- its projection file exists and its outcome is not pinned, so admitting it would
+# put a season in this tuple that `assert_scoreable_season` allows and no run can score.
+#
+# THE RECEPTION COLUMN IS ABSENT FROM FIVE OF THESE SEVEN and that blocks nothing here.
+# Measured on the files on disk, `rec` and `rec_sd` are present in 2024 and 2025 ONLY --
+# not "2019, 2020, 2022, 2024, 2025" as the README once said, and not "absent from 2021 and
+# 2023" as B15's own handoff said. Under this league's effective weights a reception is worth
+# 0.0, so an absent reception count changes no score, and `assert_scoreable` reads the
+# EFFECTIVE weights rather than a season list -- which is why it is a fact about the league
+# and not a fact anyone has to remember.
+SCOREABLE: tuple[int, ...] = (2019, 2020, 2021, 2022, 2023, 2024, 2025)
 
 # FFA raw_stats column -> audible scoring-vocabulary key.
 #

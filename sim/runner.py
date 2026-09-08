@@ -232,13 +232,26 @@ def load_config(path: Path) -> RunConfig:
             f"test. That is not out-of-sample."
         )
 
+    # DRAFTABLE, not fitted-for. Until B15 this read `room.SEASONS`, which is the set the
+    # opponent model is FITTED from -- the seasons league 6012 has completed drafts for. A
+    # season needs a board, an outcome and a vintage projection to be drafted, and needs none
+    # of them to be a fit season. Conflating the two capped every run at five seasons for a
+    # reason that was about the league's own history rather than about the data.
     unknown_seasons = sorted(
-        (set(seasons) | set(wf_fit) | set(wf_test)) - set(room.SEASONS)
+        (set(seasons) | set(wf_fit) | set(wf_test)) - set(room.RUNNABLE_SEASONS)
     )
     if unknown_seasons:
         raise SystemExit(
-            f"PREFLIGHT: {path} names season(s) {unknown_seasons}, which the room is not "
-            f"fitted for. Nothing is substituted for a season that has no pinned inputs."
+            f"PREFLIGHT: {path} names season(s) {unknown_seasons}, which have no pinned "
+            f"board, outcome and projection. Runnable: {list(room.RUNNABLE_SEASONS)}. Nothing "
+            f"is substituted for a season that has no pinned inputs."
+        )
+    fit_seasons_declared = tuple(int(x) for x in run.get("fit_seasons", room.SEASONS))
+    unfittable = sorted(set(fit_seasons_declared) - set(room.SEASONS))
+    if unfittable:
+        raise SystemExit(
+            f"PREFLIGHT: {path} fits the room on season(s) {unfittable}, which league "
+            f"{room.LEAGUE_ID} has no completed draft for. Fittable: {list(room.SEASONS)}."
         )
     source = str(run.get("projection", b4boards.WALKFORWARD))
     if source not in b4boards.SOURCES:
@@ -344,6 +357,12 @@ def required_inputs(config: RunConfig) -> list[str]:
         # run would die at the first `load_board`. That is precisely the failure preflight
         # exists to prevent, and it is also what puts the real board in the artifact's `pins`.
         names.extend(market.pins(season))
+    # THE COMPLETED DRAFTS ARE A FIT INPUT, not a per-season one, and B15 separated them.
+    # This used to demand `espn_draft_<league>_<S>` for every season the run DRAFTS, which is
+    # the wrong requirement: a simulated season needs a board and an outcome, and the room's
+    # parameters come from whichever seasons the fit is declared over. Demanding it of a run
+    # season is what made seven seasons look impossible when only the fit is capped at five.
+    for season in sorted(set(config.fit_seasons) | set(config.wf_fit)):
         names.append(f"espn_draft_{room.LEAGUE_ID}_{season}.json")
     for season in sorted(set(config.seasons) | set(config.wf_fit) | set(config.wf_test)):
         names.append(f"nflverse/player_stats_{season}.parquet")
@@ -618,6 +637,26 @@ def execute(
     # its lineups are chosen against comes from the OTHER seasons only -- so nothing about the
     # season being scored reaches the lineup. This is the primary outcome measure and it is
     # the reason `real - adp` is quoted three ways: prior, oracle and hindsight.
+    # OVER `room.SEASONS`, AND B15 TRIED TO CHANGE THIS AND REVERTED IT. The attempt passed
+    # `every`, the run's own seasons, with a comment claiming that for every config in the repo
+    # those are the identical set. They are not: `b4-smoke.toml` and `b4-transform.toml` both
+    # declare four seasons, so their priors would have been fitted on three instead of four.
+    # Measured before the revert, re-running `b4-smoke`: every one of eleven arms moved and
+    # `real - adp` went from -17.08 to -30.53. Nothing in the suite catches it, because no test
+    # re-runs a b4 config and compares numbers, and the committed checkpoints are complete so
+    # `--resume` replays the old rows and reproduces the old artifact.
+    #
+    # IT ALSO CONFOUNDED THE THING B15 EXISTS TO MEASURE. Under `every`, a seven-season run
+    # fits the 2021 prior on six seasons including 2019 and 2020 while a five-season run fits
+    # it on four, so 1,153 to 1,252 of the 3,900 shared units changed `points_for` and the
+    # k=5-against-k=7 delta stopped being "two more seasons". `mfl_12 real - adp` moved +13.37
+    # from the refit alone, against an interval that clears zero by +1.00.
+    #
+    # Fitting on `room.SEASONS` gives the two new seasons a prior from all five fit-eligible
+    # seasons and the five old ones a prior from the other four, exactly as before. That is the
+    # same asymmetry the ROOM already has -- fitted on five, applied to seven -- and it leaves
+    # every 2021-2025 unit byte-identical between the two runs, which is what makes the
+    # comparison a comparison.
     priors = {s: _prior_for(s, room.SEASONS, boards, weeks) for s in every}
     log.info("priors fitted leave-one-out over %s", list(room.SEASONS))
 

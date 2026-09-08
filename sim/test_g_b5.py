@@ -52,6 +52,13 @@ import pytest
 
 from . import LIVE_CACHE, SIM_CACHE
 
+
+def _room():
+    """The `room` module. A helper that took `mods` and ignored it was worse than none."""
+    from . import room
+
+    return room
+
 REPO = Path(__file__).resolve().parents[1]
 RUNS = REPO / "sim" / "runs"
 CONFIG = REPO / "sim" / "configs" / "b5-vintage.toml"
@@ -795,25 +802,45 @@ def test_g17_the_gitignore_rule_is_intact() -> None:
 # --- what the market side blocks, recorded as a gate rather than as a remark -------------------
 
 
-def test_g_the_2019_and_2020_seasons_are_blocked_by_the_market_not_the_outcome(mods) -> None:
-    """REFUTES A PRIOR SESSION. `player_stats_2020` is not unavailable; it fetches cleanly.
+def test_g_the_2019_and_2020_seasons_are_market_pinned_and_draft_short(mods) -> None:
+    """THIS GATE FIRED, AS WRITTEN, AND B15 IS THE SESSION IT FIRED FOR.
 
-    What blocks 2019 and 2020 is the MARKET side: no historical FFC board is pinned and this
-    repository carries no fetcher for one, and the completed 6012 draft would need
-    authenticated live ESPN access. Recorded as a gate so the reason cannot quietly become
-    "the outcome frame does not exist" again.
+    It used to assert that 2019 and 2020 were blocked by the MARKET side -- no historical FFC
+    board pinned, no fetcher in the repo -- and it carried the message "season now has its
+    market inputs pinned; it should move into SCOREABLE". B15 pinned them, so it did.
+
+    WHAT CHANGED. `sim/ffc.py` is the fetcher this repo did not have; it pins the whole FFC
+    response with a shape check, into `SIM_CACHE` and never the cockpit's root. `sim/mfl.py`
+    already had one and both seasons fetched at the parameters the existing pins use. Measured
+    join rates against the FFA stat lines: fcount 8 reads 1.000 and 1.000 for 2019 and 2020
+    against 0.960-1.000 for 2021-2025; fcount 12 reads 0.952 and 0.938 against 0.926-1.000.
+    Zero unknown ids in any season.
+
+    WHAT DID NOT CHANGE, and is the thing this gate now guards: `espn_draft_6012_<S>` does not
+    exist for 2019 or 2020 and cannot be fetched. That is the league's own history rather than
+    a missing pin. It is why `room.SEASONS` stays at five and `room.RUNNABLE_SEASONS` is seven
+    -- the opponent model is fitted on the seasons with completed drafts and applied to the
+    seasons with boards. The leave-one-season-out cost of that extrapolation is measured in
+    `sim/runs/b15-seasons.md`; five of B1's six statistics survive it and `pick-ADP spread`
+    does not.
     """
     _artifact, _boards, ffa, *_rest = mods
     for season in (2019, 2020):
-        assert season not in ffa.SCOREABLE
-        missing = [
-            name
-            for name in (
-                f"ffc_adp_standard_8_{season}.json",
-                f"espn_draft_6012_{season}.json",
+        assert season in ffa.SCOREABLE, (
+            f"season {season} has a pinned board, outcome and vintage projection but is not "
+            f"scoreable"
+        )
+        assert season in _room().RUNNABLE_SEASONS
+        assert season not in _room().SEASONS, (
+            f"season {season} entered the room's FIT set. League 6012 has no completed draft "
+            f"for it, so a fit that includes it is fitting on nothing."
+        )
+        for name in (f"ffc_adp_standard_8_{season}.json",):
+            assert any((root / name).exists() for root in (SIM_CACHE, LIVE_CACHE)), (
+                f"{name} is no longer pinned; `python -m sim.ffc {season}` re-pins it"
             )
-            if not any((root / name).exists() for root in (SIM_CACHE, LIVE_CACHE))
-        ]
-        assert missing, (
-            f"season {season} now has its market inputs pinned; it should move into SCOREABLE"
+        draft = f"espn_draft_6012_{season}.json"
+        assert not any((root / draft).exists() for root in (SIM_CACHE, LIVE_CACHE)), (
+            f"{draft} now exists. If league 6012's history really does reach {season}, "
+            f"`room.SEASONS` should grow and the extrapolation in b15-seasons.md is stale."
         )
