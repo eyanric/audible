@@ -18,14 +18,24 @@ and is a weaker answer.
 
 WHAT IS BEING MEASURED, AND WHAT CANNOT BE
 -------------------------------------------
-THIS MEASURES ORDERING. It cannot measure projections, and no amount of work here would
-change that: no vintage preseason projections exist for any of these seasons. The Sleeper API
-serves today's numbers for a 2021 season, not the numbers that stood before its draft.
+WHICH BOARD THE SEAT ORDERS IS NOW A CHOICE, `RunConfig.real_board`, and the two options
+measure different things. THIS WAS NOT A CHOICE BEFORE B5 and the paragraph that stood here
+said so: "no vintage preseason projections exist for any of these seasons". That was true when
+it was written and B5 falsified it -- `sim/ffa.py` pins FFA's own vintage preseason files, and
+`sim/boards.build` has been running the production path over them since B10.
 
-So the board Audible orders is built from the same FFC ADP the bots use -- see
-`board_from_season`, which also records why audible's own `compute_vorp` is NOT used on it.
-Value is a monotone transform of ADP rank, so the board's order IS the market's order, and
-what differs between arms is audible's overlay and never the projections.
+  market      `board_from_season`. Value is linear in ADP rank, so the board's order IS the
+              market's order and what differs between arms is audible's OVERLAY and never the
+              projections. Every result from B2 to B12 was measured this way, and the `real`
+              arm was byte-identical across all of them because nothing any of those sessions
+              changed could reach a board that is a relabelling of ADP.
+  production  the cockpit's own path: `build_board_from_lines` -> `compute_vorp` ->
+              `effective_score`. The same object the live cockpit serves, over real vintage
+              projections. This is the only setting in which a change to replacement level
+              moves `real` at all.
+
+The bots draft the room's ADP board under both settings, so neither side gains information the
+other lacks; what changes is whether the SEAT sees a board the market did not draw.
 
 That is also why the room is a fair opponent rather than a strawman: the bots draft from the
 identical board. Neither side has information the other lacks.
@@ -125,6 +135,14 @@ def board_from_season(
     So replacement is uniform here and the board is the market. `compute_vorp` stays exercised
     where it has real projections, which is production.
 
+    THAT LAST SENTENCE IS THE PART THAT CHANGED, and audible#79 resolved the argument rather
+    than overruling it. The objection above is specific to feeding a replacement engine A
+    LINEAR ADP CURVE, and it still stands: nothing here should run `compute_vorp` over
+    `points`. What B5 added is a second option that the objection never covered -- FFA's real
+    vintage preseason projections, pinned in `sim/ffa.py` -- and over those the production path
+    is not a manufacture. `production_board` below is that path, and this function is still
+    what `real_board = "market"` runs.
+
     *shuffle*, when given, permutes which value goes to which player. Positions, byes, ADP and
     eligibility are untouched; only the value ordering moves. Keeping the arm to one argument
     is what makes it credible that the two differ in nothing else.
@@ -173,6 +191,91 @@ def board_from_season(
         league_key=f"sim_{season_board.season}",
         entries=sorted(entries, key=lambda e: e.vorp_rank),
     )
+
+
+# Which board the seat drafts. See the module docstring for what each one can and cannot
+# measure. `market` is every result before audible#79 and stays the default, so an existing
+# config file runs unchanged and means what it meant.
+MARKET_BOARD: str = "market"
+PRODUCTION_BOARD: str = "production"
+REAL_BOARDS: tuple[str, ...] = (MARKET_BOARD, PRODUCTION_BOARD)
+
+
+def production_board(
+    board: Any,
+    season_board: room.SeasonBoard,
+    *,
+    shuffle: random.Random | None = None,
+) -> Any:
+    """The cockpit's own `DraftBoard`, cut down to the rows the room can actually draft.
+
+    THE OBJECT ARRIVES ALREADY BUILT, by `sim/boards.build`, through exactly the production
+    call the cockpit makes: `build_board_from_lines(config, lines)`, which runs `compute_vorp`
+    over the projections internally and writes `vorp`, `vorp_rank`, `scarcity` and the ADP
+    columns onto every entry. Nothing here computes a value. This function only does the two
+    things the SIM needs that production does not.
+
+    ONE: IT DROPS THE UNDRAFTABLE TAIL, and the order of operations is the whole point.
+    `sim/ffa.build` hands the value engine a pool far larger than the room's board -- 611 lines
+    against 195 rows in 2022 -- because replacement level needs a real pool to find a baseline
+    in. Those extra players are keyed `ffa:<mfl id>` and the room has never heard of them, so
+    `AudibleSeat.pick` would resolve one to index -1 and the seat would forfeit the pick. They
+    are removed AFTER `compute_vorp` has run, so replacement level is still computed over the
+    full pool and only the choosable set narrows. `sim/boards._order_by` filters the same tail
+    the same way for the same reason.
+
+    TWO: IT SHUFFLES, when asked, and the leak detector is worthless if this is sloppy.
+    `real - shuffle` is only a statement about VALUE ORDERING if the two arms differ in the
+    value ordering and in nothing else, so the permutation moves a whole value BUNDLE from one
+    player to another -- points, the three model columns, VORP, scarcity and all four ranks --
+    while position, team, eligibility, bye and ADP stay welded to the player. `value` is then
+    recomputed rather than carried, because it is a DIFFERENCE between the player's ADP rank
+    and his value rank: carrying it would leave a column that contradicts the two numbers it is
+    defined from, and `effective_score` reads it.
+    """
+    import dataclasses
+
+    from audible.draft.board import DraftBoard
+
+    draftable = {f"ffc{r.rank:04d}" for r in season_board.rows}
+    entries = [e for e in board.entries if e.player_id in draftable]
+    missing = draftable - {e.player_id for e in entries}
+    if missing:
+        raise ValueError(
+            f"the production board is missing {len(missing)} of {len(draftable)} draftable "
+            f"rows, first few {sorted(missing)[:5]}. The seat and the room must see the same "
+            f"pool or the comparison is between two different universes."
+        )
+    entries.sort(key=lambda e: e.vorp_rank)
+
+    if shuffle is not None:
+        carried = [
+            (
+                e.model, e.points, e.modeled_xfp, e.carried, e.consensus, e.vorp, e.vorp_rank,
+                e.consensus_rank, e.opp_rank, e.deviation, e.scarcity, e.scarcity_rank, e.flags,
+            )
+            for e in entries
+        ]
+        shuffle.shuffle(carried)
+        entries = [
+            dataclasses.replace(
+                e,
+                model=c[0], points=c[1], modeled_xfp=c[2], carried=c[3], consensus=c[4],
+                vorp=c[5], vorp_rank=c[6], consensus_rank=c[7], opp_rank=c[8], deviation=c[9],
+                scarcity=c[10], scarcity_rank=c[11], flags=c[12],
+            )
+            for e, c in zip(entries, carried, strict=True)
+        ]
+        entries.sort(key=lambda e: e.vorp_rank)
+
+    # `value` is ADP rank minus a DENSE value rank over the same population, which is what
+    # production computes and why it re-ranks rather than reusing `vorp_rank`: the full pool's
+    # ranks are sparse once the tail is gone, and a sparse rank makes `value` measure pool size.
+    entries = [
+        dataclasses.replace(e, value=(e.adp_rank - place) if e.adp_rank is not None else None)
+        for place, e in enumerate(entries, start=1)
+    ]
+    return DraftBoard(league_key=f"sim_{season_board.season}", entries=entries)
 
 
 def reset_state_caches(byes: dict[str, int]) -> None:
@@ -458,11 +561,18 @@ def build_seat(
     seat: int = DEFAULT_SEAT,
     shuffle: random.Random | None = None,
     mode: str = "real",
+    production: Any | None = None,
 ) -> AudibleSeat:
     """A `CockpitService` holding the season board, with no network and no poll thread.
 
     `warm_board()` is never called -- that is the function that fetches. The board and the
     usage table are assigned directly, which is the pattern `sim/harness.py` established.
+
+    *production*, when given, is the cockpit's own `DraftBoard` from `sim/boards.build` and it
+    replaces the market board for EVERY arm that runs through here -- `real`, `shuffle`, the
+    four ablations and both legacy orderings. That is deliberate and not a convenience: `real -
+    shuffle` and each ablation's difference from `real` are only attributable if the two sides
+    share a board, so the setting cannot be per-arm.
     """
     import time
 
@@ -470,7 +580,11 @@ def build_seat(
     from audible.draft.usage import UsageTable
 
     reset_state_caches(byes)
-    board = board_from_season(season_board, config, shuffle=shuffle)
+    board = (
+        production_board(production, season_board, shuffle=shuffle)
+        if production is not None
+        else board_from_season(season_board, config, shuffle=shuffle)
+    )
     service = CockpitService(config, state_dir=state_dir, slot_override=seat)
     service.board = board
     service.usage = UsageTable(bye_by_team=dict(byes))
@@ -519,9 +633,19 @@ ARMS: frozenset[str] = (
 # contain. Measured: an oracle seat that picks whoever actually scored most that season clears
 # the baseline by roughly +330; the honest arm sits at -27 to -35.
 #
-# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it:
-# the real arm's distance from the ADP baseline has read between -16 and +24 across every
-# lineup policy of every run committed here, against a ceiling of 150.
+# It is a CEILING, not a target. Nothing is tuned against it and no honest run approaches it.
+#
+# IT APPLIES ONLY UNDER `real_board = "market"`, and audible#79 is where that stopped being
+# implicit. Every word of the derivation above is about a board whose values are a monotone
+# transform of ADP rank; the production board has a real ordering in it, so the constant would
+# be bounding an arm by an argument that run's own `board_vs_adp` disproves.
+# `runner.leak_ceiling_failures` therefore gives the production seat the MEASURED
+# perfect-foresight bound instead, the same one the board arms get.
+#
+# THE STATED RANGE IS THE MARKET BOARD'S. Across every lineup policy of every run committed
+# here the market-board `real` arm has read between -16 and +46 against the ADP baseline --
+# audible#74's mfl_12 is the +46 and this comment said +24 until audible#79 measured it. The
+# production board reads +41 to +78, which is why it is not held to 150.
 LEAK_CEILING: float = 150.0
 
 # Arms that must all be present for the report to mean anything. `real` is the thing under
@@ -652,6 +776,7 @@ def run_arm(
     seat: int = DEFAULT_SEAT,
     prior: Mapping[tuple[str, int], float] | None = None,
     orders: Mapping[str, Sequence[int]] | None = None,
+    production: Any | None = None,
     watch: Any | None = None,
 ) -> ArmResult:
     """One draft with Audible in *seat*, then one bootstrapped season scored on it.
@@ -742,7 +867,7 @@ def run_arm(
     mode = arm if arm in ABLATIONS or arm.startswith("legacy") else "real"
     holder = build_seat(
         season_board, config, week_table.byes, state_dir,
-        seat=seat, shuffle=shuffle_rng, mode=mode,
+        seat=seat, shuffle=shuffle_rng, mode=mode, production=production,
     )
     # B6. The seat records its own sort keys onto the watch, at the sort. None when unwatched.
     holder.watch = watch

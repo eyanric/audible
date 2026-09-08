@@ -152,6 +152,12 @@ class SeasonBoards:
     # scoring term would otherwise be indistinguishable from one that did not.
     source: str = WALKFORWARD
     unsupplied: tuple[str, ...] = ()
+    # THE PRODUCTION BOARD ITSELF, not an ordering read off it. `build` has always constructed
+    # this -- `build_board_from_lines(config, projected.lines)`, which runs `compute_vorp`
+    # internally -- and then thrown the object away after extracting rank columns. audible#79
+    # keeps it, because the `real` arm needs the OBJECT: it drafts through `the_call` over a
+    # `DraftBoard`, not over an index ordering. Free; nothing extra is built.
+    board: Any = None
 
 
 def _order_by(board: Any, field: str, by_index: Mapping[str, int]) -> tuple[int, ...]:
@@ -296,6 +302,7 @@ def build(
         unmatched=projected.unmatched,
         pool=projected.pool,
         provenance=projected.provenance,
+        board=board,
         replacement={pos: round(level.points, 3) for pos, level in sorted(levels.items())},
         vs_adp=disagreement(orders, season_board),
         source=source,
