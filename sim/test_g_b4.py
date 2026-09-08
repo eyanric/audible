@@ -328,6 +328,66 @@ def test_g4_the_two_arms_share_one_projection(mods, built) -> None:
     assert len(points) == len(set(points)), "an ordering repeats a board index"
 
 
+def test_the_transform_demotes_quarterbacks_on_the_board(mods, built) -> None:
+    """Replacement level's first-order effect in a one-QB league, measured without a cap.
+
+    THIS IS THE CLAIM the draft-count control in `test_the_b4_producers_are_actually_executed`
+    used to assert and could not. That one read `points_greedy` QB > `audible_transform` QB in
+    a live run, and `points_greedy` sits on the fitted roster cap of 3 at every replacement
+    depth, so it was a strict inequality against a ceiling that one team-season in forty set.
+    It went red at QB depth 11 while the league's own drafts roster 13.0.
+
+    BOARD ORDER HAS NO CAP IN IT. Both arms are orderings of the SAME entries -- G4 directly
+    above asserts that there is only one board object to share -- so the demotion is readable
+    off the two orderings, and it is there at every depth. QB replacement forced from 8 to 32
+    on this fixture, quarterbacks inside the first two rounds of the board, points ->
+    transform, and mean board ranks lost by the top five quarterbacks:
+
+        depth        8     11     13     14     16     20     24      32
+        2022     11->0  11->3  11->3  11->4  11->4  11->5  11->7   11->11
+        2023     10->2  10->3  10->3  10->4  10->5  10->5  10->6    10->9
+        2022 mean  +42.8  +15.6  +14.4   +9.8   +8.0   +5.6   +2.6
+        2023 mean  +20.2   +8.0   +7.8   +7.6   +6.0   +2.2   +1.6
+
+    Deeper replacement ERODES the effect without reversing it, which is exactly what the prose
+    claims, and the count separates at every depth the depth line will plausibly visit. THE
+    GATE'S OWN CEILING IS STATED RATHER THAN LEFT TO BE DISCOVERED: at QB 32 the 2022 count
+    ties and this gate stops separating. That is four quarterbacks per team in an eight-team
+    one-QB league, so a run that reaches it has a depth defect this gate is not the right
+    instrument for -- but it is a limit, and the control it replaces failed by hiding one.
+
+    The count is the assertion because it is an integer over a fixed number of board slots
+    with no fitted quantity anywhere in it. The per-player check is the shape: from QB 20 on,
+    the top one or two quarterbacks stop moving at all, so it asserts that none is PROMOTED
+    and that the group moves, not that every one of them does.
+    """
+    _a, _art, _b, _proj, room, _runner, _seat, _weekly = mods
+    rows = room.load_board(built.season).rows
+    points = built.orders["points_greedy"]
+    transform = built.orders["audible_transform"]
+
+    two_rounds = 2 * room.TEAMS
+    greedy_qb = sum(1 for i in points[:two_rounds] if rows[i].position == "QB")
+    transform_qb = sum(1 for i in transform[:two_rounds] if rows[i].position == "QB")
+    assert transform_qb < greedy_qb, (
+        f"the transform put {transform_qb} quarterbacks in the first {two_rounds} board slots "
+        f"against raw points' {greedy_qb}, so replacement level is not demoting them in a "
+        f"one-QB league. This is the claim the transform is reported on, and unlike the draft "
+        f"count it has no roster cap in it."
+    )
+
+    place_points = {index: place for place, index in enumerate(points, start=1)}
+    place_transform = {index: place for place, index in enumerate(transform, start=1)}
+    top_qb = [i for i in points if rows[i].position == "QB"][:5]
+    moved = {rows[i].name: place_transform[i] - place_points[i] for i in top_qb}
+    assert all(lost >= 0 for lost in moved.values()), (
+        f"the transform PROMOTED a top-five quarterback rather than demoting him: {moved}"
+    )
+    assert sum(moved.values()) > 0, (
+        f"not one of the top five quarterbacks moved on the board: {moved}"
+    )
+
+
 def g4_failures(arm_digest: dict) -> list[str]:
     """G4 as a PREDICATE. Arms 1 and 2 must have been built from the same lines."""
     out: list[str] = []
@@ -815,11 +875,37 @@ def test_the_b4_producers_are_actually_executed(mods, tmp_path) -> None:
         for name in ("points_greedy", "audible_transform")
     }
     assert counts["points_greedy"] != counts["audible_transform"], counts
-    assert counts["points_greedy"].get("QB", 0) > counts["audible_transform"].get("QB", 0), (
-        f"points_greedy did not draft more quarterbacks than audible_transform: {counts}. "
-        f"Replacement level's first-order effect in a one-QB league is to demote QBs, so if "
-        f"that is not visible the transform is not doing what the report says it does."
+
+    # THE QUARTERBACK CLAIM MOVED TO BOARD ORDER, and audible#78 is why. This read
+    # `points_greedy` QB > `audible_transform` QB, which is a strict inequality against a
+    # CLAMPED CEILING. `room.fit_room` caps QB at 3, fitted as the max over forty real
+    # team-seasons from a histogram of {1: 16, 2: 23, 3: 1} -- one team-season set it -- and
+    # `points_greedy` sits on that cap at every replacement depth. So the assertion fails the
+    # moment the transform also reaches 3, which happens at QB depth 11, below the 13.0 the
+    # league's own completed drafts roster. It vetoed audible#73 at QB 16 and audible#78 at
+    # QB 14, both times on correct behaviour. An assertion against a ceiling one team-season
+    # in forty set is not an assertion about replacement level.
+    #
+    # WHAT SURVIVES HERE IS THE DIRECTION, which is falsifiable and cannot saturate the wrong
+    # way: in a one-QB league the transform must not draft MORE quarterbacks than raw points
+    # does. A tie is admissible only when the cap is what ties them -- a tie BELOW the cap is
+    # the transform failing to demote, and still fails. The claim itself, that replacement
+    # level demotes quarterbacks, is measured where there is no cap in the arithmetic, by
+    # `test_the_transform_demotes_quarterbacks_on_the_board`.
+    cap = payload["fit"]["caps"]["QB"]
+    greedy_qb = counts["points_greedy"].get("QB", 0)
+    transform_qb = counts["audible_transform"].get("QB", 0)
+    assert transform_qb <= greedy_qb, (
+        f"audible_transform drafted MORE quarterbacks than points_greedy ({transform_qb} vs "
+        f"{greedy_qb}) in a one-QB league, which is the reverse of what replacement level "
+        f"does: {counts}"
     )
+    if transform_qb == greedy_qb:
+        assert greedy_qb >= cap, (
+            f"the two arms tie at {greedy_qb} quarterbacks BELOW the fitted cap of {cap}, so "
+            f"the tie is the transform failing to demote rather than both arms clamped by the "
+            f"room: {counts}"
+        )
 
 
 def test_the_committed_run_matches_its_config(committed) -> None:
