@@ -308,6 +308,7 @@ PRE_DRAFT_SOURCES: frozenset[str] = frozenset(
 # are still computed and still reported, as diagnostics, with that caveat attached.
 SUPPLY_RATIO_CUT: float = 1.0
 
+
 # THE CLASSIFIER. Third of three, and the first that works on more than one market.
 #
 #   clock_ratio[position] = sd(pick) / sd(pick - rank)
@@ -397,21 +398,28 @@ CLOCK_RATIO_CUT: float = 1.0
 # used to sit here claimed the floor "never binds" and that defaulting to the board clock was
 # safe in both directions; both were false for any fit window shorter than five seasons.
 #
-# The bracket, measured on all three markets:
+# The bracket, measured on all three markets and on EVERY WINDOW THE CODE ACTUALLY FITS:
 #
 #   single-season fits   thinnest cell n = 6-8,   QB n = 12-14   <- must be REFUSED
-#   leave-one-season-out thinnest cell n = 27-32                 <- must be ADMITTED
-#   pooled five-season   thinnest cell n = 34-41                 <- must be ADMITTED
+#   walk-forward, 3 seasons   thinnest cell n = 20-25            <- must be ADMITTED
+#   leave-one-season-out, 4   thinnest cell n = 27-32            <- must be ADMITTED
+#   pooled five-season        thinnest cell n = 34-41            <- must be ADMITTED
 #
-# So any floor in (14, 27] does the same job, and 20 sits in the middle of that window with
-# six of margin below and seven above. `sim/test_g_b9.py` asserts that every floor from 15 to
-# 27 yields the identical pooled and leave-one-out verdicts in all three markets, so no shipped
-# number depends on where in the window it sits -- which is the difference between bracketing a
-# constant and tuning one.
+# So any floor in (14, 20] does the job, and 17 sits in the middle of it with three of margin
+# below the quarterback hazard and three above the thinnest window cell.
 #
-# LOSO HAS TO BE ADMITTED because it is a real code path: `room.holdout` refits on four seasons
-# for each held-out season, and the held-out battery is the evidence that counts.
-MIN_CLOCK_N: int = 20
+# B9 SET THIS TO 20 ON A WIDER BRACKET, and the bracket was wider because it was measured on
+# the pooled and leave-one-out windows only. B10 put every SPLIT's room structure under G7 --
+# the walk-forward fit was previously in no artifact and checked by nothing -- and the
+# walk-forward window is three seasons, not four. FFC's walk-forward kicker joins exactly 20
+# times, so a floor of 20 sat precisely on the binding edge: one fewer kicker and that fit
+# would have gone unclassified and turned the split red. Moving to the centre changes no
+# verdict in any market on any window; it buys margin on a constant that had none.
+#
+# EVERY WINDOW HERE IS A REAL CODE PATH. `room.holdout` refits on four seasons per held-out
+# season, `runner.execute` fits one room per split (three seasons for walk-forward), and a
+# config may legally name a single season.
+MIN_CLOCK_N: int = 17
 
 # Reported beside the ratio, and DELIBERATELY NOT GATING. A first version of this guard refused
 # to classify any cell whose bootstrap interval straddled the cut, which is the more principled
@@ -1799,8 +1807,20 @@ SHORT: dict[str, str] = {
     "pick-ADP spread": "spread",
 }
 
+# `first_qb_round` WAS LABELLED `free` AND IT IS NOT. `mu["QB"]` is fitted as exactly the mean
+# of (real QB pick - board rank) and reproduces it to the last digit in all three markets --
+# +6.3438 on ffc_12_std, +16.5077 on mfl_12_std, +23.3077 on mfl_8_std -- and shifting it moves
+# the statistic one for one (mu-5 gives -10.2, mu+0 gives -5.4, mu+5 gives -0.3 picks of first-QB
+# bias on ffc_12_std). It is structurally identical to `first_k_round`: a directly fitted
+# location plus an untargeted tail functional.
+#
+# So FOUR of the six are fitted, not three, and only `kdef_in_128` (semi) and `runs_3plus`
+# (free) are untargeted. That is the honest size of this battery's independent evidence, and it
+# is smaller than "six pre-registered statistics" has implied since B1. B10 corrected the label
+# rather than the count, because shrinking the gated battery to two statistics is a change this
+# session measured to be a regression -- see `report`.
 STAT_KIND: dict[str, str] = {
-    "first_qb_round": "free",
+    "first_qb_round": "fitted",
     "first_k_round": "fitted",
     "first_def_round": "fitted",
     "kdef_in_128": "semi",
@@ -2071,6 +2091,28 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
         flag = "pass" if c.passes else "FAIL"
         if c.passes and c.margin_sem < 2.0:
             flag = "pass(marginal)"
+        # EVERY STATISTIC IS GATED IN-SAMPLE, and B10 tried to change that and reverted.
+        #
+        # THE ATTEMPT. `STAT_KIND` says a `fitted` statistic is checked against the fit that
+        # produced it, so "only the held-out run says anything" -- and three of the six carry
+        # that label while all six decided the verdict. Moving the fitted three out of the
+        # in-sample verdict and gating them on held-out coverage instead looked like simply
+        # following the module's own doctrine.
+        #
+        # WHY IT WAS REVERTED. Adversarial review measured a room whose K and D/ST schedule is
+        # a FULL ROUND wrong -- `pick_mu` shifted by nine picks -- and the de-gated battery
+        # passed it on `ffc_12_std`, the market every published number comes from. The
+        # mutation parks all three fitted statistics on exactly the held-out bar, and the bar
+        # has no margin. A gate that a one-round-wrong specialist schedule walks through is
+        # worse than a gate that is philosophically impure.
+        #
+        # WHAT IS TRUE INSTEAD, and it is worse news than the dichotomy the change was chasing:
+        # the free/fitted split does not hold in the first place. `first_qb_round` is labelled
+        # `free`, meaning "the fit targets nothing resembling it", and `mu["QB"]` is EXACTLY the
+        # mean of (real QB pick - rank) -- identical to the last digit in all three markets --
+        # and shifting it moves the statistic one for one. So four of the six are fitted, not
+        # three, and there is no clean subset of untargeted statistics to fall back to. See
+        # STAT_KIND.
         out.append(
             f"    {c.name:16s} synth={c.synthetic:6.2f}+-{c.sem:.2f} "
             f"[{_fmt(c.syn_lo)}-{_fmt(c.syn_hi)}]  "
@@ -2086,17 +2128,23 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
         out.append(f"    real by season, {STAT_LABELS[name]:16s} {vals}")
     out.append("")
     out.append("  HELD OUT: refit on four seasons, draft the fifth. The evidence that counts")
-    out.append("  for anything the fit targets -- the held season is in none of it.")
+    out.append("  for anything the fit targets -- the held season is in none of it. This is")
+    out.append("  where a FITTED statistic is gated, because it is the only place one means")
+    out.append("  anything: in-sample it is checking the fit against itself.")
     out.append("  Read as: does that season's real value fall inside the synthetic 5-95 band?")
     held_pass = 0
     held_total = 0
     misses: list[str] = []
+    per_stat: dict[str, int] = {}
+    per_stat_kind: dict[str, str] = {}
     for season, comps in holdout(seeds=seeds, sampler=sampler):
         marks = []
         for c in comps:
             held_total += 1
             ok = c.covers
             held_pass += 1 if ok else 0
+            per_stat[c.name] = per_stat.get(c.name, 0) + (1 if ok else 0)
+            per_stat_kind[c.name] = c.kind
             marks.append(f"{SHORT[c.name]}={'ok' if ok else 'MISS'}")
             if not ok:
                 misses.append(
@@ -2106,6 +2154,30 @@ def report(seeds: int = 50, sampler: str = "per-draft") -> tuple[list[str], bool
         out.append(f"    {season}: " + "  ".join(marks))
     out.extend(misses)
     out.append(f"    held-out: {held_pass}/{held_total} season-statistics covered")
+
+    # PER-STATISTIC HELD-OUT COVERAGE, REPORTED AND NOT GATED. B10 tried to gate the fitted
+    # statistics here at three of five and reverted, for two measured reasons.
+    #
+    # THE BAR'S INPUT WAS WRONG. It was derived from Binomial(5, 0.9) on the premise that the
+    # synthetic 5-95 percentile band delivers 90% coverage. It does not: `_pct` indexes at
+    # `round(q*(n-1))`, so for a fresh continuous draw the band covers (i95-i5)/(n+1) -- 0.692
+    # at 12 seeds, 0.846 at 25, 0.882 at 50. And five of the six statistics are DISCRETE, with
+    # two to six distinct synthetic values, so their bands are conservative and measure 0.92 to
+    # 1.00 instead. There is no single p, so there is no single binomial bar.
+    #
+    # AND THE COUNTS ARE NOT STABLE AT THE SEED COUNTS THE GATES USE. Over six disjoint
+    # twelve-seed sets, mfl_8_std's held-out K reads 4, 2, 3, 5, 5, 4 and its DEF reads
+    # 4, 4, 3, 4, 1, 4. A bar of three would be reading noise.
+    #
+    # `mfl_8_std`'s spread covering 0 of 5 is nonetheless a real and stable fact -- 0 at 12, 25,
+    # 50 and 100 seeds -- and it is the sharpest single statement about that market's fit. It is
+    # printed here so it cannot be missed, and it is not the thing deciding the verdict.
+    per_stat_line = "  ".join(
+        f"{SHORT[name]}={covered}/{len(SEASONS)}"
+        + ("*" if per_stat_kind.get(name) == "fitted" else "")
+        for name, covered in sorted(per_stat.items())
+    )
+    out.append(f"    per statistic: {per_stat_line}    (* = fitted)")
     out.append("")
     out.append(f"  verdict: room {'resembles' if verdict else 'DOES NOT resemble'} real")
     out.append("")

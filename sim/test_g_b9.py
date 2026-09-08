@@ -167,8 +167,16 @@ def test_the_range_restriction_refutation_partly_applies(joined) -> None:
     It is mechanical rather than substantive: the box is about 46 picks wide and 120-206 ranks
     wide, so sd(rank)/sd(pick) is inflated by the box's aspect ratio and pushes everything under
     the cut by construction. The consequence is a rule, not a caveat: THE CUT IS ONLY MEANINGFUL
-    ON A POSITION'S UNCONDITIONED POPULATION, which is what `fit_room` uses. This test exists so
-    that anyone who later adds a conditional to the classifier finds out what it costs.
+    ON A POSITION'S UNCONDITIONED POPULATION, which is what `fit_room` uses.
+
+    THIS TEST RECORDS THE LIMITATION; IT DOES NOT ENFORCE THE RULE, and an earlier version of
+    this docstring claimed it did ("so that anyone who later adds a conditional to the
+    classifier finds out what it costs"). It never calls `fit_room`, so a conditional added to
+    the classifier would leave it green. What actually catches that is
+    `test_g1_the_classifier_derives_the_leagues_own_scheduled_set` here, its twin in
+    `sim/test_g_b10.py`, `sim/test_g_room.py`'s clock gate, and G7 in `runner.gate_failures` --
+    measured, a box-conditioned classifier derives {DEF, K, WR} on ffc_12_std and
+    {DEF, K, RB, WR} on both MFL markets, so all four go red.
     """
     landed = []
     for market in MARKETS:
@@ -457,33 +465,40 @@ def test_a_thin_fit_refuses_to_guess_rather_than_scheduling_a_quarterback() -> N
 def test_the_sample_floor_is_bracketed_rather_than_tuned() -> None:
     """MIN_CLOCK_N must be a window, not a number somebody liked.
 
-    The requirement has two ends and both are measured: a single-season fit puts the
-    quarterback at n=12-14 and must be REFUSED (scheduling him removes every QB from the board
-    in a one-QB league), while a leave-one-season-out fit's thinnest cell is n=27-32 and must
-    be ADMITTED (`room.holdout` refits on four seasons, and the held-out battery is the
-    evidence that counts). So any floor in (14, 27] does the same job.
+    The requirement has two ends and both are measured. A single-season fit puts the
+    quarterback at n=12-14 and must be REFUSED, because scheduling him removes every QB from
+    the board in a one-QB league. Every LONGER window must be ADMITTED, and the binding one is
+    the WALK-FORWARD split at three seasons, whose thinnest cell is FFC's kicker at n=20.
 
-    This asserts that EVERY floor in that window gives the identical pooled and leave-one-out
-    verdict in all three markets. If it does, where the constant sits inside the window changes
-    nothing, which is what distinguishes bracketing from tuning.
+    B9 ASSERTED (14, 27] AND THAT WAS TOO WIDE, because it measured only the pooled and
+    leave-one-out windows. B10 put every split's room structure under G7, which makes the
+    three-season walk-forward window a gated code path, and its thinnest cell is seven lower
+    than leave-one-out's. The true bracket is (14, 20].
+
+    This asserts that EVERY floor in that window gives the identical verdict on EVERY window
+    the code fits, in all three markets. If it does, where the constant sits inside the window
+    changes nothing, which is what distinguishes bracketing from tuning.
     """
-    assert 14 < room.MIN_CLOCK_N <= 27, room.MIN_CLOCK_N
+    assert 14 < room.MIN_CLOCK_N <= 20, room.MIN_CLOCK_N
+    windows = {
+        "pooled": tuple(room.SEASONS),
+        "walk-forward": (2021, 2022, 2023),
+        **{
+            f"hold-{held}": tuple(s for s in room.SEASONS if s != held)
+            for held in room.SEASONS
+        },
+    }
     original = room.MIN_CLOCK_N
     try:
-        for floor in range(15, 28):
+        for floor in range(15, 21):
             room.MIN_CLOCK_N = floor
             for market in MARKETS:
                 with markets.use(market):
                     expected = set(room.expected_scheduled())
-                    assert set(room.fit_room().scheduled) == expected, (
-                        f"floor {floor}: {market} pooled fit derives "
-                        f"{sorted(room.fit_room().scheduled)}"
-                    )
-                    for held in room.SEASONS:
-                        kept = tuple(s for s in room.SEASONS if s != held)
-                        assert set(room.fit_room(kept).scheduled) == expected, (
-                            f"floor {floor}: {market} holding out {held} derives "
-                            f"{sorted(room.fit_room(kept).scheduled)}"
+                    for label, window in windows.items():
+                        got = set(room.fit_room(window).scheduled)
+                        assert got == expected, (
+                            f"floor {floor}: {market} {label} derives {sorted(got)}"
                         )
     finally:
         room.MIN_CLOCK_N = original

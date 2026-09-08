@@ -462,22 +462,34 @@ def test_g2_every_pre_registered_statistic_lands_where_it_was_measured(room, mar
     )
 
 
-def test_g2_the_two_statistics_the_fit_does_not_target(room, market_name) -> None:
+def test_g2_the_statistics_the_fit_does_not_target(room, market_name) -> None:
     """Stated separately because these are the only in-sample lines that are evidence.
 
-    `first QB round` and `runs of 3+` are the two the fit does not aim at, so they are the two
-    that can corroborate it. Both land on ffc_12_std and on mfl_8_std. On mfl_12_std the
-    quarterback misses by 0.04 of a round -- synth 2.96 against a real range whose floor is
-    3.0 -- which is recorded rather than waved through, and is the only reason that room does
-    not pass B1.
+    B10 CUT THIS SET FROM TWO TO ONE, and the cut is the finding rather than a tidy-up.
+    `first QB round` was labelled `free` -- "the fit targets nothing resembling it" -- and it is
+    not: `mu["QB"]` is fitted as exactly the mean of (real QB pick minus board rank) and
+    reproduces it to the last digit in all three markets, and shifting it moves the statistic
+    one for one. So it is `fitted`, like `first_k_round`, and only `runs of 3+` is genuinely
+    untargeted, with `K+DEF in 128` semi beside it.
+
+    The honest size of this battery's independent evidence is therefore ONE free statistic and
+    one semi, not two free ones -- which is a good deal less than "six pre-registered
+    statistics" has implied since B1. It is also why B10 did not shrink the gated battery to
+    match: with this little untargeted evidence there is nothing safe to fall back to, and
+    de-gating the fitted statistics was measured to let a room with a one-round-wrong specialist
+    schedule pass B1 on ffc_12_std.
     """
     R, _fit, _boards, real, synthetic = room
-    free = [c for c in R.compare(synthetic, list(real.values())) if c.kind == "free"]
-    assert {c.name for c in free} == {"first QB round", "runs of 3+"}
-    failed = frozenset(c.name for c in free if not c.passes)
+    comps = R.compare(synthetic, list(real.values()))
+    free = [c for c in comps if c.kind == "free"]
+    semi = [c for c in comps if c.kind == "semi"]
+    assert {c.name for c in free} == {"runs of 3+"}, sorted(c.name for c in free)
+    assert {c.name for c in semi} == {"K+DEF in 128"}, sorted(c.name for c in semi)
+    untargeted = free + semi
+    failed = frozenset(c.name for c in untargeted if not c.passes)
     assert failed == frozenset(ROOM_FACTS[market_name]["in_sample_fails"]) & {
-        "first QB round", "runs of 3+"
-    }, [(c.name, c.synthetic, c.real_lo, c.real_hi) for c in free if not c.passes]
+        c.name for c in untargeted
+    }, [(c.name, c.synthetic, c.real_lo, c.real_hi) for c in untargeted if not c.passes]
 
 
 def test_g2_held_out_seasons_are_mostly_covered_and_the_misses_are_the_known_ones(

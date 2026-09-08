@@ -658,7 +658,9 @@ def execute(
             )
 
     wall = time.perf_counter() - started
-    return build_payload(config, pins, fit_for["main"], done, wall, season_boards, league)
+    return build_payload(
+        config, pins, fit_for["main"], done, wall, season_boards, league, fits=fit_for
+    )
 
 
 def _count_positions(picks: Sequence[Any], seat_id: int) -> dict[str, int]:
@@ -710,6 +712,7 @@ def build_payload(
     wall: float,
     season_boards: dict[int, Any] | None = None,
     league: Any = None,
+    fits: dict[str, room.Fit] | None = None,
 ) -> dict[str, Any]:
     all_rows = [done[u] for u in config.units()]
     rows = [r for r in all_rows if r.get("split", "main") == "main"]
@@ -799,6 +802,27 @@ def build_payload(
         ],
         "pins": pins,
         "fit": artifact.fit_block(fit),
+        # G13. EVERY SPLIT'S ROOM STRUCTURE, not only the main one. `execute` fits a separate
+        # room per split -- that is the whole point of the walk-forward design, which refits on
+        # 2021-2023 and tests on seasons the fit never saw -- and until B10 only the main fit
+        # reached the artifact. So the walk-forward room's scheduled set was checked by nothing,
+        # and a split whose classifier had gone wrong would have produced walk-forward numbers
+        # that looked ordinary. audible#75 measured that they agree on all three markets today,
+        # which is a fact about today and not a gate.
+        "split_fits": {
+            label: {
+                "seasons": list(split_fit.seasons),
+                "scheduled": sorted(split_fit.scheduled),
+                "clock_ratio": dict(sorted(split_fit.clock_ratio.items())),
+                "unclassified": list(split_fit.clock_unclassified),
+                # HOW MANY JOINED PICKS EACH POSITION HAD. Without it the artifact cannot show
+                # that a split is near `MIN_CLOCK_N` -- FFC's walk-forward kicker joins 20
+                # times against a floor of 17, which is the tightest cell in any window the
+                # code fits and is invisible from the ratio alone.
+                "clock_n": dict(sorted(split_fit.clock_n.items())),
+            }
+            for label, split_fit in sorted((fits or {}).items())
+        },
         "arms": arms,
         # TASK 5, PERMANENTLY. Every headline broken down by POSITION and by SLOT, with the
         # two views reconciled against each other and against the arm's own points-for gap.
@@ -1574,8 +1598,26 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
     # a kicker, in a room where nothing schedules one, fills that slot by accident or not at all.
     #
     # Hard rather than advisory: a mis-specified room does not degrade a result, it replaces it.
-    scheduled = set(payload.get("fit", {}).get("scheduled") or ())
+    # EVERY SPLIT, not only the main fit. See the `split_fits` block in `build_payload`.
     expected = room.expected_scheduled()
+    for label, block in sorted((payload.get("split_fits") or {}).items()):
+        if label == "main":
+            continue
+        got = set(block.get("scheduled") or ())
+        if got != expected:
+            ratios = block.get("clock_ratio") or {}
+            detail = ", ".join(
+                f"{p} {_ratio_text(ratios.get(p))}" for p in sorted(got ^ expected)
+            )
+            failures.append(
+                f"G7 room-fidelity ({label} split, seasons {block.get('seasons')}): the "
+                f"classifier put {sorted(got)} on the SCHEDULE clock where this league's "
+                f"starting slots imply {sorted(expected)}. Disagreeing position(s) read "
+                f"{detail or 'no ratio recorded'}. A split's room is the room its numbers were "
+                f"measured in, and until B10 only the main split's structure was checked."
+            )
+
+    scheduled = set(payload.get("fit", {}).get("scheduled") or ())
     if scheduled != expected:
         ratios = payload.get("fit", {}).get("clock_ratio") or {}
         # FORMATTED DEFENSIVELY, because the value is not always a float. `fit_room` writes
