@@ -59,6 +59,14 @@ ALIASES: dict[str, str] = {
     "michael badgley": "mike badgley",
     "chig okonkwo": "chigoziem okonkwo",
     "joshua palmer": "josh palmer",
+    # RETROACTIVE RENAMES ARE A SIXTH KIND OF MISS, and this one was found by an MFL board
+    # rather than an FFC one. nflverse carries only `robbie chosen` for 2021; MFL's 2021
+    # catalogue carries the contemporaneous `Robby Anderson` and FFC's 2021 board carries the
+    # renamed form, so the SAME PLAYER resolved on one market and not on the other -- at board
+    # rank 99 of 237, inside the 128 picks, for 85.5 season points booked as zero. A join
+    # defect that is asymmetric ACROSS MARKETS biases exactly the comparison B8 exists to run.
+    "robby anderson": "robbie chosen",
+    "robbie anderson": "robbie chosen",
 }
 
 # FFC calls team defences "Cincinnati Defense" / "NY Giants Defense". There is no person to

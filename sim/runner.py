@@ -59,7 +59,17 @@ from typing import Any
 # `boards` is aliased because `execute` already binds that name to the room's per-season ADP
 # boards, and two different things called `boards` inside one function is how a wrong one gets
 # passed to a chooser -- which is exactly the B2 defect that cost a session.
-from . import LIVE_CACHE, SIM_CACHE, accuracy, artifact, room, roundtrip, seat, weekly
+from . import (
+    LIVE_CACHE,
+    SIM_CACHE,
+    accuracy,
+    artifact,
+    markets,
+    room,
+    roundtrip,
+    seat,
+    weekly,
+)
 from . import boards as b4boards
 
 REPO = Path(__file__).resolve().parents[1]
@@ -98,6 +108,13 @@ class RunConfig:
     # experiment rather than a bug fix, it moves every arm's total by roughly +130 a season,
     # and B4's committed numbers were produced without it. See `weekly.KICKER_COLUMNS`.
     score_kickers: bool = False
+    # B8. WHICH MARKET the board comes from: a league config paired with an ADP source, named
+    # in `sim/markets.py`. Defaults to the FFC market every result before B8 was measured in, so
+    # an existing config file runs unchanged and means what it meant. It reaches three places --
+    # `required_inputs` (so a missing pin fails in preflight), `config_hash` (so a checkpoint
+    # cannot resume across markets) and `markets.set_active` in `execute` (so `room.load_board`
+    # builds the right board).
+    market: str = markets.DEFAULT
     raw: dict[str, Any] = field(default_factory=dict)
 
     def splits(self) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
@@ -118,6 +135,19 @@ class RunConfig:
                     "seat": self.seat, "league": self.league,
                     "fit_seasons": list(self.fit_seasons),
                     "wf_fit": list(self.wf_fit), "wf_test": list(self.wf_test),
+                    # EVERY FIELD THAT CHANGES WHAT A UNIT COMPUTES BELONGS HERE, and until B8
+                    # four of them did not. The hash is what `Checkpoint.start` compares before
+                    # resuming, so a field it omits is a field two different experiments can
+                    # share a checkpoint across: `--resume` would append MFL units to an FFC
+                    # run's file, or FFA units to a walkforward run's, and the artifact would
+                    # report one config over a mixture of two. `market` is the new one;
+                    # `projection`, `historical_deltas` and `score_kickers` were already
+                    # silently missing. No committed artifact pins a literal hash, so widening
+                    # it costs a stale checkpoint and nothing else.
+                    "market": self.market,
+                    "projection": self.projection,
+                    "historical_deltas": self.historical_deltas,
+                    "score_kickers": self.score_kickers,
                 }
             ).encode("utf-8")
         ).hexdigest()
@@ -216,6 +246,24 @@ def load_config(path: Path) -> RunConfig:
             f"but sets projection = {source!r}. That arm would have no values to order on and "
             f"would fall through to the player-id tie-break."
         )
+    market = str(run.get("market", markets.DEFAULT))
+    declared = markets.REGISTRY.get(market)
+    if declared is not None and declared.league != str(run["league"]):
+        # A MARKET IS A PAIR AND BOTH HALVES MUST BE TRUE. `Market.league` reaches the
+        # artifact's provenance block; unchecked, an artifact could state a league the numbers
+        # were never computed under, which is the one job that block has.
+        raise SystemExit(
+            f"PREFLIGHT: {path} runs league {run['league']!r} in market {market!r}, which is "
+            f"declared for {declared.league!r}. A market is a (league, ADP source) pair; "
+            f"running one half of it against the other half of a different one is not a "
+            f"market."
+        )
+    if market not in markets.REGISTRY:
+        raise SystemExit(
+            f"PREFLIGHT: {path} names market {market!r}; known markets are "
+            f"{sorted(markets.REGISTRY)}. A market is declared in `sim/markets.py`, not spelled "
+            f"in a config."
+        )
     try:
         seat_no = int(run["seat"])
     except (TypeError, ValueError):
@@ -234,6 +282,7 @@ def load_config(path: Path) -> RunConfig:
         projection=source,
         historical_deltas=bool(run.get("historical_deltas", False)),
         score_kickers=bool(run.get("score_kickers", False)),
+        market=market,
         raw=blob,
     )
 
@@ -241,13 +290,31 @@ def load_config(path: Path) -> RunConfig:
 # --- preflight ------------------------------------------------------------------------------
 
 
+def _market_block(config: RunConfig) -> dict[str, Any]:
+    """What market the run used, named so a reader never has to infer it from a filename."""
+    market = markets.get(config.market)
+    return {
+        "name": market.name,
+        "league": market.league,
+        "source": market.source,
+        "params": dict(sorted(market.params.items())),
+        "provenance": market.provenance,
+    }
+
+
 def required_inputs(config: RunConfig) -> list[str]:
     """Every file the run will read, named before anything is opened."""
     names = ["nflverse/ff_playerids.parquet", "nflverse/teams.parquet"]
+    market = markets.get(config.market)
     every_season = set(config.seasons) | set(config.fit_seasons)
     every_season |= set(config.wf_fit) | set(config.wf_test)
     for season in sorted(every_season):
-        names.append(f"ffc_adp_standard_8_{season}.json")
+        # THE MARKET NAMES ITS OWN FILES. The FFC board was hardcoded here, so a run in any
+        # other market checksummed a file it would never open and never checksummed the board
+        # it drafted from -- preflight would pass on a machine with no MFL pins at all and the
+        # run would die at the first `load_board`. That is precisely the failure preflight
+        # exists to prevent, and it is also what puts the real board in the artifact's `pins`.
+        names.extend(market.pins(season))
         names.append(f"espn_draft_{room.LEAGUE_ID}_{season}.json")
     for season in sorted(set(config.seasons) | set(config.wf_fit) | set(config.wf_test)):
         names.append(f"nflverse/player_stats_{season}.parquet")
@@ -481,6 +548,10 @@ def execute(
     unlink the in-flight file and start appending its own.
     """
     started = time.perf_counter()
+    # BEFORE PREFLIGHT, because preflight resolves the very files the market names, and before
+    # any `load_board`, which reads the active market rather than taking it as an argument.
+    market = markets.set_active(config.market)
+    log.info("market %s  league %s  adp %s", market.name, market.league, market.source)
     log.info("preflight: %d inputs", len(required_inputs(config)))
     pins = preflight(config)
     log.info("preflight ok: every input present and checksummed")
@@ -714,6 +785,11 @@ def build_payload(
         "seed_count": len(config.seeds),
         "seat": config.seat,
         "league": config.league,
+        # WHICH MARKET THIS WAS MEASURED IN, on the page rather than in the config hash only.
+        # Every number in this artifact is conditional on it -- an eight-team board and a
+        # twelve-team board price the same player differently -- and two artifacts compared
+        # without it are two experiments compared as if they were one.
+        "market": _market_block(config),
         "fit_seasons": list(sorted(config.fit_seasons)),
         "units": len(all_rows),
         "main_units": len(rows),
@@ -1469,6 +1545,34 @@ def gate_failures(payload: dict[str, Any]) -> list[str]:
     in the config turns it back into a hard gate for anyone who disagrees with this reading.
     """
     failures: list[str] = []
+
+    # G7 -- THE OPPONENT ROOM MUST BE THE ROOM B1 VALIDATED, and this gate exists because B8
+    # found a market where it is not. `room.fit_room` puts a position on the SCHEDULE clock
+    # when the drafted count exceeds what the board's top 128 supplies; B1 validated a room
+    # where that set is exactly {DEF, K}, and `room._best` REMOVES every scheduled position
+    # from the board the bots pick off. Measured on MFL's eight-team board, RB (1.047) and WR
+    # (1.111) cross the cut, so the bots cannot take a running back or a receiver off the
+    # board and fall through to drafting three quarterbacks each in a one-QB league.
+    #
+    # Nothing caught it. Every arm still ran, every interval still computed, and the artifact
+    # looked ordinary -- but every number in it was measured against opponents that do not
+    # draft like the real room. `sim/test_g_room.py` asserts this same set and could not see
+    # it, because its fixture builds under whatever market happens to be active.
+    #
+    # It is a HARD gate rather than a warning because a mis-specified room does not degrade a
+    # result, it replaces it.
+    scheduled = set(payload.get("fit", {}).get("scheduled") or ())
+    unexpected = sorted(scheduled - room.B1_SCHEDULED)
+    if unexpected:
+        ratios = payload.get("fit", {}).get("supply_ratio") or {}
+        detail = ", ".join(f"{p} {ratios.get(p, float('nan')):.3f}" for p in unexpected)
+        failures.append(
+            f"G7 room-fidelity: position(s) {unexpected} are on the SCHEDULE clock in this "
+            f"market (supply ratio {detail} against a cut of {room.SUPPLY_RATIO_CUT}), so the "
+            f"bots cannot draft them off the board at all. B1 validated a room whose scheduled "
+            f"set is {sorted(room.B1_SCHEDULED)}. Nothing measured inside a different room "
+            f"is comparable to anything measured inside that one."
+        )
 
     if not payload.get("units"):
         failures.append(
