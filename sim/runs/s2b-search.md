@@ -91,3 +91,119 @@ it as a ranking was always over-reading.
 `espn - sleeper` in danger_zone goes +1.42 ns (board), +2.54 [-0.19, +5.30] ns (realised),
 +2.05 ns (symmetric). Under `realised` the interval nearly excludes zero. Recorded as a
 near-miss rather than a result.
+
+---
+
+## PRE-REGISTRATION — the search
+
+Committed before the search space was implemented and before any candidate was evaluated.
+
+### the indexing the search optimises: `symmetric`
+
+Fixed here and not changed again. It is the only one of the three with an asymmetry of 1.00x,
+so it prices drafting a bust and missing a sleeper equally. Optimising `board` would inherit
+the blindness this session exists to remove; optimising `realised` would inherit its mirror.
+
+### the splits
+
+    fit      2019, 2020, 2021   within-candidate estimation
+    select   2022, 2023         THE SEARCH OPTIMISES HERE
+    report   2024, 2025         touched ONCE, by ONE candidate
+
+Candidates are ranked by their SELECT score. Their FIT score is reported alongside as a
+stability check: a candidate that is good on select and bad on fit is fitting two seasons of
+noise, and that is visible without spending the holdout.
+
+**The cost, stated honestly.** Three seasons of fitting rather than four, two select seasons
+rather than three, and exactly one look at the holdout. That is a real loss of power and it is
+the price of the number at the end meaning what it says.
+
+### an exception to the holdout, declared rather than discovered
+
+**G2 required re-reporting `audible#84`'s headlines, and those headlines are computed on
+2024-2025.** So the report split's BASELINE is already known: espn scores 22.75 there under
+symmetric indexing in green_hope. That could not be avoided -- the gate demanded it, and the
+numbers were already published by the prior session.
+
+What that does NOT include is any candidate. The lock below forbids evaluating a SEARCH
+CANDIDATE on the report seasons until one is fixed by hash. Knowing the incumbent's score is
+not the same as tuning against the holdout, but it is not nothing either, and it is recorded
+here rather than left for a reviewer to find.
+
+### the lock (G3), mechanical
+
+`sim/holdout.py` refuses to serve report-season data to the search unless
+`sim/runs/s2b-candidate.lock` exists AND is tracked by git. The lock names one candidate and
+carries its sha256. Reading the holdout before that file is committed raises rather than
+returns.
+
+### the space: eight knobs, each with a reason to exist
+
+    1  w_espn        [0,1]        source blend weight, espn
+    2  w_ffa         [0,1]        source blend weight, ffa
+                                  (sleeper takes the remainder; the three are a simplex)
+                                  REASON: audible#84 found the winner rotates by rulebook and
+                                  the per-position bests differ. A blend can express that; a
+                                  single source cannot.
+    3  qb_depth      [1.0, 2.0]   multiplier on QB rostered count
+                                  REASON: rostered_counts gives a 1-QB league's QB no bench at
+                                  all, landing replacement at QB8 against a league that
+                                  rosters ~13. 1.625 is that reality.
+    4  flex_depth    [0.7, 1.3]   multiplier on RB/WR/TE rostered counts
+                                  REASON: the bench split across flex-eligible positions is a
+                                  rule of thumb, never measured.
+    5  usage_lambda  [-0.15,0.30] prior-season target share, as in audible#84
+                                  REASON: INCLUDED BECAUSE IT IS A KNOWN NULL. A search that
+                                  cannot rediscover a measured zero is not searching honestly.
+                                  This is G7.
+    6  shrink        [0.0, 0.40]  shrink projected points toward the positional mean
+                                  REASON: projections are noisy and shrinkage is the standard
+                                  variance trade. Never tried here.
+    7  vorp_mix      [0.0, 0.50]  blend the VORP ordering toward raw points
+                                  REASON: VORP fully de-levels positions, raw points fully
+                                  ignores scarcity. The truth may be between, and audible#84
+                                  only ever ran the VORP end.
+    8  noise_lambda  [-0.20,0.20] a pure-noise multiplier on projected points
+                                  REASON: INJECTION 4. Its fitted weight must land near zero.
+                                  A search that gives a random number a large weight is
+                                  overfitting and its result is void.
+
+Eight, which is the cap. Two of the eight (5 and 8) exist to be found near zero rather than to
+help, so the effective search is over six.
+
+### the blend, and a caveat it forces
+
+Arms cover different seasons: espn has no 2023, sleeper has no 2019 or 2020. Rather than
+shrink the window to the intersection -- which would leave one fit season and one select
+season -- **the blend renormalises over whichever arms exist in that season**, and over
+whichever arms carry that player.
+
+The caveat this forces, stated now: **a blend weight does not mean the same thing in every
+season.** In 2019-2020 it is a two-way espn/ffa mix; in 2023 a two-way ffa/sleeper mix; in
+2021-2022 and 2024-2025 a three-way mix. A weight fitted mostly on two-way seasons may not
+transfer. That is a real limitation of blending across corpora with different coverage and it
+cannot be engineered away without discarding half the data.
+
+### the search
+
+Random search over the eight-dimensional box, with the three blend weights drawn from a
+Dirichlet so the simplex is sampled uniformly rather than through its corners. **Not a grid** --
+a grid over eight knobs either explodes or samples the corners worst.
+
+The number of candidates and the wall-clock are reported. So is the WHOLE DISTRIBUTION: median,
+p5, p95, and the winner's margin over the median. If a thousand candidates all land within half
+an RWRE of each other, the space is flat and the board is already near a local optimum -- and
+that is the finding, not the winner.
+
+### the null, pre-registered
+
+The identical search is re-run with the FIT-SEASON LABELS SHUFFLED -- realised outcomes permuted
+among players, so any structure is destroyed. Whatever improvement that search finds is the
+floor available from searching alone. **A real result must beat its own shuffled null**, and the
+two are reported side by side.
+
+### the disposition rule, fixed in advance
+
+SHIP only if the single committed candidate beats the incumbent on the report split, under the
+pre-registered symmetric indexing, by more than its shuffled-label null found on select.
+Otherwise DO NOT SHIP, whatever the select-split number said.
