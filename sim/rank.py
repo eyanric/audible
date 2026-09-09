@@ -212,9 +212,35 @@ class RankScore:
     pool_size: int
 
 
-def _weights(board_rank: int, teams: int) -> float:
-    """1 / round. See the pre-registration for why round-decay and not inverse-rank."""
-    return 1.0 / math.ceil(board_rank / teams)
+# The three ways to index the error weight. See sim/runs/s2b-search.md.
+#
+# `board` is audible#84's, and its own adversarial review measured it as 4.4x ASYMMETRIC:
+# burying the best player at rank 128 costs 1.29, promoting the worst to rank 1 costs 5.66.
+# That follows from weighting by the pick you SPEND, so it prices "do not draft a bust early"
+# and is nearly blind to "find a sleeper". A source or signal could differ substantially at
+# late-round value and that metric structurally could not see it.
+#
+# `realised` is the mirror and has the mirror blindness: it weights by how good the player
+# turned out to be, so burying a star is expensive and rostering a bust is nearly free.
+#
+# `symmetric` takes the LARGER of the two. An error is costly if EITHER the pick was expensive
+# OR the player was valuable, which is the only one of the three that prices both failures.
+INDEXINGS: tuple[str, ...] = ("board", "realised", "symmetric")
+
+
+def _weights(
+    board_rank: int, teams: int, realised_rank: int | None = None, indexing: str = "board"
+) -> float:
+    """Round-decay weight, indexed as *indexing* says. `board` reproduces audible#84 exactly."""
+    b = 1.0 / math.ceil(board_rank / teams)
+    if indexing == "board" or realised_rank is None:
+        return b
+    r = 1.0 / math.ceil(realised_rank / teams)
+    if indexing == "realised":
+        return r
+    if indexing == "symmetric":
+        return max(b, r)
+    raise ValueError(f"unknown indexing {indexing!r}; expected one of {list(INDEXINGS)}")
 
 
 def _realised_order(pool: list[str], realised: dict[str, float]) -> dict[str, int]:
@@ -244,6 +270,7 @@ def score_board(
     teams: int,
     pool_size: int,
     position: dict[str, str] | None = None,
+    indexing: str = "board",
 ) -> RankScore:
     """Round-weighted rank error for *board* against *realised*, over the top `pool_size`.
 
@@ -257,7 +284,7 @@ def score_board(
 
     num = den = 0.0
     for pid, br in board_rank.items():
-        w = _weights(br, teams)
+        w = _weights(br, teams, real_rank[pid], indexing)
         num += w * abs(br - real_rank[pid])
         den += w
     rwre = num / den if den else float("nan")
@@ -277,7 +304,7 @@ def score_board(
             r_in = _realised_order(members, realised)
             n_ = d_ = 0.0
             for p, br in b_in.items():
-                w = _weights(br, teams)
+                w = _weights(br, teams, r_in[p], indexing)
                 n_ += w * abs(br - r_in[p])
                 d_ += w
             per_pos[pos] = n_ / d_ if d_ else float("nan")

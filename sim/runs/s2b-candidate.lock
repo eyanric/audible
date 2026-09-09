@@ -1,0 +1,19 @@
+{
+ "candidate": {
+  "flex_depth": 0.77869,
+  "noise_lambda": -0.04587,
+  "qb_depth": 1.076785,
+  "shrink": 0.291781,
+  "usage_lambda": -0.02501,
+  "vorp_mix": 0.01585,
+  "w_espn": 0.327445,
+  "w_ffa": 0.06599,
+  "w_sleeper": 0.606565
+ },
+ "note": "S2b: best of 4000 random candidates on the select split (2022-2023), symmetric indexing, select 22.540 against an incumbent 22.892. Selected by the rule fixed in sim/runs/s2b-search.md before the search ran. Carried unchanged despite failing the fit-split stability check (fit 22.156 vs incumbent 22.109), because swapping candidate after seeing fit scores is the error the apparatus exists to prevent.",
+ "report_seasons": [
+  2024,
+  2025
+ ],
+ "sha256": "f371e3301840f9cefc60263049ec7a5095e70439160529284789d57a79ebe11d"
+}
