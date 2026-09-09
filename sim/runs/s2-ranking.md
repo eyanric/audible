@@ -635,3 +635,94 @@ Both numbers stand. They are different instruments answering different questions
 pre-registration said in advance that a disagreement would be attributed to the instrument
 rather than resolved by preference. The agreement in direction is the part worth carrying
 forward: three measurements now say this is not where the accuracy is.
+
+---
+
+## ADVERSARIAL REVIEW
+
+**A deviation from G13, stated plainly.** The review was launched as a foreground agent, as the
+gate requires. It hit a session rate limit after 21 tool calls and returned nothing usable. The
+six attacks were then run inline instead. That is a weaker form of review -- my own work checked
+by me -- and it is recorded as such rather than presented as an independent pass.
+
+### the headline survives, and one attack strengthened it
+
+**Attack 4 -- is the realised scorer correct?** `sim/rank.py::realised_per_game` reimplements
+scoring rather than calling `weekly.weekly_points`. Pointed at the same league (6012) with the
+same historical delta applied:
+
+    exact season-total match: 577 / 577 = 100.0%
+
+Without the delta the match is 44.5%, and the entire gap is `rec` 0.5 against 0.0 -- exactly
+the limitation the module docstring states. The reimplementation is verified, not asserted.
+
+**Attack 3 -- is G1 vacuous?** The perfect board is scored against values derived from the same
+object, so zero could be trivial. It is not: the metric responds smoothly and monotonically to
+known perturbations.
+
+    adjacent swaps   0 -> 0.0000   1 -> 0.0071   5 -> 0.0460
+                    10 -> 0.0737  25 -> 0.3790  64 -> 1.0720
+
+**Attack 2 -- is "indistinguishable" an equivalence claim, or just low power?** It is a bounded
+equivalence claim. The paired interval for ffa-espn is [-0.71, +1.12], so any true difference is
+at most about 1.1 RWRE. Calibrating that against known boards:
+
+    perfect board                              0.00
+    EVERY adjacent pair in the pool swapped    1.00
+    best arm (espn, out-of-sample)            20.33
+    shuffled board                            43.97
+
+The bound reads "at most, one arm misranks every player by about one slot relative to the
+other". Small, interpretable, and not vacuous.
+
+**Attack 6 -- are the arms scored on the same players?** Pool overlap for 2024 green_hope is
+91% ffa-espn, 91% ffa-sleeper, 88% espn-sleeper and 81-85% against ecr. The paired test's n=236
+of 256 draws on genuinely shared players, so "same players, different order" holds.
+
+**Attack 5 -- is the realised ranking dominated by one-game wonders?** No. Of the realised
+top-50, two players in 2024 and one in 2025 played fewer than six games; the median is sixteen.
+A minimum-games threshold would change almost nothing and is not worth the free parameter.
+
+**Attack 1 -- can an arm escape its misses?** The harness drops board entries with no realised
+row before taking the top-N, so a highly-ranked player who never took a snap is silently
+removed rather than ranked last. A real hole in principle. In practice it is 0 players in 2024
+and 1-2 in 2025, near-identical across arms, so it cannot differentially advantage one.
+
+### the real limitation, found by attack 3b
+
+**The metric is asymmetric by a factor of 4.4, and that is a consequence of a pre-registered
+choice rather than a bug.**
+
+    move the BEST player from rank 1 to rank 128    RWRE 1.29
+    move the 128th player up to rank 1              RWRE 5.66
+
+The weight is indexed by BOARD rank -- the pick you actually spend -- so a board that BURIES a
+star pays almost nothing while a board that OVERRATES a bust pays heavily. That was justified in
+the pre-registration and it is defensible: you only spend the pick you spend.
+
+But it means **this metric primarily measures "do not draft busts early" and barely prices "find
+sleepers."** Sources could differ more at late-round value than at early busts, and this
+measurement would not see it. That is a genuine caveat on "projection source is not the lever":
+it is not the lever FOR THE THING THIS METRIC MEASURES.
+
+An alternative indexing -- by realised rank, or symmetric in both -- answers the other question.
+It is not applied here because changing `w` mid-loop would invalidate every comparison already
+made, which the pre-registration forbids for exactly this reason. It is the first thing a
+follow-up should vary.
+
+### two handoff premises about the leagues are wrong
+
+Read from the committed TOMLs:
+
+    espn_green_hope   rec 0.0   no per-position override
+    espn_danger_zone  rec 1.0   no per-position override
+    sleeper_boyfun    rec 0.5   no per-position override
+    espn_davis_drive  rec 0.5   RB override 0.0
+
+**danger_zone is a flat 1.0 per reception for every position**, not "1.0/rec WR-TE" as the
+handoff states. **boyfun is HALF PPR at 0.5**, not "full PPR" -- and `CLAUDE.md` itself says
+half-PPR, so the handoff contradicts the repo's own project document.
+
+Neither error changes a conclusion: both leagues pay receptions and green_hope does not, which
+is all the league-differential predictions depended on. But the labels were repeated from the
+handoff into this file and are corrected here.
