@@ -144,6 +144,11 @@ PAUSED_STATUS = "paused"
 # on purpose, so it is the one case where the wall-clock anchor must stand down.
 COMPLETE_STATUS = "complete"
 
+# How long after its scheduled start a draft may still be considered "due" by the wall clock.
+# The window is what stops a past start time arming the detector forever once the season moves
+# on -- see CockpitService._draft_is_due.
+DRAFT_DUE_WINDOW_S = 6 * 3600.0
+
 
 def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
     """Cheap identity for a pick slate: how many, how far, and who was last.
@@ -192,6 +197,10 @@ class DraftSession:
     # `source: "sync"` picks, which is byte-for-byte what a draft that synced perfectly
     # writes. The board is unaffected by this list; it exists so the evening stays auditable.
     manual_superseded: list[Pick] = field(default_factory=list)
+    # player_id -> when the cockpit first saw him taken. Survives a slate that momentarily
+    # empties, which `picks` does not. `None` marks a pick restored from a state file written
+    # before this field existed: unknown stays unknown rather than being restamped as new.
+    first_seen_by_player: dict[str, float | None] = field(default_factory=dict)
     slot: int | None = None
     slot_source: str = SOURCE_UNRESOLVED
     user_id: str | None = None
@@ -204,6 +213,7 @@ class DraftSession:
             "picks": [_pick_json(p) for p in self.picks],
             "manual_picks": [_pick_json(p) for p in self.manual_picks],
             "manual_superseded": [_pick_json(p) for p in self.manual_superseded],
+            "first_seen_by_player": self.first_seen_by_player,
             "slot": self.slot, "slot_source": self.slot_source,
             "user_id": self.user_id, "roster_id": self.roster_id,
         }
@@ -222,6 +232,13 @@ class DraftSession:
         session.manual_superseded = [
             _pick_from_json(p, "manual") for p in data.get("manual_superseded", [])
         ]
+        # Seed from the ledger when the file has one; otherwise fall back to the picks
+        # themselves, so an OLD state file restores as "unknown" (None) rather than being
+        # restamped with the restart time on the next poll.
+        session.first_seen_by_player = {
+            str(k): (float(v) if v is not None else None)
+            for k, v in (data.get("first_seen_by_player") or {}).items()
+        } or {p.player_id: p.first_seen for p in session.picks}
         session.slot = data.get("slot")
         session.slot_source = data.get("slot_source", SOURCE_UNRESOLVED)
         session.user_id = data.get("user_id")
@@ -458,15 +475,26 @@ class CockpitService:
             # side, and the reason arming alone would not have been enough.
             self.health.drafting_since = None
 
-        # STAMP FIRST-SEEN before the slate is replaced. `update.picks` is rebuilt from the
-        # payload every tick and always arrives unstamped, so a pick already on the board must
-        # carry its ORIGINAL instant forward or every poll would restamp the whole draft to
-        # now and the trickle-versus-bulk distinction would be erased on the next tick.
-        seen_at = {(p.pick_no, p.player_id): p.first_seen for p in session.picks}
+        # STAMP FIRST-SEEN from a LEDGER, not from the current slate. `update.picks` is
+        # rebuilt from the payload every tick and always arrives unstamped, so the original
+        # instant has to come from somewhere that outlives the slate.
+        #
+        # Keyed on player, and only on player. Keying on (pick_no, player_id) meant a
+        # RENUMBERED pick -- same player, new number -- restamped to now, and the file then
+        # claimed a pick that had been visible for minutes had just arrived. A player is
+        # drafted once, so his id is the stable key. A CORRECTION (same number, different
+        # player) is a genuinely new pick and still gets a fresh stamp, which is right.
+        #
+        # A ledger rather than a re-read of `session.picks` because an all-placeholder body
+        # parses to zero picks and blanks the slate -- the behaviour documented thirty lines
+        # above -- and rebuilding the map from an empty slate restamped the whole draft on the
+        # next real body, manufacturing the exact bulk-reconciliation signature this field
+        # exists to detect. Measured: 128 distinct instants collapsed to 28. It only grows.
+        for p in update.picks:
+            if p.player_id not in session.first_seen_by_player:
+                session.first_seen_by_player[p.player_id] = now
         session.picks = [
-            replace(p, first_seen=prior if (
-                prior := seen_at.get((p.pick_no, p.player_id))
-            ) is not None else now)
+            replace(p, first_seen=session.first_seen_by_player[p.player_id])
             for p in update.picks
         ]
         # Sync is authoritative: drop any hand-entered pick it now covers, and renumber the
@@ -584,7 +612,17 @@ class CockpitService:
         starts_at = self.config.draft_starts_at
         if starts_at is None or status == COMPLETE_STATUS:
             return False
-        return now >= starts_at.timestamp()
+        # BOUNDED, and the bound is not decoration. `status == COMPLETE_STATUS` alone was not
+        # enough: a finished draft that flaps back to `pre_draft` even once re-arms the
+        # anchor, and `espn_draft_status({})` returns `pre_draft` for any body missing
+        # `draftDetail` -- so the same quiet feed this exists to catch would latch a permanent
+        # alarm afterwards, persisted across every restart, with no way back. A configured
+        # start time is also a PAST instant for the rest of the season.
+        #
+        # Six hours is far longer than any draft these leagues run (green_hope's 128 picks
+        # took 35 minutes) and far shorter than the weeks the stale date then sits there.
+        start = starts_at.timestamp()
+        return start <= now < start + DRAFT_DUE_WINDOW_S
 
     def _reconcile_manual(self) -> None:
         """Sync is authoritative; supersede any manual pick it now covers.

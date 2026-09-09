@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Recognised fantasy-position universe. This is a validation allowlist only --
 # the value engine derives a league's actual positions from its slot eligibility,
@@ -90,6 +90,21 @@ class LeagueConfig(BaseModel):
     # keep exactly the old behaviour -- the status still arms it -- so this widens the
     # detector without arming it on a quiet Tuesday for anyone who has not opted in.
     draft_starts_at: datetime | None = None
+
+    @field_validator("draft_starts_at")
+    @classmethod
+    def _start_must_carry_an_offset(cls, value: datetime | None) -> datetime | None:
+        """Reject a naive instant. `datetime.timestamp()` reads one as LOCAL time, and the
+        cockpit runs in a UTC container while it is configured from a machine in ET -- so the
+        same TOML would arm the silence clock four hours apart in the two places. A bare TOML
+        date (`2026-09-08`) parses naive too, and would arm nineteen hours early."""
+        if value is not None and value.tzinfo is None:
+            raise ValueError(
+                "draft_starts_at needs an explicit UTC offset "
+                "(e.g. 2026-09-08T19:00:00-04:00); a naive instant is read as local time "
+                "and the cockpit's container does not share the author's timezone"
+            )
+        return value
 
     # My seat, when the platform cannot be asked. Draft-day sync resolves the slot from
     # ESPN's pickOrder, but a dead sync leaves it None -- and an unresolved slot silently

@@ -136,14 +136,33 @@ def _replay(
     """Drive the real EspnAdapter -> EspnSync.poll -> CockpitService._apply, one recorded
     poll at a time, and return a per-poll trace of what the cockpit believed."""
     polls = _flat_polls()
-    # The window opens on a 304, and by then the real adapter had been polling for 43 hours
-    # and held a body. A fresh adapter has nothing to replay, so prime it with the slate it
-    # actually held at 22:55: all placeholder, no picks. Not traced -- it is not a recorded poll.
-    seq = iter([(200, 0), *polls])
+    # PRIMING, and the COUNT is load-bearing. The window opens on a 304, and by then the real
+    # adapter had been polling for 43 hours and held a body; a fresh adapter has nothing to
+    # replay and `raise_for_status()` throws. But priming also sets the adapter's poll counter,
+    # and `force_full` fires on `_draft_polls % 6 == 0`. Prime once and the adapter's
+    # forced-full polls land on the recorded 304s and its conditional polls on the recorded
+    # 200s -- exactly out of phase, so every forced full body is answered 304 and the
+    # mitigation under discussion never returns a fresh body in the replay at all.
+    #
+    # Two puts the adapter in the phase the container was actually in. Measured: 95
+    # unconditional requests all answered 200, 475 conditional answered 304, and the only two
+    # residuals are the two genuine off-cadence 200s in the log -- the moments ESPN's ETag
+    # really did advance. The assertion below is what keeps it honest.
+    seq = iter([(200, 0), (200, 0), *polls])
+    calls: list[tuple[bool, int]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         status, real = next(seq)
+        conditional = "If-None-Match" in request.headers
+        calls.append((conditional, status))
         if status == 304:
+            # ESPN cannot answer 304 to a request that carried no validator. If this fires
+            # the replay has drifted out of phase with the recording and is asserting a
+            # sequence that could not occur.
+            assert conditional, (
+                f"recorded a 304 against an unconditional request (call {len(calls)}); "
+                "the replay is out of phase with the log"
+            )
             return httpx.Response(304, headers={"etag": 'W/"recorded"'})
         complete = real == WINDOW["total_picks"]
         body = _slate(
@@ -161,7 +180,9 @@ def _replay(
         swid="{x}", espn_s2="s2", transport=httpx.MockTransport(handler)
     )
     sync = EspnSync(config, adapter=adapter, bridge=_bridge(), slot_fallback=6)
-    adapter.get_draft_detail(config)  # consume the priming body
+    adapter.get_draft_detail(config)  # consume the priming bodies
+    adapter.get_draft_detail(config)
+    calls.clear()  # the trace covers recorded polls only
 
     trace: list[dict[str, Any]] = []
     for _ in polls:
@@ -176,6 +197,7 @@ def _replay(
                 "stale": service.health.picks_stale(now=clock.now),
             }
         )
+    service._replay_calls = calls  # type: ignore[attr-defined]
     return trace
 
 
@@ -280,6 +302,12 @@ def test_injection_4_a_healthy_draft_raises_nothing(
     honestly. Nothing here is stale and nothing may say it is.
     """
     svc, clock = service
+    # PAST the configured start, or this tests nothing the branch added. green_hope's
+    # `draft_starts_at` is 23:00:00Z; the shared Clock starts at 22:36:40Z, so a 39x20s loop
+    # finishes at 22:49:40 -- 620 seconds before the wall-clock anchor could ever arm, with
+    # `_draft_is_due` False on every poll. Measured before this line existed: 0 of 39.
+    clock.advance(3600.0)
+    assert svc._draft_is_due(clock.now, "drafting"), "the new arming path is not being exercised"
     for n in range(1, 40):
         clock.advance(20.0)
         svc._apply(
@@ -334,7 +362,8 @@ def test_g3_a_hand_entered_pick_survives_the_sync_that_supersedes_it(
     assert svc.session.manual_picks == [], (
         "precondition changed: the duplicate is supposed to be superseded"
     )
-    assert svc.manual_provenance(), (
+    kept = svc.manual_provenance()
+    assert [(p.player_id, p.source) for p in kept] == [("b1", "manual")], (
         "a hand-entered pick vanished without trace when sync caught up. The board is right "
         "and the history is gone: nothing in the persisted state can now distinguish a draft "
         "typed in by hand from one the feed delivered."
@@ -437,4 +466,208 @@ def test_the_id_bridge_announces_each_pick_once_not_once_per_poll(
         f"{len(lines)} lines for {WINDOW['total_picks']} picks over 10 polls -- the whole "
         f"slate is re-announced every tick. At the cockpit's 5s poll that is "
         f"{WINDOW['total_picks'] * 12} lines a minute for the rest of the draft."
+    )
+
+
+# --- the replay must actually exercise the machinery it claims to ---------------------------
+
+
+def test_the_replay_drives_the_real_conditional_request_machinery(
+    service: tuple[CockpitService, Clock], green_hope: LeagueConfig
+) -> None:
+    """Without this the file is theatre: a MockTransport that ignores If-None-Match will
+    happily replay a sequence no server could produce, and every adapter-level mutation --
+    deleting the forced full body, never sending a conditional request, breaking the 304
+    cache replay -- passes it green.
+
+    Measured against the recording: 95 unconditional requests, every one answered with a
+    fresh body, and never more than DRAFT_FULL_BODY_EVERY - 1 conditional requests in a row.
+    That bounded-blindness property is what actually refutes the frozen-ETag story, and it is
+    the property test_sync_staleness.py already uses. A COUNT of fresh bodies does not: 97 of
+    them bunched at the head of the window would satisfy a count and mean the opposite thing.
+    """
+    from audible.adapters.espn import DRAFT_FULL_BODY_EVERY
+
+    svc, clock = service
+    _replay(svc, clock, espn_reports_in_progress=False, config=green_hope)
+    calls: list[tuple[bool, int]] = svc._replay_calls  # type: ignore[attr-defined]
+
+    assert len(calls) == WINDOW["window_polls"]
+    unconditional = [(c, st) for c, st in calls if not c]
+    assert len(unconditional) == 95, (
+        f"expected 95 forced full bodies, got {len(unconditional)}"
+    )
+    assert all(st == 200 for _, st in unconditional), (
+        "a forced full body was answered 304 -- the replay is out of phase and the "
+        "mitigation is not being exercised at all"
+    )
+
+    longest_blind, run = 0, 0
+    for conditional, _ in calls:
+        run = run + 1 if conditional else 0
+        longest_blind = max(longest_blind, run)
+    assert longest_blind <= DRAFT_FULL_BODY_EVERY - 1, (
+        f"{longest_blind} consecutive conditional polls; the recording shows the adapter "
+        f"never went more than {DRAFT_FULL_BODY_EVERY - 1} without a full body"
+    )
+
+
+# --- the anchor is bounded at BOTH ends ----------------------------------------------------
+
+
+def test_the_wall_clock_anchor_is_bounded_at_both_ends(
+    tmp_path: Path, green_hope: LeagueConfig
+) -> None:
+    """A start time is a window, not a switch.
+
+    Arming on `now >= start` alone is a permanent alarm: the configured instant is in the past
+    for the rest of the season, `_NOT_RUNNING` can no longer clear the anchor while the draft
+    is "due", and `espn_draft_status({})` returns `pre_draft` for any body missing
+    `draftDetail`. So one flap out of `complete` -- or simply starting the cockpit next week --
+    would latch a stale-feed warning forever, persisted across every restart, with no way back.
+    That is a worse failure than the one this fix closes: an indicator that is always lit is an
+    indicator nobody reads on draft night.
+    """
+    from audible.draft.service import DRAFT_DUE_WINDOW_S
+
+    svc = CockpitService(green_hope, state_dir=tmp_path)
+    start = green_hope.draft_starts_at.timestamp()
+
+    assert svc._draft_is_due(start - 1, "pre_draft") is False, "armed before the draft opened"
+    assert svc._draft_is_due(start, "pre_draft") is True, "did not arm ON the scheduled instant"
+    assert svc._draft_is_due(start + 600, "pre_draft") is True
+    assert svc._draft_is_due(start + 600, "complete") is False, (
+        "a finished draft still counts as due; one flap and the anchor never clears again"
+    )
+    assert svc._draft_is_due(start + DRAFT_DUE_WINDOW_S, "pre_draft") is False, (
+        "still due after the window closed -- a past start time arms the detector forever"
+    )
+    assert svc._draft_is_due(start + 86_400 * 7, "pre_draft") is False, (
+        "a week later, a quiet feed would show a permanent staleness alarm"
+    )
+
+
+def test_a_naive_draft_start_is_rejected() -> None:
+    """`datetime.timestamp()` reads a naive instant as LOCAL time, and the cockpit's container
+    runs UTC while its config is written on a machine in ET. The same TOML would otherwise arm
+    the clock four hours apart in the two places, and a bare TOML date nineteen hours early."""
+    import datetime as dt
+
+    from audible.config.schema import LeagueConfig as LC
+
+    base = dict(
+        key="k", name="n", platform="espn", league_id="1", season=2026, num_teams=8,
+        starting_slots=("QB",), slot_eligibility={"QB": ("QB",)}, scoring={"pass_td": 4.0},
+    )
+    with pytest.raises(ValueError, match="offset"):
+        LC.model_validate(base | {"draft_starts_at": dt.datetime(2026, 9, 8, 19, 0, 0)})
+
+    aware = LC.model_validate(
+        base | {"draft_starts_at": dt.datetime(2026, 9, 8, 19, 0, 0,
+                                               tzinfo=dt.timezone(dt.timedelta(hours=-4)))}
+    )
+    assert aware.draft_starts_at is not None
+
+
+# --- provenance must survive the things that actually happen --------------------------------
+
+
+def test_an_empty_body_does_not_erase_the_arrival_history(
+    service: tuple[CockpitService, Clock]
+) -> None:
+    """The regression the feed's own misbehaviour would have caused.
+
+    An all-placeholder ESPN response parses to zero picks and blanks the slate -- the case
+    test_sync_staleness.py::test_an_emptied_slate_is_not_a_pick_delivery already replays.
+    Rebuilding the first-seen map from `session.picks` each tick meant one such body wiped
+    every stamp, and the next real body restamped the whole draft to that instant: the exact
+    bulk-reconciliation signature this field exists to tell apart, manufactured by the very
+    feed behaviour it was added to diagnose. Measured before the ledger: 128 distinct arrival
+    instants collapsed to 28.
+    """
+    svc, clock = service
+    svc.session.draft_status = "drafting"
+    picks = [
+        Pick(pick_no=i, round=1, draft_slot=i, player_id=f"b{i}", source="sync")
+        for i in range(1, 21)
+    ]
+    for i in range(1, 11):
+        clock.advance(16.0)
+        svc._apply(_update_from_picks(picks[:i], "drafting"))
+    before = [p.first_seen for p in svc.session.picks]
+
+    clock.advance(16.0)
+    svc._apply(_update_from_picks([], "drafting"))  # the placeholder slate
+    clock.advance(16.0)
+    svc._apply(_update_from_picks(picks[:10], "drafting"))
+
+    assert [p.first_seen for p in svc.session.picks] == before, (
+        "an empty body erased the arrival history and the picks were restamped as new"
+    )
+    assert len(set(before)) == 10, "ten picks arrived at ten distinct instants"
+
+
+def test_a_renumbered_pick_keeps_the_instant_it_first_arrived(
+    service: tuple[CockpitService, Clock]
+) -> None:
+    """Same player, new pick number, is the same pick moved -- not a new arrival.
+
+    Keying the stamp on (pick_no, player_id) restamped him, so the state file claimed a pick
+    that had been visible for minutes had just landed. A player is drafted once; his id is the
+    stable key. A CORRECTION -- same number, different player -- is genuinely new and still
+    gets a fresh stamp.
+    """
+    svc, clock = service
+    svc.session.draft_status = "drafting"
+    svc._apply(_update_from_picks(
+        [Pick(pick_no=1, round=1, draft_slot=1, player_id="b1", source="sync")], "drafting"))
+    first = svc.session.picks[0].first_seen
+
+    clock.advance(300.0)
+    svc._apply(_update_from_picks(
+        [Pick(pick_no=4, round=1, draft_slot=4, player_id="b1", source="sync")], "drafting"))
+
+    assert svc.session.picks[0].first_seen == first, (
+        "a renumber restamped a pick that never moved"
+    )
+
+
+def test_provenance_survives_a_restart(
+    tmp_path: Path, green_hope: LeagueConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole point of the feature is the FILE, so the round trip is the gate.
+
+    Asserting only the in-memory accessor left the persistence unpinned: deleting the
+    manual_superseded line from `to_json` passed the entire suite. A post-mortem reads a state
+    file after the pod is gone, which means after a restart at best.
+    """
+    clock = Clock()
+    monkeypatch.setattr(time, "time", clock)
+
+    first = CockpitService(green_hope, state_dir=tmp_path)
+    first.session.draft_status = "drafting"
+    first.session.manual_picks = [
+        Pick(pick_no=1, round=1, draft_slot=1, player_id="b1", source="manual")
+    ]
+    clock.advance(60.0)
+    first._apply(_update_from_picks(
+        [Pick(pick_no=1, round=1, draft_slot=1, player_id="b1", source="sync")], "drafting"))
+    stamped = first.session.picks[0].first_seen
+    first.save()
+
+    second = CockpitService(green_hope, state_dir=tmp_path)
+    assert second.restore() is True
+    # BEFORE any poll. A post-mortem opens the file and reads it; the stamps have to be there
+    # on restore, not reconstituted by the next tick that happens to arrive.
+    assert second.session.picks[0].first_seen == stamped, (
+        "the arrival stamps were dropped on load and only re-derived by a later poll"
+    )
+    assert [(p.player_id, p.source) for p in second.manual_provenance()] == [("b1", "manual")], (
+        "the hand-entered record did not survive the write/read round trip"
+    )
+    clock.advance(600.0)
+    second._apply(_update_from_picks(
+        [Pick(pick_no=1, round=1, draft_slot=1, player_id="b1", source="sync")], "drafting"))
+    assert second.session.picks[0].first_seen == stamped, (
+        "the restart restamped an existing pick with the restart time"
     )
