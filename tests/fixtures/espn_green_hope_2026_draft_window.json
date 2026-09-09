@@ -1,0 +1,998 @@
+{
+ "_source": "MEASURED from the audible-green-hope pod log, container life 2026-09-07T04:14:41Z..2026-09-08T23:43:29Z, ESPN league 73131979. This is the 2026-09-08 draft (scheduled 19:00 ET = 23:00 UTC) as it actually happened -- not a synthetic sequence built from a hypothesis.",
+ "_what_is_measured": "Per poll: the HTTP status the adapter received, and the number of REAL picks espn_picks() parsed out of that poll's body. The pick count is read from EspnIdBridge.translate_logged, which emits exactly one INFO line per real (non-placeholder) pick per poll, so the log counts the parse directly.",
+ "_what_is_synthesized": "Response BODIES. The log records statuses and parsed-pick counts, not payloads. Tests rebuild a 128-row ESPN slate whose first `real_picks` rows carry synthetic player ids (900001+) and whose remainder stay playerId -1. NO REAL PLAYER IDS OR NAMES FROM ERIC'S DRAFT APPEAR HERE -- this file is poll telemetry, not draft data.",
+ "_the_finding": "572 polls across the window; 0 real picks on every one of them until 2026-09-08T23:34:59.772Z, then 128 at once and 128 on every poll after. The draft ran 23:00-23:35 UTC. The forced full body (audible#63, every 6th poll) fired throughout and returned a genuinely fresh 200 roughly every 30s -- and every one of those fresh bodies was an all-placeholder slate. The picks first arrived ON a forced-full-body poll; ESPN's ETag did not advance until 23:35:15, 16s later. So the mitigation worked and was not the problem.",
+ "league_id": 73131979,
+ "teams": 8,
+ "rounds": 16,
+ "total_picks": 128,
+ "draft_scheduled_utc": "2026-09-08T23:00:00Z",
+ "window_start_utc": "2026-09-08T22:55:00.493Z",
+ "window_end_utc": "2026-09-08T23:43:29.405Z",
+ "first_real_pick_utc": "2026-09-08T23:34:59.772Z",
+ "first_real_pick_elapsed_s": 2399.279,
+ "poll_interval_s": 5.08,
+ "window_polls": 572,
+ "window_status_counts": {
+  "304": 475,
+  "200": 97
+ },
+ "runs": [
+  {
+   "polls": 3,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 0
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 0
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 2,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 2,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 3,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 5,
+   "status": 304,
+   "real_picks": 128
+  },
+  {
+   "polls": 1,
+   "status": 200,
+   "real_picks": 128
+  },
+  {
+   "polls": 4,
+   "status": 304,
+   "real_picks": 128
+  }
+ ]
+}

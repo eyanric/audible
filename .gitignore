@@ -38,3 +38,14 @@ draft-*-results.md
 .vscode/
 .idea/
 cheatsheets/
+
+# Captured live-draft forensics. This repository is PUBLIC and these are Eric's own draft
+# records and the pod's raw poll history -- personal data, and the log routinely runs to
+# tens of MB. Gated the same way sim/data/ffa/*.csv is: the DERIVED, anonymised telemetry
+# lives in tests/fixtures/espn_*_draft_window.json (statuses and counts, no player identity)
+# and that is the only part that is ever committed.
+green-hope-*.json
+green-hope-*.log
+*-pod.log
+*-pod-prev.log
+*-draft-state.json
