@@ -380,3 +380,138 @@ gain is search artefact.
 replacement depth, shrinkage and transform mix cannot beat espn-alone-with-default-transform on
 unseen seasons. The next lever has to be a different KIND of thing -- new information rather
 than a reweighting of the same information.
+
+---
+
+## ADVERSARIAL REVIEW — one foreground agent, and it overturned the headline's reasoning
+
+The verdict (DO NOT SHIP) stands. The evidence I gave for it does not. Three things were
+found, one of them a genuine defect in the harness, and all three are corrected here rather
+than defended.
+
+### DEFECT 1 — the incumbent was undefined in 2023 and `evaluate` skipped it silently
+
+**This is the worst thing in the session and it invalidated every select-split number in the
+original write-up.**
+
+`SEASONS_BY_ARM["espn"]` has no 2023. The incumbent is `w_espn = 1`, so in 2023 the blend has
+no arm to draw on, `board_points` returns `{}`, and `evaluate` hit `if not order: continue`
+and moved on. Verified directly:
+
+    incumbent board_points in 2023: 0 players
+    evaluate(BASELINE, (2023,)) = nan
+    incumbent is defined on (2022,) of the select split (2022, 2023)
+
+**So "incumbent select 22.892" was a 2022-ONLY score, printed in the same column as candidates
+pooled over 2022 AND 2023.** Two different quantities, one column. The "+0.352 gain" compared
+apples to oranges and does not mean what it said.
+
+`evaluate` now RAISES `UndefinedBoard` rather than skipping, and `defined_seasons` exists for
+callers that legitimately want a subset and must say so.
+
+### the corrected numbers, and the story gets SHARPER rather than weaker
+
+Like-for-like on 2022, the only select season both boards exist in:
+
+    incumbent 2022   22.892
+    winner    2022   17.429      winner is +5.463 BETTER
+    holdout          25.276 vs 22.754   winner is +2.522 WORSE
+
+**A board that looks 5.5 RWRE better on the select season is 2.5 RWRE worse on unseen data.**
+That is a far more dramatic overfit than the +0.352 originally reported, and it makes the
+session's point more forcefully, not less.
+
+### DEFECT 2 — the shuffled-label null is not apples-to-apples. Withdrawn.
+
+The original headline rested on "the identical search against shuffled labels found +8.705, so
++0.352 is a twenty-fifth of the floor". The reviewer took it apart:
+
+- **26% of the +8.705 has no search content.** Decomposing `gain = (incumbent - median) +
+  (median - best)`: on real data the incumbent is 9.22 BETTER than the median candidate; on
+  shuffled data it is 2.08 WORSE, because espn-alone has no reason to be good against random
+  labels. That component is regime artefact.
+- **The search extracts MORE from real data than from noise** -- 9.66 against 5.95 RWRE. The
+  opposite of what the original framing implied.
+- **Partial shuffling makes the statistic swing sign.** At 15% and 50% shuffle the "null gain"
+  is NEGATIVE (-0.245, -1.018), below the real gain. Had either been drawn, the pre-registered
+  rule would have licensed SHIPPING. A test statistic that swings from -1.02 to +8.71 on a
+  parameter nobody pre-registered is not a decision rule.
+- **It rests on one permutation draw.** Scoring the incumbent against six permutations gives
+  53.2 +/- 3.8 -- an uncertainty band half the size of the statistic it supports, reported to
+  three decimals.
+
+### the better null was already inside the pre-registered space
+
+`noise_lambda` is a sha256 of player and season -- zero information by construction. Tuning
+**that one knob alone** on the select season:
+
+    incumbent 2022             22.892
+    best noise_lambda alone    20.575  at lambda = +0.0566
+    a knob with ZERO information buys +2.317
+
+**42% of the winner's apparent 5.46 select gain is matched by a knob that cannot possibly
+contain signal.** That is in-regime, in-space, needs no shuffling, and was pre-registered as
+injection 4. It is the null this session should have led with.
+
+### and the seed spread settles it without any null at all
+
+Best-of-1500 on real data, three seeds, select season:
+
+    seed 11  +5.385      seed 22  +5.634      seed 33  +6.726
+    mean +5.915, spread 1.341
+
+The reviewer's ten-seed run on the original pooled metric found select gains of 0.44 +/- 0.31
+with **9 of 10 winners degrading the holdout**, mean +1.34. Either way the conclusion is the
+same and needs no shuffled labels: search finds a large select-split gain every time, and it
+does not survive contact with unseen seasons.
+
+### DEFECT 3 — `shrink` is dead, so the space was 7 effective knobs
+
+Provably inert, not merely unhelpful. Shrinking toward the positional mean maps
+`pts -> mu + (1-s)(pts - mu)` with the same `s` in every position, so the replacement level
+transforms identically and `vorp -> (1-s) * vorp` uniformly. The ORDERING is unchanged. The
+reviewer confirmed the 491-player board is byte-identical at `shrink = 0.0` and `shrink = 0.4`.
+
+Its stated reason -- "projections are noisy and shrinkage is the standard variance trade" --
+cannot operate against a VORP ordering at all. It acts only through `vorp_mix`, whose top-50
+median is 0.044, where shrink's span is about 0.1.
+
+One-at-a-time select-RWRE span across each knob's range:
+
+    vorp_mix 15.58   usage_lambda 6.06   noise_lambda 6.03
+    blend 3.77       flex_depth 2.49     qb_depth 0.58     shrink 0.00
+
+### two more corrections to the write-up
+
+**The fit-split stability check has close to no diagnostic value and its claim is struck.** The
+original text credited it as one of "three independent parts of the apparatus". Across ten
+seeds it PASSES 6 of 10 winners, and 5 of those 6 still degrade the holdout. It caught this
+particular candidate by luck.
+
+**G7 was credited on the wrong statistic.** "noise_lambda mean -0.0032, essentially zero" is
+exactly what an unconstrained uniform draw gives; a mean near zero proves nothing. The real
+evidence is the SPREAD: top-50 sd ratio 0.628 and mean absolute lambda 0.058 against a uniform
+0.100. G7 still passes -- on evidence the write-up did not cite.
+
+And a sharper caveat than the original "it simply has nothing to find": on the holdout,
+`noise_lambda = -0.046` alone accounts for **1.14 of the 2.52 RWRE loss**, 45% of it. A knob
+pre-registered as containing zero information does nearly half the damage.
+
+### what survived
+
+    "candidate is worse on the holdout, 25.276 vs 22.754"   STANDS, reproduced exactly
+    "the apparent select gain was search artefact"          STANDS, on better evidence
+    "...because the shuffled search found +8.705"           OVERTURNED, withdrawn
+    "the space is not flat"                                 STANDS, 7 effective knobs
+    the lock                                                STANDS
+
+The lock held: `git log` confirms `s2b-candidate.lock` at 16:38:37 precedes the holdout numbers
+at 16:39:38, no pre-lock commit contains a report-split candidate number, and neither
+`search.py` nor `holdout.py` was touched after the lock. Two caveats the reviewer raised and
+which are fair: `assert_unlocked` gates TIMING, not identity or count -- once unlocked, any
+candidate can be scored there any number of times, so the one-look discipline after unlock is
+convention rather than mechanism. And git proves what was written, not what was run.
+
+The reviewer disclosed re-reading the holdout roughly 40 times during the review. That is
+verification of a committed result rather than selection, no candidate from it is carried
+forward, and it does not license re-selecting.

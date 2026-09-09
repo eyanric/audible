@@ -224,11 +224,43 @@ def _vorp_with_depth(
 # --- evaluation -----------------------------------------------------------------------------
 
 
+class UndefinedBoard(RuntimeError):
+    """A candidate produced no board for a season. Never silently skipped -- see below."""
+
+
+def defined_seasons(
+    c: Candidate, seasons: tuple[int, ...], league_key: str = LEAGUE
+) -> tuple[int, ...]:
+    """The subset of *seasons* on which *c* actually produces a board.
+
+    A blend that puts all its weight on an arm absent that season produces NOTHING, and the
+    incumbent is exactly that candidate: `w_espn = 1` and espn has no 2023.
+    """
+    out = []
+    for season in seasons:
+        inp = _season_inputs(season, league_key)
+        if any(weight_of(c, a) > 0 for a in inp["available"]):
+            out.append(season)
+    return tuple(out)
+
+
+def weight_of(c: Candidate, arm: str) -> float:
+    return {"espn": c.w_espn, "ffa": c.w_ffa, "sleeper": c.w_sleeper}[arm]
+
+
 def evaluate(
     c: Candidate, seasons: tuple[int, ...], league_key: str = LEAGUE,
     *, permuted: bool = False,
 ) -> float:
-    """Weighted-mean RWRE across *seasons*, under the pre-registered symmetric indexing."""
+    """Weighted-mean RWRE across *seasons*, under the pre-registered symmetric indexing.
+
+    RAISES on a season where the candidate has no board. It used to `continue`, and that
+    silence produced the worst defect in this session: the incumbent is `w_espn = 1`, espn has
+    no 2023, so the incumbent's "select" score was a 2022-ONLY number being compared against
+    candidates pooled over 2022 AND 2023. Two different quantities printed in one column.
+
+    Callers that legitimately want a subset ask `defined_seasons` for it and say so.
+    """
     holdout.assert_unlocked(seasons)
     num = den = 0.0
     for season in seasons:
@@ -236,7 +268,11 @@ def evaluate(
         rv = _permuted_realised(season, league_key) if permuted else inp["realised_vorp"]
         order = [p for p in board_order(c, inp, league_key) if p in rv][: inp["pool"]]
         if not order:
-            continue
+            raise UndefinedBoard(
+                f"candidate has no board in {season} (arms present: {inp['available']}, "
+                f"weights espn={c.w_espn:.3f} ffa={c.w_ffa:.3f} sleeper={c.w_sleeper:.3f}). "
+                f"Refusing to average over a season this board does not exist in."
+            )
         real_rank = rank._realised_order(order, rv)
         for i, pid in enumerate(order):
             br = i + 1
