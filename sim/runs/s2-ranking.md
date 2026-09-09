@@ -549,3 +549,89 @@ ROSTER POINTS at k=7. That instrument collapses ~400 player observations into on
 season and is dominated by injury; this one does not. A disagreement between them is expected
 and is not evidence that either is broken. If this harness says the opposite, both numbers are
 reported and the difference is attributed to the instrument rather than resolved by preference.
+
+---
+
+## ITERATION 3 — prior-season air-yards share: REVERTED
+
+    green_hope   in-sample 0.00:19.51  0.02:19.60 ... selected 0.02
+                 out-of-sample 20.33 -> 20.27  (-0.06)
+                 paired -0.03 [-0.55, +0.46]  not resolved
+    danger_zone  in-sample 0.00:25.77  0.02:25.43  0.05:25.36 ... selected 0.05
+                 out-of-sample 25.32 -> 27.08  (+1.76)
+                 paired +1.32 [+0.25, +2.36]  RESOLVED WORSE
+    boyfun       selected 0.00, no change
+
+**P9 is half refuted and the half that failed is the interesting one.** It predicted the fit
+would select L = 0 as target share did. It did not: danger_zone selected 0.05 on a genuine
+in-sample improvement, 25.77 down to 25.36.
+
+That improvement then reversed out of sample -- 25.32 up to 27.08, paired +1.32 [+0.25, +2.36],
+RESOLVED IN THE WRONG DIRECTION. **This is the clearest thing in the session.** One parameter,
+a seven-point grid and two fitting seasons were enough to manufacture a real-looking in-sample
+gain that was worth -1.76 RWRE when it met unseen data. Had the loop reported the in-sample
+number, air-yards share would have shipped as an improvement.
+
+The underlying claim survives intact: usage does not help. But the route it failed by is worth
+more than iteration 2's clean zero, because it is the one that would have fooled a loop without
+a walk-forward gate.
+
+---
+
+## ITERATION 4 — QB rostered depth: REVERTED, and the premise does not hold
+
+The defect is REAL and the diagnostic confirms it exactly:
+
+    league          teams  bench_slots  startable(QB)  baseline rostered QB
+    green_hope          8            7              1                     8
+    danger_zone        10            7              1                    10
+    boyfun             10            0              2                    20
+
+In both 1-QB leagues a quarterback is eligible for one slot, is excluded from the bench
+distribution and lands on starters-only -- QB8 and QB10. The handoff's description is accurate.
+
+**But fixing it does not measurably help.**
+
+    green_hope   in-sample 1.00:19.51  1.25:19.79  1.50:19.95  1.75:20.31  2.00:20.36
+                 selected 1.00 (monotone worse in q)
+                 out-of-sample unchanged, paired exactly 0.00
+    danger_zone  selected 1.25; out-of-sample 25.32 -> 25.33 (+0.01)
+                 paired +0.07 [-0.07, +0.21]  not resolved
+
+**P11 is REFUTED for green_hope**, which is the league the handoff describes. The fit selected
+q = 1.00 -- current behaviour -- and the in-sample curve is monotonically worse as QB depth
+increases. So the "known wrong" label describes the CODE correctly and does not describe a
+measurable ranking cost.
+
+The out-of-sample curve does show mild improvement at q = 1.25-1.75 in green_hope (19.93-20.21
+against 20.33), in the opposite direction to the in-sample curve. Two curves that disagree in
+direction across a gap smaller than the paired interval is noise, and it is reported rather
+than harvested. Selecting on it would be exactly the error iteration 3 just demonstrated.
+
+### a flaw in my own intervention, reported rather than buried
+
+**P10's boyfun arm is not a valid control and I designed it wrong.** The prediction was that
+boyfun would show no effect because SUPER_FLEX makes `_startable_slots(QB) >= 2` there, so the
+defect cannot exist. The structural half is confirmed -- boyfun's baseline QB rostered is 20,
+correctly derived from two QB-eligible slots across ten teams.
+
+But `q` is an ABSOLUTE OVERRIDE, not a defect toggle. In boyfun `q = 1.50` sets QB rostered to
+15, which REPLACES a correct 20 with a wrong 15. The boyfun column therefore measures "what
+happens when you corrupt a correct value", not "what happens when you fix a broken one". It
+selected q = 1.00 and changed nothing, so no conclusion was drawn from it -- but it could not
+have served as the control it was designed to be.
+
+A correct control would have made the intervention conditional on the defect being present
+(`_startable_slots(pos) < 2` and `bench_slots > 0`), leaving boyfun untouched by construction.
+
+### against the prior attempts
+
+Two earlier fixes were reverted, `audible#73`'s at -9.69 [-17.56, -1.82] on ROSTER POINTS.
+**This harness agrees with them in direction** -- no improvement -- while disagreeing about
+magnitude and confidence. Roster points said resolvably worse; rank error says not resolved,
+paired +0.07 [-0.07, +0.21] in the one league where the fit moved at all.
+
+Both numbers stand. They are different instruments answering different questions, and the
+pre-registration said in advance that a disagreement would be attributed to the instrument
+rather than resolved by preference. The agreement in direction is the part worth carrying
+forward: three measurements now say this is not where the accuracy is.

@@ -426,3 +426,94 @@ def usage_adjusted(
         for p in members:
             out[p] = points[p] * (1.0 + lam * ((share[p] - mu) / sd))
     return out
+
+
+@lru_cache(maxsize=32)
+def prior_share(season: int, column: str) -> dict[str, float]:
+    """Mean weekly *column* observed in season-1, by gsis id. Generalises the usage signal."""
+    import polars as pl
+
+    path = CACHE / "nflverse" / f"player_stats_{season - 1}.parquet"
+    if not path.exists():
+        raise PreflightError(f"prior-season usage missing for {season}: {path}")
+    frame = (
+        pl.read_parquet(path)
+        .filter(pl.col("season_type") == "REG")
+        .select(["player_id", column])
+        .drop_nulls()
+    )
+    agg = frame.group_by("player_id").agg(pl.col(column).mean().alias("v"))
+    return {str(pid): float(v) for pid, v in agg.iter_rows()}
+
+
+def share_adjusted(
+    points: dict[str, float],
+    position: dict[str, str],
+    season: int,
+    lam: float,
+    column: str,
+) -> dict[str, float]:
+    """`usage_adjusted`, for any per-week share column. Absence still means no adjustment."""
+    if lam == 0.0:
+        return dict(points)
+    share = prior_share(season, column)
+    out = dict(points)
+    for pos in USAGE_POSITIONS:
+        members = [p for p in points if position.get(p) == pos and p in share]
+        if len(members) < 10:
+            continue
+        vals = [share[p] for p in members]
+        mu = sum(vals) / len(vals)
+        sd = math.sqrt(sum((v - mu) ** 2 for v in vals) / (len(vals) - 1))
+        if sd <= 0:
+            continue
+        for p in members:
+            out[p] = points[p] * (1.0 + lam * ((share[p] - mu) / sd))
+    return out
+
+
+# --- iteration 4: how deep a 1-QB league really rosters quarterbacks ------------------------
+
+
+def vorp_values_qb_depth(
+    points: dict[str, float],
+    position: dict[str, str],
+    league_key: str,
+    q: float,
+) -> dict[str, float]:
+    """VORP with QB rostered depth overridden to `round(teams * q)`.
+
+    `q = 1.0` does not override at all, so it nests `vorp_values` EXACTLY rather than
+    approximately -- a gate asserts the two agree to the cent.
+
+    `rostered_counts` hands the bench only to positions with `_startable_slots >= 2`. A
+    quarterback in a 1-QB league is eligible for one slot, so he is grouped with D/ST and K and
+    gets none, putting replacement at QB9 in an 8-team league. Replacement points are read at
+    `at_pos[rostered]`, so under-counting sets QB replacement too HIGH, which depresses QB VORP
+    and pushes quarterbacks down the board.
+    """
+    from audible.models.player import PlayerProjection
+    from audible.value.replacement import _ranked, assign_starters, rostered_counts
+
+    config = league(league_key)
+    players = [
+        PlayerProjection(
+            player_id=pid, name=pid, primary_position=pos,
+            eligible_positions=frozenset({pos}), team=None, points=points[pid],
+        )
+        for pid, pos in position.items()
+        if pid in points and pos in SCOREABLE
+    ]
+    if not players:
+        return {}
+    starters = assign_starters(players, config)
+    rostered = dict(rostered_counts(players, config, starters))
+    if q != 1.0:
+        rostered["QB"] = max(1, round(int(config.num_teams) * q))
+
+    levels: dict[str, float] = {}
+    for pos in {p.primary_position for p in players}:
+        at_pos = [p for p in _ranked(players) if p.primary_position == pos]
+        taken = rostered.get(pos, 0)
+        levels[pos] = at_pos[taken].points if taken < len(at_pos) else 0.0
+    return {p.player_id: p.points - levels[p.primary_position] for p in players}
