@@ -212,3 +212,317 @@ what make this reproducible after it does.
 Injection 3 restores the exact historical defect: `weekly.prior_points` once keyed on `ffc####`
 against a gsis-keyed roster, every lookup missed, and two sessions of headline numbers were
 computed against arbitrary tie-broken lineups.
+
+---
+
+## sleeper — CONFIRMED 2021-2025, REFUTED 2018-2020
+
+    endpoint    https://api.sleeper.com/projections/nfl/{season}
+                ?season_type=regular&position[]={pos}
+                &order_by=pts_half_ppr
+                (src/audible/adapters/sleeper.py:162, BASE_COM
+                 line 33 -- CLAUDE.md's app-vs-com split confirmed)
+    auth        none. No key, no cookie, no rate limit hit.
+    format      granular stat lines + pts_std/pts_ppr/pts_half_ppr
+                + 12 adp_* market fields
+    ids         sleeper_id
+    seasons     HTTP 200 for 2017-2025 x 9 positions, but only
+                2021-2025 are VINTAGE. See below.
+    pinned      data/sim-cache/sleeper_probe/ (63 files, ~50 MB)
+
+### 2019 and 2020 are contaminated, and `gp` is what gives it away
+
+The decisive measurement. In a frozen preseason projection every player is projected for a
+full slate; in a recomputed one the games-played field knows how the season went.
+
+    season  top-100 where gp == actual games   mean(gp - actual)
+      2019                     67 (67.0%)                 -0.34
+      2020                     86 (86.0%)                 -0.09
+      2022                      0 ( 0.0%)                 +3.57
+      2025                      0 ( 0.0%)                 +4.10
+
+2021 onward `gp` is FLAT -- 17.0 for every player in 2021, 18.0 for every player in 2024.
+2019 varies: gp_top = [(16, 80), (15, 74), (14, 48), (12, 33)]. 2020 Saquon Barkley, who tore
+his ACL in week 2, carries `gp=2.0, pts=35.12`. That is not a projection.
+
+T3 agrees independently. 2019/2020 land at MAE 13-49 with correlation ~0.90, which no
+preseason forecast achieves. 2021-2025 land at 29-79 with a large positive bias -- the exact
+signature of a full-slate forecast meeting real attrition.
+
+    2019 WR  MAE 20.7  r 0.836      2022 WR  MAE 37.0  r 0.721
+    2020 RB  MAE 19.7  r 0.921      2024 RB  MAE 51.8  r 0.634
+    2020 TE  MAE 16.5  r 0.905      2025 QB  MAE 79.1  r 0.094
+
+### T1, T2, T4 on the good seasons
+
+T1 -- next-class absence PASSES, with a subtlety worth recording. The row SKELETON is today's
+catalog, so next-class players appear; but they carry a bare `{"gp": 17.0}` stub with no
+numbers. Breece Hall, Garrett Wilson and Chris Olave in the 2021 file are stubs.
+
+    2021: class(2022)=72   rows present 71   WITH STATS 0
+    2023: class(2024)=98   rows present 98   WITH STATS 0
+    2025: class(2026)=82   rows present 81   WITH STATS 0
+
+T2 -- full season. 2026 QB1 Josh Allen 361.5 half-PPR at gp=18.
+T4 -- frozen. 2021 CMC projected 319.3 against an actual 109.0 in 7 games, +210.3.
+2024 CMC 250.4 vs 40.3, +210.1. 2024 Pacheco 215.4 vs 50.9.
+
+### the one real leak in the good years: survivorship blanking
+
+Players with a real projection in both S-1 and S+1, but a blanked stub in S:
+
+    S      cohort  real   stub | mean actual games: real   stub
+    2022      388    371     17 |                  11.18   2.24
+    2023      383    367     16 |                  11.58   2.12
+    2024      355    344     11 |                  12.13   2.64
+
+The stubbed players played about two games. The 2023 roll-call is Aaron Rodgers (1 game),
+Nick Chubb (2), J.K. Dobbins (1). Their projection is blanked -- **but the vintage ADP
+survives** (Chubb 2023 `adp_half_ppr=10.6`, correct for that year). At draft-relevant depth
+this is 0-3 names a season, every one a season-ender:
+
+    S     adp_idp<=200   no projection   mean actual games (missing)
+    2021           198        2 (1.0%)                         0.00
+    2023           196        3 (1.5%)                         1.33
+    2025           205        0 (0.0%)                          n/a
+
+Small, but it is exactly the worst-outcome tail, and a 2023 replay would silently never offer
+Chubb at ADP 17. It is DETECTABLE (ADP present, projection absent) and therefore patchable --
+but a backtest that does not handle it inherits a survivorship look-ahead.
+
+### IDP — the unique value, and the reason this arm matters
+
+Granular IDP returns for 2020 onward. Keys: `idp_tkl_solo, idp_tkl_ast, idp_tkl, idp_sack,
+idp_int, idp_ff, idp_fum_rec, idp_safe, idp_blk_kick`.
+
+    2021  DL 229 / LB 250 / DB 287      2024  DL 498 / LB 384 / DB 563
+    2022  DL 295 / LB 250 / DB 339      2025  DL 519 / LB 367 / DB 523
+    2023  DL 165 / LB 154 / DB 187   <- thin
+
+Note `pts_*` are NOT IDP-scored (T.J. Watt 2026 reads 18.0); the `idp_*` line must be scored
+through the engine, which is what the adapter already does.
+
+### join — sleeper_id -> gsis_id
+
+    season    QB      RB      WR      TE       K    DEF     DL     LB     DB
+      2021  100.0   98.3    96.8    99.3   100.0    0.0  100.0  100.0  100.0
+      2023  100.0  100.0    99.6   100.0    96.4    0.0  100.0  100.0  100.0
+      2025  100.0  100.0   100.0   100.0    94.3    0.0   84.0   88.6   83.0
+
+Offence essentially perfect. IDP falls to 83-89% in 2024/25 because the row set swells with
+fringe players absent from the crosswalk. DEF is 0% by construction -- team defences have no
+gsis_id, exactly as `sim/ffa.py` documents.
+
+### acquisition cost
+
+Free. Undocumented public endpoint, the same read-only surface production already uses.
+
+### what it supports
+
+A full 2021-2025 backtest in League A's real shape -- full PPR, SUPERFLEX, deep IDP -- scored
+from raw stat lines through the existing engine rather than trusting `pts_*`. Five folds, a
+genuinely different league geometry from ESPN's, and **the only candidate carrying IDP
+projections**. Vintage per-season ADP rides along in the same payload.
+
+It does not support anything before 2021, and weekly/in-season replay is untested here.
+
+---
+
+## dynastyprocess db_fpecr — CONFIRMED as a dated ECR ranking
+
+    file        github.com/dynastyprocess/data files/db_fpecr.parquet
+    size        38,794,228 bytes, 1,830,022 rows, 24 columns
+    format      RANKS ONLY. ecr, sd, best, worst, rank_delta.
+                Zero points columns, zero stat columns.
+    ids         FantasyPros player id, in the `id` column
+    seasons     preseason snapshots 2020-2025 (six)
+    pinned      data/sim-cache/dynastyprocess/db_fpecr.parquet
+
+### two handoff premises refuted
+
+**`fp_page` is not one page.** 94 distinct values, 117 page/type combos -- dynasty, superflex,
+best-ball, IDP, rookie, weekly and ROS pages all exist, across two naming eras. But the
+scoring conclusion survives intact: a search for any page mentioning half, standard or
+consensus returns NONE. **Every redraft page is PPR.** There is no standard and no half-PPR
+board in this file at all.
+
+**2020 has a clean preseason board.** The handoff says 2020's snapshots start mid-season. They
+do not: `2020-09-03`, 526 players, ecr 1.10-403.0. It was missed because 2020 is labelled
+`page_type = "redraft-offense"` under the legacy `ppr-cheatsheets` name, so a filter on
+`redraft-overall` drops it. 2019 preseason genuinely does not exist -- the file begins
+2019-12-27.
+
+    season  snapshot      players  ecr range
+      2020  2020-09-03        526  1.10-403.0
+      2021  2021-09-03        564  1.05-539.0
+      2022  2022-09-02        545  1.63-388.0
+      2023  2023-09-01        540  1.26-383.5
+      2024  2024-08-30        589  1.81-546.5
+      2025  2025-08-29        508  1.10-395.0
+
+### T1 — clean, and the control proves the test has power
+
+    2020 class(2021)= 59  leak 0      2023 class(2024)= 98  leak 0
+    2021 class(2022)= 72  leak 0      2024 class(2025)= 98  leak 0
+    2022 class(2023)=101  leak 0      2025 class(2026)= 82  leak 0
+
+Control: the season's OWN class must be present, and is -- 2024 own-class 71 of 98, 2021 53 of
+59. The snapshot carries rookies; it carries the right year's.
+
+### T3 — MAE is undefined for a ranking; Spearman instead
+
+There is no magnitude to difference. `ecr` is a rank, the outcome is points, and no monotone
+map between them is part of the data. Reporting an MAE here would be inventing a scale.
+
+Preseason ECR against realised PPR season rank:
+
+    season   ALL     QB     RB     WR     TE
+      2020  0.604  0.782  0.615  0.683  0.615
+      2021  0.637  0.796  0.695  0.696  0.714
+      2022  0.673  0.682  0.781  0.757  0.690
+      2023  0.670  0.685  0.724  0.769  0.743
+      2024  0.666  0.827  0.757  0.752  0.666
+      2025  0.658  0.720  0.746  0.718  0.783
+
+PLAUSIBLE, not contaminated. Contamination would read 0.9+. Imputing zeros for the injured and
+cut moves it by at most 0.02, so it is not survivorship.
+
+### T4 — the strongest evidence in the probe
+
+    2021 CMC     (hamstring wk2, 7 games)  1.11 -> 1.04 -> 1.05 on 09-03
+    2020 Saquon  (ACL wk2, 2 games)        2.50 -> 2.20 on 09-03
+    2024 CMC     (achilles, wk10 debut)    1.27 Jul 5 -> 1.51 Aug 9
+                                        -> 1.81 Aug 30 -> 2.53 Sep 6
+                                           (worst blows out 8 -> 55)
+
+That last line is a live consensus absorbing news week by week. A post-hoc rebuild would have
+had him at RB40 in August.
+
+### join — fantasypros_id -> gsis_id
+
+Offensive skill positions 98-100% every season. The ~6% shortfall is entirely DST (0 of 32
+every season -- nflverse carries no team-defence rows). The separate 85% "reaches a stat row"
+figure is players who never recorded a snap, not a join failure.
+
+### what it supports, and what it categorically cannot
+
+**It is an ORDERING with no rulebook attached.** There is no stat line, so `score_stat_line`,
+replacement levels, VORP and positional scarcity have nothing to consume. It cannot be
+rescored under League A's rulebook, League B's, or any other. This is categorically unlike the
+FFA and ESPN corpora, which ship stat lines and CAN be rescored. The same 508-589 rows are the
+answer for all three rulebooks, because nothing in the file varies with scoring.
+
+So it is one arm: `ffp_ecr`, a market ordering comparable to the ADP arm.
+
+**Can a PPR-only ranking rank a standard league's board?** Only as a knowingly mismatched arm,
+and the mismatch is systematic rather than noise. Mean realised rank displacement, top-150
+(positive = PPR flatters him):
+
+    2021  QB -22.1  RB  -8.2  WR +18.0  TE +18.4
+    2023  QB -23.9  RB  -9.9  WR +16.8  TE +23.7
+    2025  QB -24.3  RB  -9.8  WR +17.7  TE +25.0
+
+In the top 100, mean absolute rank movement is 15-18 slots and 27-39 of 100 players move more
+than 20. In an 8-team draft that is two-plus rounds of systematic positional error, always in
+the same direction. **Because the file carries no reception count, this bias is
+uncorrectable.** For League B it is usable only as an explicitly labelled `ecr_ppr` arm with
+that magnitude reported alongside.
+
+A SUPERFLEX board exists for 2021-2026 (QB1 at overall slot 1 vs slot 24 on the 1-QB board),
+but carries no K and no DST. The IDP board is a separate ranking on its own scale with no
+published interleave, and League A's IDP scoring is deliberately unusual
+(`idp_tkl_solo=2`, `idp_sack=6`) against a generic consensus ordered under an unstated default.
+
+**The one thing it has that no point projection does:** `sd`, `best` and `worst` are real
+per-player expert dispersion -- the natural raw material for a risk-aware or variance-weighted
+arm.
+
+    acquisition   free. One unauthenticated curl, 38.8 MB in 0.43s.
+                  Public data; unlike the FFA CSVs it needs no
+                  licence gitignore.
+
+---
+
+## ffa average / robust — RECOMPUTABLE REFUTED, AVAILABLE CONFIRMED at no extra cost
+
+### the high-value question, answered no
+
+`raw_stats_<season>_wk0.csv` carries **no per-source rows**. It is one already-aggregated row
+per player: `player, team, position, id, avg_type`, then `<stat>`/`<stat>_sd` pairs, then
+metadata. There is no source or analyst column, no ragged rows, no appended second table, and
+`avg_type` is `weighted` for 100% of rows in all nine files.
+
+The elevated row count (1,626 against 468 projections in 2018) is not a source dimension -- it
+is extra positions plus duplicate ids, which are team variants with byte-identical stats and
+dual-position players projected twice. `sim/ffa.py:289` already dedupes on `id`.
+
+All three FFA aggregations need the per-source `stat_value`, confirmed from the package source:
+
+    summarise(robust   = wilcox.loc(stat_value, na.rm = TRUE),
+              average  = mean(stat_value, na.rm = TRUE),
+              weighted = weighted.mean(stat_value, w = weight))
+
+Our files are the OUTPUT of that collapse, not its input. `_sd` gives dispersion but not the
+observations, so neither an unweighted mean nor an order statistic is recoverable. Source
+weighting is not recoverable either, and the package's hardcoded `default_weights` is a stale
+2015 snapshot that does not match the live app -- so back-solving would be wrong even with n.
+
+`robust` is the **Hodges-Lehmann pseudo-median** (median of Walsh averages), not Tukey
+biweight. Its `w` argument is accepted and never used, so robust is strictly unweighted, and
+n<=2 falls back to the mean.
+
+### and the prize is thinner than it looks
+
+A populated stat with an NA sd means exactly one source. Across the draftable top-200 only
+55-62% of players have more than one:
+
+    2019  multi-source 124 (62%)   single-source 76
+    2025  multi-source 109 (55%)   single-source 90
+
+For single-source players average, robust and weighted are identical by construction, and
+`wilcox.loc`'s n<=2 fallback widens that further. Median `sd_pts` is 16.4 on median 198 points
+in the 2025 top-100. Three aggregations of the same sources would differ on roughly half the
+board by a fraction of that spread. **A genuinely thin third arm, not a tripling.**
+
+### acquisition — available, and free given the subscription already held
+
+FFA documents three methods (Weighted default, Mean, Robust). Historical export is
+Insider-gated and in range -- back to 2008. The documented API takes `season`, `week` (0 =
+seasonal) and `type` in {average, robust, weight}.
+
+    Insider web app   $5.99/month, ALREADY HELD -> $0 extra
+    FFA API           $1,000-$1,500/season -> unnecessary, not pursued
+    ffanalytics R pkg free, but documents that scraping historical
+                      periods will not succeed
+
+UNRESOLVED: that the method selector appears on the HISTORICAL export screen specifically is
+an inference from two FFA pages, not a demonstrated logged-in session. One Insider session --
+set method to Robust, season 2021 week 0, download, check `avg_type` reads `robust` -- settles
+it. Nothing was purchased.
+
+### two corrections to the record
+
+**`rec`/`rec_sd` are present in 2024 and 2025 ONLY.** Verified across all nine files. The FFA
+README's claim of "2019, 2020, 2022, 2024 and 2025" is WRONG; `sim/ffa.py` already carries the
+correct version. Receptions are not implicitly recoverable either: implied rec from the points
+column is ~0 for 2023 and 52.3 median for 2025, because **2024/2025 were exported at half-PPR
+and every other season at standard** (179/216 within 0.5 pts at 0.5/rec; 0/216 at 0.0 or 1.0).
+`sim/boards.py:105` says the same independently. PPR is genuinely impossible before 2024.
+
+**The accuracy claim is half misquoted and half refuted.** From FFA's own study (published
+2026-06-14, covering 2014-2025):
+- "sixth at 54.1 MAE" is a RUNNING-BACK-ONLY figure, not cross-position. FFA's cross-position
+  numbers are FFA Average 47.4 MAE and FFA Weighted 47.8 MAE.
+- "last for QB over the recent three seasons" is REFUTED. FFA Weighted was fourth-to-sixth at
+  76.1 MAE; ESPN was last at 86.7. Historically at QB, FFA Weighted was third at 63.0.
+
+This partly undercuts the premise but leaves a better argument for pulling `average`: it beats
+weighted cross-position, 47.4 against 47.8, winning 64% of head-to-heads.
+
+### a risk to flag before any second aggregation lands
+
+`avg_type` is recorded ONLY as a column inside the raw_stats files. It is not in the filename
+and not in `manifest.json`, and the `projections_*.csv` files have no `avg_type` column at all.
+If a later session exports `average`, there is nowhere for it to be distinguished -- only the
+sha256 would change. **A second aggregation needs `avg_type` in the filename and the manifest
+before it lands.**
