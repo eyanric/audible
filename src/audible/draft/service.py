@@ -21,7 +21,7 @@ import random
 import threading
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -160,13 +160,15 @@ def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
 
 def _pick_json(p: Pick) -> dict[str, Any]:
     return {"pick_no": p.pick_no, "round": p.round, "draft_slot": p.draft_slot,
-            "player_id": p.player_id, "source": p.source}
+            "player_id": p.player_id, "source": p.source, "first_seen": p.first_seen}
 
 
 def _pick_from_json(d: dict[str, Any], default_source: str) -> Pick:
+    seen = d.get("first_seen")
     return Pick(
         pick_no=int(d["pick_no"]), round=int(d["round"]), draft_slot=int(d["draft_slot"]),
         player_id=str(d["player_id"]), source=str(d.get("source") or default_source),
+        first_seen=float(seen) if seen is not None else None,
     )
 
 
@@ -183,6 +185,13 @@ class DraftSession:
     # Picks entered by hand, in the order they were entered. They are REAL picks -- numbered,
     # attributed to whichever slot is on the clock, and moving the clock -- not ghosts.
     manual_picks: list[Pick] = field(default_factory=list)
+    # Hand-entered picks that a later sync superseded. `_reconcile_manual` is right to drop
+    # them from `manual_picks` -- keeping a duplicate the feed now covers double-counts the
+    # player -- but dropping the RECORD too is what made green_hope's post-mortem impossible.
+    # A draft mirrored entirely by hand and then reconciled wrote `manual_picks: []` and 128
+    # `source: "sync"` picks, which is byte-for-byte what a draft that synced perfectly
+    # writes. The board is unaffected by this list; it exists so the evening stays auditable.
+    manual_superseded: list[Pick] = field(default_factory=list)
     slot: int | None = None
     slot_source: str = SOURCE_UNRESOLVED
     user_id: str | None = None
@@ -194,6 +203,7 @@ class DraftSession:
             "draft_status": self.draft_status, "draft_type": self.draft_type,
             "picks": [_pick_json(p) for p in self.picks],
             "manual_picks": [_pick_json(p) for p in self.manual_picks],
+            "manual_superseded": [_pick_json(p) for p in self.manual_superseded],
             "slot": self.slot, "slot_source": self.slot_source,
             "user_id": self.user_id, "roster_id": self.roster_id,
         }
@@ -208,6 +218,9 @@ class DraftSession:
         session.picks = [_pick_from_json(p, "sync") for p in data.get("picks", [])]
         session.manual_picks = [
             _pick_from_json(p, "manual") for p in data.get("manual_picks", [])
+        ]
+        session.manual_superseded = [
+            _pick_from_json(p, "manual") for p in data.get("manual_superseded", [])
         ]
         session.slot = data.get("slot")
         session.slot_source = data.get("slot_source", SOURCE_UNRESOLVED)
@@ -445,7 +458,17 @@ class CockpitService:
             # side, and the reason arming alone would not have been enough.
             self.health.drafting_since = None
 
-        session.picks = update.picks
+        # STAMP FIRST-SEEN before the slate is replaced. `update.picks` is rebuilt from the
+        # payload every tick and always arrives unstamped, so a pick already on the board must
+        # carry its ORIGINAL instant forward or every poll would restamp the whole draft to
+        # now and the trickle-versus-bulk distinction would be erased on the next tick.
+        seen_at = {(p.pick_no, p.player_id): p.first_seen for p in session.picks}
+        session.picks = [
+            replace(p, first_seen=prior if (
+                prior := seen_at.get((p.pick_no, p.player_id))
+            ) is not None else now)
+            for p in update.picks
+        ]
         # Sync is authoritative: drop any hand-entered pick it now covers, and renumber the
         # rest to follow it. Without this, regaining sync after mirroring by hand
         # double-counts every player entered twice.
@@ -542,6 +565,15 @@ class CockpitService:
             ))
         self.session.manual_picks = renumbered
 
+    def manual_provenance(self) -> list[Pick]:
+        """Hand-entered picks a later sync superseded, oldest first.
+
+        Empty on a draft nobody typed into. Non-empty is the durable evidence that somebody
+        was mirroring a feed that had stopped -- the thing green_hope's state file could not
+        say, and the reason its post-mortem needed the pod log.
+        """
+        return list(self.session.manual_superseded)
+
     def _draft_is_due(self, now: float, status: str) -> bool:
         """Should a draft be under way by the wall clock, whatever the feed says?
 
@@ -564,9 +596,16 @@ class CockpitService:
         the feed was down are not lost.
         """
         synced = {p.player_id for p in self.session.picks}
-        self.session.manual_picks = [
-            p for p in self.session.manual_picks if p.player_id not in synced
-        ]
+        kept, superseded = [], []
+        for p in self.session.manual_picks:
+            (superseded if p.player_id in synced else kept).append(p)
+        self.session.manual_picks = kept
+        # Superseded, not deleted. The duplicate has to go; the fact that somebody typed it
+        # in while the feed was dead is the only surviving evidence of the outage.
+        already = {p.player_id for p in self.session.manual_superseded}
+        self.session.manual_superseded.extend(
+            p for p in superseded if p.player_id not in already
+        )
         self._renumber_manual()
 
     def mark_taken(self, player_id: str) -> bool:
