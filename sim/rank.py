@@ -292,3 +292,74 @@ def pool_size_for(league_key: str) -> int:
     cfg = league(league_key)
     rounds = cfg.draft_rounds or 16
     return int(cfg.num_teams) * int(rounds)
+
+
+# --- the ordering under test: VORP, identical on both sides ---------------------------------
+
+
+def vorp_values(
+    points: dict[str, float],
+    position: dict[str, str],
+    league_key: str,
+    *,
+    names: dict[str, str] | None = None,
+) -> dict[str, float]:
+    """Player ids ordered by value over replacement, best first.
+
+    The SAME function orders the board side and the realised side -- see AMENDMENT 1 in
+    `sim/runs/s2-ranking.md`. Ordering the realised side by raw points would rank a 27-a-game
+    quarterback above a 19-a-game running back in a league that starts one quarterback, and
+    would therefore mark a board DOWN for correctly pricing scarcity.
+
+    `compute_vorp` is production's own, used unchanged. Its `rostered_counts` is known wrong at
+    QB; that defect lands identically on every arm and is Task 4's subject.
+    """
+    from audible.models.player import PlayerProjection
+    from audible.value.replacement import compute_vorp
+
+    config = league(league_key)
+    players = [
+        PlayerProjection(
+            player_id=pid,
+            name=(names or {}).get(pid, pid),
+            primary_position=pos,
+            eligible_positions=frozenset({pos}),
+            team=None,
+            points=points[pid],
+        )
+        for pid, pos in position.items()
+        if pid in points and pos in SCOREABLE
+    ]
+    if not players:
+        return []
+    entries, _levels = compute_vorp(players, config)
+    return {e.projection.player_id: e.vorp for e in entries}
+
+
+def vorp_order(
+    points: dict[str, float],
+    position: dict[str, str],
+    league_key: str,
+    *,
+    names: dict[str, str] | None = None,
+) -> list[str]:
+    """Player ids ordered by VORP, best first. Ties broken by id, so runs are reproducible."""
+    values = vorp_values(points, position, league_key, names=names)
+    return sorted(values, key=lambda pid: (-values[pid], pid))
+
+
+def realised_vorp(realised: Realised) -> dict[str, float]:
+    """What each player was actually WORTH per game, on the same scale a board is built on.
+
+    THE UNIT ON BOTH SIDES HAS TO MATCH, and G1 is what caught it not matching. Scoring a
+    VORP-ordered board against raw realised POINTS gave the perfect board an error of 13.99
+    instead of 0.0, with every per-position figure at 0.0 -- because VORP and points agree
+    WITHIN a position and disagree ACROSS positions by exactly the replacement level. The
+    cross-position disagreement was the whole 13.99.
+    """
+    return vorp_values(realised.per_game, realised.position, realised.league_key)
+
+
+def realised_order(realised: Realised) -> list[str]:
+    """The perfect board: realised per-game production, put through the same transform."""
+    return vorp_order(realised.per_game, realised.position, realised.league_key)
