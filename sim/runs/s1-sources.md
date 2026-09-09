@@ -805,3 +805,140 @@ neutrally as "(per-game projection)"; it is a LAST-KNOWN per-game rate and carri
   zeroed or absent (Cam Akers 2021, Damien Williams 2020 opt-out), while murky cases are
   hedged rather than zeroed (Joe Mixon 2025 proj 118.1 at projGP 9.00). That is a late-August
   board behaving as a draft-day board should.
+
+---
+
+## adversarial review of the Sleeper verdict
+
+Foreground, one agent, read-only. The 2021 boundary SURVIVED and is better supported than the
+probe argued. One claim was OVERTURNED, and it is the same defect the ESPN review found.
+
+### the 2021 boundary is sharp, on five independent axes
+
+The prorating test is the one that settles it. Prorate each projection by games actually
+played: a frozen full-slate number should see its bias collapse toward zero, while a number
+that already knew the games should get WORSE.
+
+    season  MAE -> prorated   bias -> prorated   r(proj, actual games)
+      2019  28.8 ->  30.4     +5.6 ->  +11.1                    0.323
+      2020  24.4 ->  26.3     +5.9 ->   +7.9                    0.353
+      2021  67.6 ->  31.7    +52.8 ->  +10.1                    0.139
+      2022  50.7 ->  25.5    +34.6 ->  -11.0                    0.033
+      2024  56.0 ->  38.2    +24.4 ->  -22.3                    0.169
+      2025  66.5 ->  34.7    +39.0 ->  -11.7                    0.063
+
+2021-2025 collapse. 2019/2020 get worse, because their games dimension is already truth and
+there is nothing left to prorate. The residual bias also flips sign across the good seasons,
+which is ordinary forecast error rather than a fit.
+
+`gp` is structural, not a threshold: 2018-2020 carry SIXTEEN distinct values, 2021-2025 carry
+TWO (17.0 or 18.0, plus 1.0 for the 32 DEF rows).
+
+The best alternative defence of 2019/2020 -- that `gp` is a lookback feature from the prior
+season -- was tested and killed: 2020's `gp` matches season-2020 actual games 71% of the time
+and season-2019 actual games only 16%.
+
+Per-stat correlation with realised totals is the cleanest discriminator of all:
+
+    season   WR/TE rec   RB rush yd   QB pass yd
+      2019        0.91         0.94         0.98
+      2020        0.89         0.94         0.98
+      2021        0.41         0.65         0.86
+      2024        0.52         0.67         0.87
+      2025        0.46         0.67         0.80
+
+An r of 0.94 between a preseason projection of rushing yards and the realised total is not
+achievable by any forecaster. 0.65 is.
+
+### OVERTURNED: Sleeper's `team` is end-of-season, not preseason
+
+Same defect class as ESPN's `proTeamId`, and worse. For mid-season movers:
+
+    season  movers  = week-1 team   = last-week team
+      2021      24        0   (0%)        23  (96%)
+      2022      26        0   (0%)        25  (96%)
+      2023      12        0   (0%)        12 (100%)
+      2024      13        0   (0%)        13 (100%)
+      2025      21        0   (0%)        20  (95%)
+
+Zero percent week-1. 95-100% end-of-season. Every 2024 mover:
+
+    Amari Cooper    BUF (wk1 CLE)    Davante Adams   NYJ (wk1 LV)
+    DeAndre Hopkins KC  (wk1 TEN)    Diontae Johnson HOU (wk1 CAR)
+    Mike Williams   PIT (wk1 NYJ)    Daniel Jones    MIN (wk1 NYG)
+    Cam Akers       MIN (wk1 HOU)    Khalil Herbert  CIN (wk1 CHI)
+
+Overall pool disagreement 2.5-8.2% for 2020-2025.
+
+**The nested `player` object is far worse -- it is a FETCH-TIME snapshot.** `player.team`
+disagrees with the week-1 team for 93% of the top 400 in 2019, 86% in 2021, 52% in 2024, 33%
+in 2025. Monotone decay with recency is the textbook signature. CMC's 2021 row carries
+`player.team = "SF"` and a `metadata.injury_override_regular_2024_14` key.
+
+**So both confirmed stat-line corpora have a non-vintage team field.** The projection NUMBERS
+are vintage in both; the roster metadata is not, in either. Resolve team from nflverse for the
+target season, and never read Sleeper's `player.*` for anything historical.
+
+### three probe numbers corrected
+
+**`last_modified` is not "January of the following year for each past season".** It exists
+only for 2022-2025; 2017-2021 are NULL. And the stamp is anti-correlated with contamination --
+2021 has no stamp and is clean, 2019/2020 have no stamp and are contaminated. The write
+signature is a bulk table scan at 415-688 rows/sec, 92-93% monotone in numeric `player_id`
+with the string-id DEF rows last: a migration, not a model run. The live 2026 file settles the
+semantics -- all 7,903 rows stamped inside a 14-second window on the fetch date.
+
+**The blanked-stub population is 383-699 per season, not 11-17.** The probe's headline number
+does not reproduce under any definition. But the figure the conclusion actually rests on --
+0-3 at draft depth -- is exactly right:
+
+    season  adp<=50  adp<=100  adp<=200  adp<=300
+      2021        0         1         2        32
+      2022        1         2         3        51
+      2023        1         2         3        56
+      2024        0         1         2        26
+      2025        0         0         0        67
+
+The extras are deep-tail camp bodies and long-retired names at adp 240-300 with zero games --
+noise, not survivorship.
+
+**The blanking is INCONSISTENT, which argues against a systematic post-season sweep.** In 2025
+Joe Mixon (adp 83.1), Brandon Aiyuk (131.9) and Tyler Bass (179.7) all played zero games and
+KEPT full projections of 117.9, 107.0 and 98.0. Blanking tracks "played a few games then went
+on IR", not "missed the season".
+
+### two claims strengthened
+
+**T1 is stronger for Sleeper than for ESPN.** Where ESPN's T1 passes by construction, Sleeper
+physically returns the future-draftee rows -- and not one of them carries numbers:
+
+    season  future rows present   with numbers
+      2021                 1692              0
+      2023                  896              0
+      2025                  215              0
+
+**The best positive evidence in either probe** is the reverse check. Players whose last NFL
+season predates the file still carry projections: 40 of 1,278 in 2021, 118 of 1,527 in 2025.
+2025 Joe Mixon at 117.9 points and ADP 83.1 with zero games played; Blake Bortles projected
+54.0 in 2021, having last played in 2019. **A file recomputed or filtered after the season
+could not contain those rows.**
+
+### `pts_half_ppr` is exactly reproducible for 2021+, and the IDP warning is confirmed
+
+    season      within 0.5 of a hand-scored line
+      2019      7/150
+      2020     26/150
+      2021-24  150/150
+      2025     149/150
+
+`pts_ppr - pts_half_ppr == 0.5 * rec` with zero violations in every season. So for offence
+from 2021 the shortcut and the stat line agree, and either path works. 2019/2020 failing this
+is one more break at the same boundary.
+
+For IDP the warning holds: `pts_std == pts_half_ppr == pts_ppr` on every IDP row, which is
+impossible if PPR distinctions were applied. 2024 T.J. Watt reads 27.0 against a line of 45
+solo tackles, 14 assists and 15 sacks -- worth 200+ under League A's `idp_tkl_solo = 2`,
+`idp_sack = 6`. **`pts_*` must be discarded for IDP and the granular line rescored.**
+
+`idp_*` keys exist from 2020; 2018/2019 carry the same data under legacy names (`tkl`,
+`tkl_solo`, `tkl_ast`, `sack`, `ff`, `int`).
