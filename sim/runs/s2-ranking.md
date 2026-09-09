@@ -494,3 +494,58 @@ answer: at every weight tested, in every league, entering the sort makes the boa
 **DISPOSITION: REVERTED**, by the rule fixed in advance. No out-of-sample improvement, paired
 interval exactly zero, and no league where the mechanism showed up. `qa_board_invariants` is
 untouched, because nothing here justifies weakening it -- the measurement supports it.
+
+---
+
+## PRE-REGISTRATION — ITERATIONS 3 AND 4
+
+Both committed before either was run.
+
+### iteration 3 — prior-season air-yards share
+
+The second usage signal, through the identical machinery: `points * (1 + L * z)`, z the
+within-position z-score of prior-season mean weekly `air_yards_share`, same grid, same fit and
+test seasons, absence degrading to no adjustment.
+
+**P9 — air-yards share behaves the same as target share, and the fit selects L = 0.**
+Mechanism: air yards are not a separate fact from what a projection already models -- they are
+the direct input to projected receiving yards, which is the largest term in a receiver's
+score. If target share is redundant, air-yards share should be MORE redundant, not less.
+
+Running it anyway rather than assuming, because "the first signal failed so the second will"
+is exactly the reasoning this loop exists to replace. A different answer would be a real
+finding: it would mean the redundancy is specific to targets rather than general to volume.
+
+### iteration 4 — the transform: how deep a 1-QB league really rosters quarterbacks
+
+`rostered_counts` distributes the bench only to positions with `_startable_slots >= 2`. In a
+1-QB league a quarterback is eligible for exactly one slot, so QB is grouped with D/ST and K
+and gets NO bench at all: replacement is set at QB9 in an 8-team league. The handoff records
+the real number as about 13.
+
+Because replacement points are read at `at_pos[rostered]`, under-counting rosters sets QB
+replacement TOO HIGH, which depresses QB VORP and pushes quarterbacks down the board.
+
+**The intervention is one parameter.** QB rostered count becomes `round(teams * q)` for
+
+    q in {1.00, 1.25, 1.50, 1.75, 2.00}
+
+`q = 1.00` is current behaviour and nests the baseline exactly. `q = 1.63` is the handoff's
+reported reality for an 8-team league. Fitted on 2021-2022, applied unchanged to 2024-2025.
+
+**P10 — this improves the 1-QB leagues and does nothing in boyfun.** Mechanism, and it is
+structural rather than empirical: boyfun has a SUPER_FLEX slot that a quarterback is eligible
+for, so `_startable_slots(QB) >= 2` there ALREADY and QB already receives bench. The defect
+cannot exist in that league. green_hope and danger_zone are both 1-QB and both have it. **If
+the effect appears in boyfun too, the mechanism is wrong** and whatever moved is not this.
+
+**P11 — the fitted q is above 1.0 in the 1-QB leagues.** If the fit selects q = 1.00, the
+current behaviour is already right and the "known wrong" label in the handoff is itself wrong.
+
+### a note on the prior attempts
+
+Two earlier attempts to fix this were reverted, `audible#73`'s at -9.69 [-17.56, -1.82] on
+ROSTER POINTS at k=7. That instrument collapses ~400 player observations into one number per
+season and is dominated by injury; this one does not. A disagreement between them is expected
+and is not evidence that either is broken. If this harness says the opposite, both numbers are
+reported and the difference is attributed to the instrument rather than resolved by preference.
