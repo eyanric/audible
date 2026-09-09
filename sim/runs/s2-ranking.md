@@ -431,3 +431,66 @@ enough to overfit. The gate is out-of-sample, and a gain that does not survive i
 KEPT only if the out-of-sample RWRE improves against the iteration-1 baseline on the SAME arm,
 same seasons, same pool, with the paired-over-players interval excluding zero. Otherwise
 REVERTED, whatever the in-sample number says.
+
+---
+
+## ITERATION 2 — prior-season target share: REVERTED
+
+Arm `espn`, fit 2021-2022, test 2024-2025, one parameter over the pre-declared grid.
+
+### the fit chose the null without being asked to
+
+    green_hope   L 0.00:19.51  0.02:19.60  0.05:20.33  0.10:20.74
+                   0.15:21.49  0.20:21.28  0.30:21.83
+    danger_zone  L 0.00:25.77  0.02:26.19  0.05:26.06  0.10:26.74
+                   0.15:27.20  0.20:27.21  0.30:27.65
+    boyfun       L 0.00:26.58  0.02:27.20  0.05:27.68  0.10:29.51
+                   0.15:30.27  0.20:31.30  0.30:32.26
+
+**L = 0.00 selected in all three leagues.** The curve is monotonically worse in the weight,
+in every league, with no interior optimum. There was no in-sample gain to carry forward, so
+the out-of-sample figures are identical to the baseline by construction and the paired
+interval is exactly zero.
+
+    green_hope   out-of-sample 20.33 -> 20.33  (+0.00)
+    danger_zone                25.32 -> 25.32  (+0.00)
+    boyfun                     30.94 -> 30.94  (+0.00)
+
+The out-of-sample curve was computed afterwards and NOT used for selection. It agrees:
+
+    green_hope   0.02:20.07  0.05:20.42  0.10:22.26  0.30:24.10
+    danger_zone  0.02:25.42  0.05:26.26  0.10:26.58  0.30:27.96
+    boyfun       0.02:30.68  0.05:31.52  0.10:33.03  0.30:36.55
+
+`L = 0.02` is nominally better out-of-sample in green_hope (20.07 against 20.33) and boyfun
+(30.68 against 30.94), and worse in-sample in both. The walk-forward rejected it, which is
+exactly what a walk-forward is for: the differences are a fraction of a paired interval that
+spans about two RWRE, and selecting on the test set would have been reading noise.
+
+### the predictions
+
+**P6 -- "usage helps more where receptions pay." REFUTED, and vacuously.** There is no
+differential to observe because there is no help anywhere. The mechanism claim in
+`usage.py`'s docstring -- that the consensus prices yards and touchdowns while PPR pays
+receptions, leaving target share as the edge -- is not supported by this measurement.
+
+**P7 -- "the fitted L is small, and may be zero." CONFIRMED.** It is exactly zero, in all
+three leagues.
+
+**P8 -- "in-sample gain shrinks out-of-sample." VACUOUS.** There was no in-sample gain.
+
+### what this establishes, and it is worth more than a win would have been
+
+**The double-counting hazard is real and it dominates.** A consensus forecaster already knows a
+receiver's target share; it is among the most public facts in the sport. Re-injecting it prices
+the same signal twice and strictly degrades the ordering.
+
+This turns `usage.py`'s exclusion from the sort from an untested design decision into a
+measured one. The module's docstring says "Nothing here enters the sort", and
+`qa_board_invariants` enforces that a missing usage row moves a player by exactly nothing.
+Until now that was a hypothesis about a signal nobody had scored. It is now the measured
+answer: at every weight tested, in every league, entering the sort makes the board worse.
+
+**DISPOSITION: REVERTED**, by the rule fixed in advance. No out-of-sample improvement, paired
+interval exactly zero, and no league where the mechanism showed up. `qa_board_invariants` is
+untouched, because nothing here justifies weakening it -- the measurement supports it.

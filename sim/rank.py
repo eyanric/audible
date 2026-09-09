@@ -363,3 +363,66 @@ def realised_vorp(realised: Realised) -> dict[str, float]:
 def realised_order(realised: Realised) -> list[str]:
     """The perfect board: realised per-game production, put through the same transform."""
     return vorp_order(realised.per_game, realised.position, realised.league_key)
+
+
+# --- iteration 2: prior-season usage as a projection correction -----------------------------
+
+USAGE_POSITIONS: tuple[str, ...] = ("RB", "WR", "TE")
+
+
+@lru_cache(maxsize=16)
+def prior_target_share(season: int) -> dict[str, float]:
+    """Mean weekly target share observed in season-1, by gsis id.
+
+    Available BEFORE season *season* is drafted, which is what makes it usable rather than a
+    leak. `target_share` is a native per-week column in the pinned frames; nothing is
+    reconstructed here.
+    """
+    import polars as pl
+
+    path = CACHE / "nflverse" / f"player_stats_{season - 1}.parquet"
+    if not path.exists():
+        raise PreflightError(
+            f"prior-season usage missing for {season}: {path}. Never substituted."
+        )
+    frame = (
+        pl.read_parquet(path)
+        .filter(pl.col("season_type") == "REG")
+        .select(["player_id", "target_share"])
+        .drop_nulls()
+    )
+    agg = frame.group_by("player_id").agg(pl.col("target_share").mean().alias("ts"))
+    return {str(pid): float(ts) for pid, ts in agg.iter_rows()}
+
+
+def usage_adjusted(
+    points: dict[str, float],
+    position: dict[str, str],
+    season: int,
+    lam: float,
+) -> dict[str, float]:
+    """`points * (1 + lam * z)`, z being the within-position target-share z-score.
+
+    ABSENCE IS NOT ZERO. A player with no prior season -- every rookie -- gets no adjustment at
+    all, keeping his projected points untouched. Coding absence as a zero z-score would park
+    every rookie on the positional mean and move him on a number nobody measured.
+
+    `lam = 0` returns the input unchanged, so the baseline nests exactly inside the treatment.
+    """
+    if lam == 0.0:
+        return dict(points)
+    share = prior_target_share(season)
+    out = dict(points)
+    for pos in USAGE_POSITIONS:
+        members = [p for p in points if position.get(p) == pos and p in share]
+        if len(members) < 10:
+            continue
+        vals = [share[p] for p in members]
+        mu = sum(vals) / len(vals)
+        var = sum((v - mu) ** 2 for v in vals) / (len(vals) - 1)
+        sd = math.sqrt(var)
+        if sd <= 0:
+            continue
+        for p in members:
+            out[p] = points[p] * (1.0 + lam * ((share[p] - mu) / sd))
+    return out
