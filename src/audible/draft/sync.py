@@ -241,6 +241,9 @@ class EspnIdBridge:
         # A preset map skips the catalog read entirely -- which is how tests stay offline.
         self._map: dict[str, str] | None = id_map
         self.unmatched: set[str] = set()
+        # Ids already announced by `translate_logged`. The miss path has always deduped
+        # through `unmatched`; this is the same guarantee for the hit path.
+        self._announced: set[str] = set()
         # For the name-match supplement: the ESPN pool comes from the adapter that is already
         # authenticated, so this costs one extra request at STARTUP and none per pick.
         self._adapter = adapter
@@ -303,9 +306,21 @@ class EspnIdBridge:
         return espn_id
 
     def translate_logged(self, espn_player_id: int | str) -> str:
-        """`to_board_id`, but announcing every hit -- the evening has to be auditable."""
+        """`to_board_id`, but announcing every NEW hit -- the evening has to be auditable.
+
+        Once per translation, not once per poll. `espn_picks` runs over the whole slate every
+        tick, so announcing every call meant re-announcing the entire draft every five
+        seconds: 128 INFO lines a tick, ~1,536 a minute, for as long as the cockpit ran.
+        green_hope's container wrote 18MB that way into a 1Gi emptyDir with no rotation.
+
+        `to_board_id` already dedupes its MISS warning through `unmatched` for exactly this
+        reason; the hit path was simply never given the same treatment. Auditability is
+        unchanged -- every distinct translation still appears, once, the first time it lands.
+        """
         board_id = self.to_board_id(espn_player_id)
-        if str(board_id) != str(espn_player_id):
+        espn_id = str(espn_player_id)
+        if str(board_id) != espn_id and espn_id not in self._announced:
+            self._announced.add(espn_id)
             log.info("ESPN %s -> board %s", espn_player_id, board_id)
         return board_id
 

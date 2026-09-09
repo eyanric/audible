@@ -400,3 +400,41 @@ def test_g4_the_state_file_distinguishes_a_live_trickle_from_a_bulk_reconciliati
         "a live draft must record 128 distinct arrival instants; the state file still "
         "cannot tell a hand-entered-then-reconciled draft from a healthy one"
     )
+
+
+# --- the defect this handoff did not anticipate -------------------------------------------
+
+
+def test_the_id_bridge_announces_each_pick_once_not_once_per_poll(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """12,926 log lines in eight and a half minutes, and they are how the draft was solved.
+
+    `translate_logged` says it is "announcing every hit -- the evening has to be auditable",
+    and `espn_picks` calls it for every real pick on every poll. Once the slate filled, that
+    is 128 INFO lines every five seconds: ~1,536 a minute, unbounded for as long as the
+    cockpit runs. The pod wrote 18MB into a 1Gi emptyDir with no rotation and no persistence.
+
+    The sibling path already knows better -- `to_board_id` dedupes its miss warning through
+    `unmatched`, so a player with no board row is announced once. The hit path was simply
+    never given the same treatment, which is what makes this a bug rather than a choice.
+
+    Auditability is preserved: every distinct translation is still logged, once.
+    """
+    from audible.draft.sync import espn_picks
+
+    bridge = _bridge()
+    detail = _slate(WINDOW["total_picks"], drafted=True, in_progress=False)["draftDetail"]
+    slot_by_team = {t: i + 1 for i, t in enumerate(PICK_ORDER)}
+
+    with caplog.at_level("INFO", logger="audible.cockpit"):
+        for _ in range(10):
+            picks = espn_picks(detail, slot_by_team, bridge)
+    assert len(picks) == WINDOW["total_picks"]
+
+    lines = [r for r in caplog.records if r.getMessage().startswith("ESPN ")]
+    assert len(lines) == WINDOW["total_picks"], (
+        f"{len(lines)} lines for {WINDOW['total_picks']} picks over 10 polls -- the whole "
+        f"slate is re-announced every tick. At the cockpit's 5s poll that is "
+        f"{WINDOW['total_picks'] * 12} lines a minute for the rest of the draft."
+    )
