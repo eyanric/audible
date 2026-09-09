@@ -207,3 +207,104 @@ two are reported side by side.
 SHIP only if the single committed candidate beats the incumbent on the report split, under the
 pre-registered symmetric indexing, by more than its shuffled-label null found on select.
 Otherwise DO NOT SHIP, whatever the select-split number said.
+
+---
+
+## THE SEARCH — 4,000 candidates, and the null is the result
+
+Random search over the eight-knob box, ranked on the select split (2022-2023), symmetric
+indexing. 33.1 seconds of wall-clock. The report split was not touched: `sim/holdout.py` raises
+until a candidate is committed by hash, and it was verified to raise.
+
+    incumbent (espn alone, default transform)
+      fit    22.109
+      select 22.892
+
+### the distribution, which is the finding rather than the winner
+
+    real search      n=4000
+      best      22.540
+      p5        26.138
+      median    32.060
+      p95       45.558
+      worst     54.053
+      winner's margin over median: 9.520
+
+**The space is not flat -- and it is the incumbent that is near the top of it.** The median
+random candidate scores 32.06 against the incumbent's 22.89. Fewer than 5% of 4,000 draws even
+reach 26.1. The current board is better than roughly everything the space contains, and the very
+best draw improves on it by 0.352 RWRE.
+
+### the shuffled-label null, and it settles the session
+
+The identical search, re-run with realised values permuted among players so that all structure
+is destroyed:
+
+    shuffled-label null   n=4000
+      best      46.699
+      median    53.378
+      incumbent on shuffled labels: 55.404
+
+    REAL search gain over incumbent:  +0.352
+    NULL search gain over incumbent:  +8.705
+    real beats its own null by:       -8.353
+
+**Four thousand draws over eight knobs can extract 8.705 RWRE from pure noise. Against real
+data the same search extracts 0.352.** The measured gain is a twenty-fifth of the floor
+available from searching alone.
+
+This is the number the pre-registration existed to produce. Without it, +0.352 reads as a
+small improvement and a session could report it as one. With it, +0.352 is indistinguishable
+from -- and far below -- what searching would find in a table of random numbers.
+
+**DISPOSITION: DO NOT SHIP**, by the rule fixed in advance.
+
+### G7 — the search rediscovers both known nulls
+
+Two of the eight knobs exist to be found near zero. Top-50 candidates by select score:
+
+    usage_lambda   mean +0.0275  median +0.0320   sampled range -0.150..+0.300
+    noise_lambda   mean -0.0032  median -0.0171   sampled range -0.200..+0.200
+
+`usage_lambda` lands near zero and well below the centre of its sampled range (+0.075),
+matching `audible#84`'s measured null. `noise_lambda` -- a pure hash of player and season, with
+no information in it by construction -- lands at essentially zero. **The search did not assign
+a random number a large weight, so its result is not void on G7's terms.** It simply has
+nothing to find.
+
+### what the top-50 preferred, reported without over-reading
+
+    w_espn      mean 0.196   median 0.170
+    w_ffa       mean 0.249   median 0.194
+    w_sleeper   mean 0.555   median 0.594
+    qb_depth    mean 1.341   median 1.289
+    flex_depth  mean 1.029   median 1.048
+    shrink      mean 0.172   median 0.150
+    vorp_mix    mean 0.053   median 0.044
+
+The top-50 of 4,000 is a selected set and these are not fitted values. Two are worth noting and
+neither is a claim: the blend leans sleeper-heavy even in green_hope, where `audible#84` found
+sleeper nominally WORST as a single source; and `qb_depth` leans above 1.0, in the direction
+`audible#84`'s hand-written iteration 4 could not resolve. Both are consistent with noise at
+this margin, and the null says the whole top of the distribution is.
+
+### the winner, and its own instability
+
+    select 22.540   fit 22.156   (incumbent fit 22.109)
+
+    w_espn 0.327  w_ffa 0.066  w_sleeper 0.607
+    qb_depth 1.077  flex_depth 0.779  shrink 0.292
+    vorp_mix 0.016  usage_lambda -0.025  noise_lambda -0.046
+
+**The best candidate on select is WORSE than the incumbent on fit** -- 22.156 against 22.109.
+It is a select-only candidate, which the fit-split stability check flagged without spending the
+holdout, exactly as the pre-registration intended it to.
+
+The top ten make the same point. Several candidates ranked below the winner on select are
+better than it on fit (21.181, 21.692, 21.947, 21.985), and one is dramatically worse (25.251).
+Select rank and fit rank are close to unrelated across the top of the distribution, which is
+what a flat, noise-dominated optimum looks like.
+
+The winner is carried to the holdout unchanged, because the selection rule was fixed in advance
+and swapping to a more stable candidate after seeing the fit scores is precisely the error the
+whole apparatus exists to prevent.
