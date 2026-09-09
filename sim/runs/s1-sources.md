@@ -649,3 +649,159 @@ not archived, the source is dead and no amount of further CDX querying changes t
                   requests and wall-clock, and archive.org
                   throttles hard -- 503s throughout this probe.
                   Would need backoff and a multi-hour budget.
+
+---
+
+## adversarial review of the ESPN verdict
+
+Run foreground, one agent, read-only. The verdict SURVIVED all six attacks, but the review
+found one real defect the probe missed and corrected two claims the probe overstated. Both
+corrections are recorded here because a wrong comment is a defect.
+
+### DEFECT FOUND: `proTeamId` is not vintage
+
+The probe never checked the team column. ESPN serves the player's team **as of fetch time**,
+not as of that season:
+
+    season   agrees with nflverse week-1 team
+      2021              477/502   95.0%
+      2022              421/493   85.4%
+      2024              422/487   86.7%
+      2025              452/472   95.8%
+
+    2024 examples: Deebo Samuel espn=WAS nflverse=SF
+                   DK Metcalf   espn=PIT nflverse=SEA
+                   Cooper Kupp  espn=SEA nflverse=LA
+                   Davante Adams espn=LA  nflverse=LV
+
+5-15% of the projected pool carries a team the player joined AFTER that season. A 2024 board
+built from this corpus that lists Deebo Samuel on Washington is leaking 2025.
+
+**The stat lines are vintage; the team metadata is not.** Any consumer must resolve team from
+nflverse for the target season and never from the payload -- no bye weeks, no stacking, no team
+context from `proTeamId`. This is the same class of defect as the FFA 2019 file carrying 2020
+free agency, which `assert_vintage` structurally could not see.
+
+### CORRECTION: T3 does not have two independent yardsticks
+
+The probe reported MAE "against ESPN's own actuals" and "against nflverse PPR, independent of
+ESPN entirely" as mutual corroboration. They are the same yardstick. ESPN's `leaguedefaults/3`
+season actual equals nflverse `fantasy_points_ppr` to the cent for 94-96% of skill players,
+with residuals of exactly +/-2.0 from fumble accounting:
+
+    2022 Dalvin Cook       espn 237.80   nflverse 237.80
+    2022 Justin Jefferson  espn 368.66   nflverse 368.66
+
+This does not change the verdict, but the report must not claim corroboration it does not have.
+As a side effect it independently proves the `leaguedefaults/3 = full PPR` correction.
+
+### CORRECTION: T1 passes by construction and carries almost no weight
+
+`seasons/{YEAR}` is a season-scoped roster endpoint. It structurally cannot return a player who
+debuted later:
+
+    season  pool size   ids debuting later   present in the pool
+      2018       1044                 1086                     0
+      2021       1119                  569                     0
+      2024       1098                  144                     0
+
+Zero everywhere, with no exceptions -- because the endpoint cannot do otherwise. **T1 proves
+the PLAYER LIST is vintage. It proves nothing about whether the NUMBERS are.** The probe's
+write-up did not make that distinction. The number-vintage claim rests entirely on the
+prorating test, projected-games, and T4.
+
+The oracle itself is sound, not vacuous: class sizes 54-178 with sensible position breakdowns,
+and the own-class control fires (season N's own class present at 76-100%).
+
+### the check the probe should have run, and ESPN passes it
+
+statId 210 on the season projection is PROJECTED GAMES -- the exact field that convicted
+Sleeper 2019/2020:
+
+    season   n   median gp   gp == actual games
+      2019  150      15.54          10.0%
+      2020  150      15.06           0.0%
+      2021  150      16.06           0.0%
+      2022  150      16.00           2.7%
+      2024  150      15.00           1.3%
+      2025  150      17.00          34.7%  (flat 17.0 -- frozen)
+
+    Barkley 2020  projGP 14.12 vs actual 2
+    CMC 2024      projGP 13.68 vs actual 4
+
+Fractional expected-games values, never observed counts. Correlation with actuals is r =
+0.20-0.75, against the r ~ 0.90 that convicted Sleeper.
+
+### the decisive evidence, stronger than anything in the original probe
+
+Prorating the projection by games ACTUALLY played should remove the bias if the number is a
+frozen full-slate forecast, and should make it worse if the number already knew:
+
+    season   n    raw bias   prorated bias   raw MAE   prorated MAE
+      2019  186      +25.4            -6.8      53.8           33.8
+      2021  193      +32.9            -7.9      61.6           34.0
+      2022  205      +29.0            -8.4      58.0           33.7
+      2025  192      +41.9            +4.5      63.4           34.5
+
+MAE collapses from ~53-63 to ~34-43 and the bias goes to about zero. **Attrition it could not
+have known about is the single largest component of its error.** No pool selection can
+manufacture that.
+
+T4 was also not cherry-picked. On a truly ex-ante pool -- top-60 per position by season N-1
+actual, independent of both season-N variables -- mean bias is +13.9, median +5.4, 54.4% over,
+n=1440. And the errors run both ways; the breakouts are missed as they must be:
+
+    2018 Mahomes      proj rank 11 -> actual rank 1
+    2019 L.Jackson    proj rank 17 -> actual rank 1
+    2022 Geno Smith   proj rank 29 -> actual rank 5
+    2024 Bucky Irving proj rank 50 -> actual rank 13
+
+### T3's band survives every pool
+
+    pool                        QB        RB        WR        TE
+    top-40 by projection    60.3-74.6 54.5-72.1 55.4-80.3 37.8-48.5
+    top-40 by ACTUAL        63.5-81.0 48.3-65.0 40.0-51.3 37.8-48.9
+    all with projection>50  61.7-76.1 45.8-59.8 51.5-59.9 36.6-48.2
+    union of the first two  62.2-76.8 59.8-75.6 53.6-73.4 40.5-49.3
+
+TE runs below the 50-80 band; everything else sits in or near it. Better, the BIAS flips sign
+with the selection exactly as a real forecast must -- +21 to +62 selecting on projection, -1 to
+-40 selecting on actual, about zero on the union. A fitted number cannot do that.
+
+### 2023 is worse than "empty", and that is a stronger finding
+
+129 non-zero of 1,128 confirmed independently. The review then hunted for the projection under
+every other key and found none: no other seasonId, no other scoringPeriodId, and the 482
+players with a non-empty raw dict but zero appliedTotal carry **exactly one key each, `{'210':
+...}`** -- projected games and no production stats at all.
+
+The only surviving 2023 signals are `split=2` and the weekly sum, and both are CONTAMINATED
+(see below). So 2023 is not merely unusable; the parts that remain would actively inject
+hindsight.
+
+### a warning the probe's own table understated
+
+`split=1` (weekly) and `split=2` are CONTAMINATED and must never be used as a fallback:
+
+    2020 Barkley  season proj 288.62 | weeklies: wk1 19.2, wk2 20.3,
+                  wk3-17 all 0.0 | split2 = 0.0
+    2024 CMC      season proj 335.49 | wk1-9 0.0, wk10-13 ~20, then 0
+                  | split2 = 0.0
+    2022 D.Cook (healthy control)                    | split2 = 17.20
+
+The weeklies collapse to 0.0 the moment a player is ruled out. The season total sits at 288.6
+anyway -- which is what proves `split=0` is not a rollup of them. The probe labelled `split=2`
+neutrally as "(per-game projection)"; it is a LAST-KNOWN per-game rate and carries hindsight.
+
+### smaller corrections
+
+- "45 statIds per row" is McCaffrey specifically. Across the 2021 projected pool the count is
+  median 38, min 5, max 68.
+- The realised-outcome join is 97-100% on the top-200, slightly BETTER than the probe's
+  reported 96.7-98.3%. Residuals are players who were projected and never played (A.J. Green
+  2019, Michael Thomas 2021, Joe Mixon and Brandon Aiyuk 2025), which is correct.
+- Crosswalk rows with both espn_id and gsis_id: 7,930, not the 7,917 the probe reported.
+- When is the snapshot taken? Late preseason. Players ruled out before week 1 are already
+  zeroed or absent (Cam Akers 2021, Damien Williams 2020 opt-out), while murky cases are
+  hedged rather than zeroed (Joe Mixon 2025 proj 118.1 at projGP 9.00). That is a late-August
+  board behaving as a draft-day board should.
