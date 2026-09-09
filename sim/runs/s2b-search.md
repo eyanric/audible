@@ -308,3 +308,75 @@ what a flat, noise-dominated optimum looks like.
 The winner is carried to the holdout unchanged, because the selection rule was fixed in advance
 and swapping to a more stable candidate after seeing the fit scores is precisely the error the
 whole apparatus exists to prevent.
+
+---
+
+## THE HOLDOUT — touched once, candidate `f371e330`
+
+Unlocked by committing `sim/runs/s2b-candidate.lock` in `6e346f3`. One candidate, one look.
+
+    green_hope, 2024-2025, symmetric indexing
+
+      incumbent (espn alone, default transform)   22.754
+      searched candidate                          25.276
+      delta                                       +2.522  WORSE
+
+The incumbent's 22.754 matches the 22.75 reported under G2 from `audible#84`'s own numbers,
+which is a consistency check on the whole pipeline rather than a coincidence.
+
+### every alongside metric degrades too
+
+                    RWRE     spearman   top-24
+      incumbent    22.754      0.5740    0.688
+      candidate    25.276      0.5412    0.625
+
+Nothing was optimised against Spearman or top-24 and both moved the same way as the primary.
+There is no version of this result where the candidate is better on a different axis.
+
+### per season, and the shape is the story
+
+      2024   incumbent 25.57   candidate 25.28   (-0.29, marginally better)
+      2025   incumbent 19.89   candidate 25.27   (+5.38, far worse)
+
+The candidate is essentially level in one holdout season and catastrophic in the other. A
++0.352 edge on two select seasons bought a -2.522 loss on two report seasons, concentrated
+almost entirely in one of them.
+
+### generalisation, same candidate, other two leagues
+
+      danger_zone   27.477 -> 27.747   (+0.270 worse)
+      boyfun        34.570 -> 33.438   (-1.132 better)
+
+Mixed and small. A candidate tuned on green_hope's select seasons helps one other league and
+hurts the other, which is what you would expect if the tuning captured nothing general.
+
+### VERDICT: DO NOT SHIP
+
+The pre-registered rule required the candidate to beat the incumbent on the report split by
+more than its shuffled-label null found on select. It failed both halves independently:
+
+    null gain available from searching alone   +8.705
+    real gain found on select                  +0.352
+    actual result on the holdout               -2.522
+
+**Three independent parts of the apparatus each caught this before the last one confirmed it.**
+The null said the select-split gain was a twenty-fifth of the floor available from searching
+noise. The fit-split stability check said the winner was worse than the incumbent on fit
+without spending the holdout. The holdout then reversed the gain into a 2.5 RWRE loss.
+
+Had this session reported the select number and stopped -- which is what a two-split design
+would have produced -- it would have shipped a board that is measurably worse.
+
+### what this establishes
+
+**The current board is at or near a local optimum in this eight-knob space, and the space is
+not flat.** The median random candidate is 9.5 RWRE worse than the incumbent and fewer than 5%
+of 4,000 draws come within 3.2 of it. That is a stronger and more useful statement than any
+winner would have been: `audible#84` could say four hand-written hypotheses did not help; this
+can say that four thousand did not either, and can put a number on how much of any apparent
+gain is search artefact.
+
+**What would move the needle is not in this space.** Eight knobs over source blending,
+replacement depth, shrinkage and transform mix cannot beat espn-alone-with-default-transform on
+unseen seasons. The next lever has to be a different KIND of thing -- new information rather
+than a reweighting of the same information.
