@@ -140,6 +140,10 @@ _NOT_RUNNING = frozenset({"pre_draft", "complete", ""})
 # spurious warning during a pause costs a glance, a missed one costs the draft.
 PAUSED_STATUS = "paused"
 
+# The one status that ends the draft rather than interrupting it. A completed draft is quiet
+# on purpose, so it is the one case where the wall-clock anchor must stand down.
+COMPLETE_STATUS = "complete"
+
 
 def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
     """Cheap identity for a pick slate: how many, how far, and who was last.
@@ -418,14 +422,27 @@ class CockpitService:
         if after != before and after[0] >= before[0]:
             self.health.last_pick_change = now
 
-        if session.draft_status == DRAFTING_STATUS and self.health.drafting_since is None:
+        # TWO WAYS IN, and the second one is the point. Arming on the status alone made the
+        # detector depend on the very response it exists to police: ESPN's `inProgress` and
+        # ESPN's picks ride one object, so a body that stops carrying news withholds the
+        # picks AND withholds the arming signal, and `pick_silence_s()` answers None forever.
+        # green_hope's 2026-09-08 draft ran its full 35 minutes inside that hole.
+        #
+        # `due` is wall-clock against the league's configured start time and no upstream can
+        # suppress it. A league that configures nothing keeps the old behaviour exactly.
+        due = self._draft_is_due(now, session.draft_status)
+        if (session.draft_status == DRAFTING_STATUS or due) and self.health.drafting_since is None:
             self.health.drafting_since = now
         self.health.paused = session.draft_status == PAUSED_STATUS
-        if session.draft_status in _NOT_RUNNING:
+        if session.draft_status in _NOT_RUNNING and not due:
             # Cleared only when the draft is definitively not running. Re-arming on the way
             # back in would otherwise DISCARD accumulated silence: one spurious non-drafting
             # poll a minute kept the anchor pinned to `now` forever, and an hour of a
             # completely frozen slate never published more than 50 seconds of silence.
+            #
+            # `not due` is what stops a feed stuck at `pre_draft` from clearing the anchor on
+            # every poll after its own start time -- which is the same hole from the other
+            # side, and the reason arming alone would not have been enough.
             self.health.drafting_since = None
 
         session.picks = update.picks
@@ -524,6 +541,18 @@ class CockpitService:
                 player_id=pick.player_id, source="manual",
             ))
         self.session.manual_picks = renumbered
+
+    def _draft_is_due(self, now: float, status: str) -> bool:
+        """Should a draft be under way by the wall clock, whatever the feed says?
+
+        False once the platform reports the draft COMPLETE -- a finished draft is quiet on
+        purpose and must not hold the anchor open forever. Every other status, including the
+        `pre_draft` a dead ESPN body serves indefinitely, counts as due once the hour passes.
+        """
+        starts_at = self.config.draft_starts_at
+        if starts_at is None or status == COMPLETE_STATUS:
+            return False
+        return now >= starts_at.timestamp()
 
     def _reconcile_manual(self) -> None:
         """Sync is authoritative; supersede any manual pick it now covers.

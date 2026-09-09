@@ -8,6 +8,7 @@ so two leagues run through one engine with no league-specific branches.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -72,6 +73,23 @@ class LeagueConfig(BaseModel):
     # picks you have left, which is exactly the quantity `recommend` uses to decide whether an
     # empty starting slot is still optional.
     draft_rounds: int | None = Field(default=None, gt=0)
+
+    # When this league's draft is scheduled to open, as an ISO-8601 instant WITH an offset
+    # (e.g. 2026-09-08T19:00:00-04:00). The silence detector's anchor, and it has to come
+    # from OUTSIDE the feed.
+    #
+    # Until 2026-09-08 `drafting_since` armed only on `draft_status == "drafting"`, which for
+    # ESPN is `draftDetail.inProgress` -- the same object that carries the picks. A feed that
+    # goes quiet therefore stops delivering picks AND never starts the clock AND leaves
+    # `pick_silence_s()` returning None, so nothing can ever be called stale. green_hope's
+    # 2026-09-08 draft ran 35 minutes that way: 30,680 successful polls, zero errors, and
+    # `sync: live` on the page the whole time. A guard whose trigger rides the response it is
+    # guarding is not a guard.
+    #
+    # Wall-clock is the one anchor no upstream can suppress. Leagues that leave this unset
+    # keep exactly the old behaviour -- the status still arms it -- so this widens the
+    # detector without arming it on a quiet Tuesday for anyone who has not opted in.
+    draft_starts_at: datetime | None = None
 
     # My seat, when the platform cannot be asked. Draft-day sync resolves the slot from
     # ESPN's pickOrder, but a dead sync leaves it None -- and an unresolved slot silently

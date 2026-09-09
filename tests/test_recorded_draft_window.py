@@ -380,7 +380,23 @@ def test_g4_the_state_file_distinguishes_a_live_trickle_from_a_bulk_reconciliati
     bulk, live = run(True), run(False)
     assert len(bulk["picks"]) == len(live["picks"]) == 128
     assert bulk["draft_status"] == live["draft_status"] == "complete"
-    assert bulk != live, (
-        "a bulk post-completion reconciliation produced a state file byte-identical to a "
-        "healthy live draft. A future post-mortem has nothing to read."
+
+    # NOT `bulk != live`. Two runs on a moving clock differ in their timestamps whatever the
+    # schema records, so that comparison passes without anything being written down -- it
+    # reads as a gate and is really a coincidence. The property is that each PICK carries
+    # when it was first seen, because that is the one thing that separates the two shapes:
+    # 128 picks that appeared together, versus 128 that arrived one at a time.
+    def first_seen(state: dict[str, Any]) -> list[float]:
+        seen = [p.get("first_seen") for p in state["picks"]]
+        assert all(t is not None for t in seen), (
+            "picks carry no first_seen, so the state file cannot say when they arrived"
+        )
+        return sorted(set(seen))
+
+    assert len(first_seen(bulk)) == 1, (
+        "a bulk reconciliation must record all 128 picks as first seen at ONE instant"
+    )
+    assert len(first_seen(live)) == 128, (
+        "a live draft must record 128 distinct arrival instants; the state file still "
+        "cannot tell a hand-entered-then-reconciled draft from a healthy one"
     )
