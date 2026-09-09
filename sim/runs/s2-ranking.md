@@ -128,3 +128,55 @@ largest for everyone.
 
 **P5 — no arm beats a realised-per-game board.** Trivially true by construction and it is the
 harness's own validation (G1), not a finding.
+
+---
+
+## AMENDMENT 1 — the ordering, made before any arm was scored
+
+Found during harness validation (G1), before a single arm number existed. Recorded here rather
+than quietly applied, because an amended pre-registration that hides the amendment is worse
+than none.
+
+### what was wrong
+
+The pre-registration said the pool is "the set of players a draft actually consumes" AND that
+the ordering under test is projected fantasy points. Those two are inconsistent, and the
+inconsistency is large. A points-ordered top-128 in green_hope, measured on realised 2021:
+
+    QB 48   RB 40   WR 35   TE 5
+
+against a league that starts EIGHT quarterbacks and eight tight ends. Ordering by raw points in
+a 1-QB league puts 48 quarterbacks in a 128-man pool. That is not a pool any draft consumes,
+and the pre-registration's own definition rules it out.
+
+### what it becomes
+
+**Both sides are ordered by VORP**, through production's own `compute_vorp`, under the
+league's roster structure:
+
+    board side      arm's projected points -> PlayerProjection -> compute_vorp
+    realised side   realised per-game points -> PlayerProjection -> compute_vorp
+
+Both are value, one forecast and one realised. A quarterback who scored 27 a game is worth
+`27 - QB_replacement` to a roster, not 27, and ordering the realised side by raw points would
+systematically punish any board that correctly priced positional scarcity -- which is to say,
+it would punish being right.
+
+### why this does not compromise iteration 1
+
+The transform is HELD FIXED and IDENTICAL across every arm. Iteration 1 asks which SOURCE
+ranks best; holding one transform constant across sources is exactly what makes that question
+answerable. Task 4 varies the transform, with the source then fixed.
+
+Production's `rostered_counts` is known to be wrong at QB -- `_startable_slots(QB) == 1` in a
+1-QB league groups it with D/ST and K against a league that rosters 13. It is used unchanged
+here anyway, because a defect applied identically to all four arms is common-mode and cannot
+move a comparison between them. It is Task 4's subject, not iteration 1's.
+
+`ffp_ecr` is exempt and stays exempt: it is a ranking with no points, so there is nothing to
+transform. It enters as its published order.
+
+### what this obliges
+
+G1 is re-validated under the amended ordering. The perfect board is now the realised-VORP
+board, and it must still score exactly zero.
