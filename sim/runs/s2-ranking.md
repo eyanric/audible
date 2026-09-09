@@ -358,3 +358,76 @@ anticipated when it said the winner rotates.
 
 **ffp_ecr is not a viable board on its own** and should not become an arm in the ranking loop
 except as a labelled TE-ordering comparator, where it is genuinely the best of the four.
+
+---
+
+## PRE-REGISTRATION — ITERATION 2: does prior-season usage correct the projection?
+
+Committed before the signal was built and before any number was computed.
+
+### the mechanism, stated first
+
+`draft/usage.py`'s own docstring makes the claim this iteration tests: *"DDAFFL pays 0.5 a
+reception to WR/TE, so targets are the currency of the edge while the consensus projection
+prices yards and touchdowns."* If that is true, a receiver's prior-season target share carries
+information the projection has not already priced, and it is worth more in a league that pays
+receptions than in one that does not.
+
+**The hazard is double-counting.** A consensus forecaster already knows a receiver's target
+share -- it is one of the most public facts in the sport. Adding it again prices the same
+signal twice and makes the board worse while feeling like an upgrade. That is the null this
+iteration has to beat.
+
+### the signal
+
+Prior-season mean weekly `target_share`, from the pinned `player_stats` (it is a native
+column, not a reconstruction). For season S the signal is observed in S-1, so it is available
+before S's draft and is not a leak.
+
+WR, TE and RB only. Quarterbacks have no target share and are left untouched.
+
+### the intervention, and it is ONE parameter
+
+    points'(p) = points(p) * (1 + L * z(p))
+
+where `z(p)` is the player's target-share z-score WITHIN HIS POSITION, computed over the
+players who have one. VORP is then recomputed from the adjusted points through the same
+`compute_vorp` as every other arm, so the transform is unchanged and only the projection moves.
+
+`L = 0` recovers the iteration-1 baseline exactly, which makes the comparison a true nesting
+rather than two different pipelines.
+
+**Absence degrades to the projection alone.** A rookie has no prior season, so `z` is ABSENT,
+not zero, and his adjustment is exactly zero -- he keeps his projected points untouched. Coding
+absence as a zero z-score would place every rookie at the positional mean and sink or float him
+on a number nobody measured. This is the same property `usage.py`'s `missing_sources` machinery
+exists to preserve.
+
+### fitting
+
+`L` is chosen on the FIT seasons (2021, 2022) by grid search over a coarse, pre-declared grid:
+
+    L in {0.00, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30}
+
+and then applied UNCHANGED to the TEST seasons (2024, 2025). The test seasons are not consulted
+in choosing `L`. One parameter, one grid, declared before the run.
+
+### predictions
+
+**P6 — usage helps MORE in boyfun and danger_zone than in green_hope.** This is the mechanism
+test and it is the one that matters. Green Hope pays zero per reception, so target share should
+carry the least there. **If it helps equally in all three, the stated mechanism is wrong even
+if the number improves**, and that is logged as a mismatch rather than a win.
+
+**P7 — the fitted `L` is small, and may be zero.** Mechanism: the projection has already priced
+target share, so the marginal information is small by construction. An `L` selected at the top
+of the grid would be evidence of something other than what this claims to measure.
+
+**P8 — any in-sample gain shrinks out-of-sample.** One fitted parameter on two seasons is
+enough to overfit. The gate is out-of-sample, and a gain that does not survive is reverted.
+
+### disposition rule, fixed in advance
+
+KEPT only if the out-of-sample RWRE improves against the iteration-1 baseline on the SAME arm,
+same seasons, same pool, with the paired-over-players interval excluding zero. Otherwise
+REVERTED, whatever the in-sample number says.
