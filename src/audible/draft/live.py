@@ -30,6 +30,14 @@ class Pick:
     # may branch on it. A pick entered by hand because sync is unavailable is a pick: the
     # player is gone, some team owns him, and the clock moved.
     source: str = "sync"
+    # When the cockpit FIRST saw this pick, as a unix timestamp. Provenance, not data: the
+    # only field that separates 128 picks that trickled in over half an hour from 128 that
+    # appeared together in one post-completion body. green_hope's 2026-09-08 state file could
+    # not tell those apart -- `draft_status: complete`, 128 picks, 0 manual, which is exactly
+    # what a healthy draft writes too -- and settling it took an 18MB pod log that dies with
+    # the container. Stamped once, in `CockpitService._apply`, and carried forward unchanged
+    # on every later poll that still contains the pick.
+    first_seen: float | None = None
 
 
 def parse_picks(raw: list[dict[str, Any]]) -> list[Pick]:

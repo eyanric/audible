@@ -21,7 +21,7 @@ import random
 import threading
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -140,6 +140,15 @@ _NOT_RUNNING = frozenset({"pre_draft", "complete", ""})
 # spurious warning during a pause costs a glance, a missed one costs the draft.
 PAUSED_STATUS = "paused"
 
+# The one status that ends the draft rather than interrupting it. A completed draft is quiet
+# on purpose, so it is the one case where the wall-clock anchor must stand down.
+COMPLETE_STATUS = "complete"
+
+# How long after its scheduled start a draft may still be considered "due" by the wall clock.
+# The window is what stops a past start time arming the detector forever once the season moves
+# on -- see CockpitService._draft_is_due.
+DRAFT_DUE_WINDOW_S = 6 * 3600.0
+
 
 def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
     """Cheap identity for a pick slate: how many, how far, and who was last.
@@ -156,13 +165,15 @@ def _pick_fingerprint(picks: Sequence[Pick]) -> tuple[int, int, str]:
 
 def _pick_json(p: Pick) -> dict[str, Any]:
     return {"pick_no": p.pick_no, "round": p.round, "draft_slot": p.draft_slot,
-            "player_id": p.player_id, "source": p.source}
+            "player_id": p.player_id, "source": p.source, "first_seen": p.first_seen}
 
 
 def _pick_from_json(d: dict[str, Any], default_source: str) -> Pick:
+    seen = d.get("first_seen")
     return Pick(
         pick_no=int(d["pick_no"]), round=int(d["round"]), draft_slot=int(d["draft_slot"]),
         player_id=str(d["player_id"]), source=str(d.get("source") or default_source),
+        first_seen=float(seen) if seen is not None else None,
     )
 
 
@@ -179,6 +190,17 @@ class DraftSession:
     # Picks entered by hand, in the order they were entered. They are REAL picks -- numbered,
     # attributed to whichever slot is on the clock, and moving the clock -- not ghosts.
     manual_picks: list[Pick] = field(default_factory=list)
+    # Hand-entered picks that a later sync superseded. `_reconcile_manual` is right to drop
+    # them from `manual_picks` -- keeping a duplicate the feed now covers double-counts the
+    # player -- but dropping the RECORD too is what made green_hope's post-mortem impossible.
+    # A draft mirrored entirely by hand and then reconciled wrote `manual_picks: []` and 128
+    # `source: "sync"` picks, which is byte-for-byte what a draft that synced perfectly
+    # writes. The board is unaffected by this list; it exists so the evening stays auditable.
+    manual_superseded: list[Pick] = field(default_factory=list)
+    # player_id -> when the cockpit first saw him taken. Survives a slate that momentarily
+    # empties, which `picks` does not. `None` marks a pick restored from a state file written
+    # before this field existed: unknown stays unknown rather than being restamped as new.
+    first_seen_by_player: dict[str, float | None] = field(default_factory=dict)
     slot: int | None = None
     slot_source: str = SOURCE_UNRESOLVED
     user_id: str | None = None
@@ -190,6 +212,8 @@ class DraftSession:
             "draft_status": self.draft_status, "draft_type": self.draft_type,
             "picks": [_pick_json(p) for p in self.picks],
             "manual_picks": [_pick_json(p) for p in self.manual_picks],
+            "manual_superseded": [_pick_json(p) for p in self.manual_superseded],
+            "first_seen_by_player": self.first_seen_by_player,
             "slot": self.slot, "slot_source": self.slot_source,
             "user_id": self.user_id, "roster_id": self.roster_id,
         }
@@ -205,6 +229,16 @@ class DraftSession:
         session.manual_picks = [
             _pick_from_json(p, "manual") for p in data.get("manual_picks", [])
         ]
+        session.manual_superseded = [
+            _pick_from_json(p, "manual") for p in data.get("manual_superseded", [])
+        ]
+        # Seed from the ledger when the file has one; otherwise fall back to the picks
+        # themselves, so an OLD state file restores as "unknown" (None) rather than being
+        # restamped with the restart time on the next poll.
+        session.first_seen_by_player = {
+            str(k): (float(v) if v is not None else None)
+            for k, v in (data.get("first_seen_by_player") or {}).items()
+        } or {p.player_id: p.first_seen for p in session.picks}
         session.slot = data.get("slot")
         session.slot_source = data.get("slot_source", SOURCE_UNRESOLVED)
         session.user_id = data.get("user_id")
@@ -418,17 +452,51 @@ class CockpitService:
         if after != before and after[0] >= before[0]:
             self.health.last_pick_change = now
 
-        if session.draft_status == DRAFTING_STATUS and self.health.drafting_since is None:
+        # TWO WAYS IN, and the second one is the point. Arming on the status alone made the
+        # detector depend on the very response it exists to police: ESPN's `inProgress` and
+        # ESPN's picks ride one object, so a body that stops carrying news withholds the
+        # picks AND withholds the arming signal, and `pick_silence_s()` answers None forever.
+        # green_hope's 2026-09-08 draft ran its full 35 minutes inside that hole.
+        #
+        # `due` is wall-clock against the league's configured start time and no upstream can
+        # suppress it. A league that configures nothing keeps the old behaviour exactly.
+        due = self._draft_is_due(now, session.draft_status)
+        if (session.draft_status == DRAFTING_STATUS or due) and self.health.drafting_since is None:
             self.health.drafting_since = now
         self.health.paused = session.draft_status == PAUSED_STATUS
-        if session.draft_status in _NOT_RUNNING:
+        if session.draft_status in _NOT_RUNNING and not due:
             # Cleared only when the draft is definitively not running. Re-arming on the way
             # back in would otherwise DISCARD accumulated silence: one spurious non-drafting
             # poll a minute kept the anchor pinned to `now` forever, and an hour of a
             # completely frozen slate never published more than 50 seconds of silence.
+            #
+            # `not due` is what stops a feed stuck at `pre_draft` from clearing the anchor on
+            # every poll after its own start time -- which is the same hole from the other
+            # side, and the reason arming alone would not have been enough.
             self.health.drafting_since = None
 
-        session.picks = update.picks
+        # STAMP FIRST-SEEN from a LEDGER, not from the current slate. `update.picks` is
+        # rebuilt from the payload every tick and always arrives unstamped, so the original
+        # instant has to come from somewhere that outlives the slate.
+        #
+        # Keyed on player, and only on player. Keying on (pick_no, player_id) meant a
+        # RENUMBERED pick -- same player, new number -- restamped to now, and the file then
+        # claimed a pick that had been visible for minutes had just arrived. A player is
+        # drafted once, so his id is the stable key. A CORRECTION (same number, different
+        # player) is a genuinely new pick and still gets a fresh stamp, which is right.
+        #
+        # A ledger rather than a re-read of `session.picks` because an all-placeholder body
+        # parses to zero picks and blanks the slate -- the behaviour documented thirty lines
+        # above -- and rebuilding the map from an empty slate restamped the whole draft on the
+        # next real body, manufacturing the exact bulk-reconciliation signature this field
+        # exists to detect. Measured: 128 distinct instants collapsed to 28. It only grows.
+        for p in update.picks:
+            if p.player_id not in session.first_seen_by_player:
+                session.first_seen_by_player[p.player_id] = now
+        session.picks = [
+            replace(p, first_seen=session.first_seen_by_player[p.player_id])
+            for p in update.picks
+        ]
         # Sync is authoritative: drop any hand-entered pick it now covers, and renumber the
         # rest to follow it. Without this, regaining sync after mirroring by hand
         # double-counts every player entered twice.
@@ -525,6 +593,37 @@ class CockpitService:
             ))
         self.session.manual_picks = renumbered
 
+    def manual_provenance(self) -> list[Pick]:
+        """Hand-entered picks a later sync superseded, oldest first.
+
+        Empty on a draft nobody typed into. Non-empty is the durable evidence that somebody
+        was mirroring a feed that had stopped -- the thing green_hope's state file could not
+        say, and the reason its post-mortem needed the pod log.
+        """
+        return list(self.session.manual_superseded)
+
+    def _draft_is_due(self, now: float, status: str) -> bool:
+        """Should a draft be under way by the wall clock, whatever the feed says?
+
+        False once the platform reports the draft COMPLETE -- a finished draft is quiet on
+        purpose and must not hold the anchor open forever. Every other status, including the
+        `pre_draft` a dead ESPN body serves indefinitely, counts as due once the hour passes.
+        """
+        starts_at = self.config.draft_starts_at
+        if starts_at is None or status == COMPLETE_STATUS:
+            return False
+        # BOUNDED, and the bound is not decoration. `status == COMPLETE_STATUS` alone was not
+        # enough: a finished draft that flaps back to `pre_draft` even once re-arms the
+        # anchor, and `espn_draft_status({})` returns `pre_draft` for any body missing
+        # `draftDetail` -- so the same quiet feed this exists to catch would latch a permanent
+        # alarm afterwards, persisted across every restart, with no way back. A configured
+        # start time is also a PAST instant for the rest of the season.
+        #
+        # Six hours is far longer than any draft these leagues run (green_hope's 128 picks
+        # took 35 minutes) and far shorter than the weeks the stale date then sits there.
+        start = starts_at.timestamp()
+        return start <= now < start + DRAFT_DUE_WINDOW_S
+
     def _reconcile_manual(self) -> None:
         """Sync is authoritative; supersede any manual pick it now covers.
 
@@ -535,9 +634,16 @@ class CockpitService:
         the feed was down are not lost.
         """
         synced = {p.player_id for p in self.session.picks}
-        self.session.manual_picks = [
-            p for p in self.session.manual_picks if p.player_id not in synced
-        ]
+        kept, superseded = [], []
+        for p in self.session.manual_picks:
+            (superseded if p.player_id in synced else kept).append(p)
+        self.session.manual_picks = kept
+        # Superseded, not deleted. The duplicate has to go; the fact that somebody typed it
+        # in while the feed was dead is the only surviving evidence of the outage.
+        already = {p.player_id for p in self.session.manual_superseded}
+        self.session.manual_superseded.extend(
+            p for p in superseded if p.player_id not in already
+        )
         self._renumber_manual()
 
     def mark_taken(self, player_id: str) -> bool:
