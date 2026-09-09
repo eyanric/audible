@@ -526,3 +526,126 @@ and not in `manifest.json`, and the `projections_*.csv` files have no `avg_type`
 If a later session exports `average`, there is nowhere for it to be distinguished -- only the
 sha256 would change. **A second aggregation needs `avg_type` in the filename and the manifest
 before it lands.**
+
+---
+
+## nflverse ecosystem — one duplicate, one refutation
+
+Checked because `nflreadpy` is already a dependency, so anything it carries is free.
+
+### `load_ff_rankings(type="all")` — the SAME data as db_fpecr
+
+    shape       1,830,022 x 24
+    columns     identical to db_fpecr.parquet
+    scrape_date 363 distinct, same range
+    fp_page     94 distinct, same set
+    points/stat columns: NONE
+
+Byte-for-byte the dynastyprocess FantasyPros export, served through a loader this repo already
+depends on. **Not a new source** -- but it does mean the `db_fpecr` arm needs no separate curl
+and no new pinned file: `nflreadpy.load_ff_rankings(type="all")` is the whole acquisition.
+
+Its docstring says "rankings and projections". There are zero points or stat columns. Add it to
+the list of READMEs in this domain that overstate.
+
+### `load_ff_opportunity` — REFUTED as a projection
+
+    shape       6,054 x 159 for 2025 alone
+    keys        season, week, game_id, player_id
+    columns     receptions_exp, rush_yards_gained_exp,
+                pass_touchdown_exp, ... (every _exp column)
+
+Per-week, per-GAME expected stats derived from play-by-play. `receptions_exp` is expected
+receptions given the targets that were actually thrown; `rush_touchdown_exp` is expected
+touchdowns given the carries that actually happened. It requires the games to have been played,
+so it is an OUTCOME measure, not a forecast.
+
+REFUTED as a projection arm. It is, however, exactly the raw material for the NEXT question in
+line -- whether usage signals add anything the consensus has not already priced -- so it is
+worth keeping in view for that, not for this.
+
+---
+
+## fantasy nerds — REFUTED (free tier), UNRESOLVED (paid)
+
+    endpoint  api.fantasynerds.com/v1/nfl/draft-projections?apikey=TEST
+    format    full stat lines (passing_attempts, passing_yards,
+              passing_touchdowns, rushing_*, fumbles, ...)
+    ids       its own playerId
+
+The TEST key works with no account and returns real, plausible-looking stat lines:
+
+    season reported: 2021
+    Josh Allen      4259.5 pass yd,  30.5 pass TD
+    Patrick Mahomes 4619.5 pass yd,  35.5 pass TD
+    Lamar Jackson   2866.5 pass yd,  26.5 pass TD
+
+Two things kill it for this purpose.
+
+**The sample is 30 players.** Five per position across QB/RB/WR/TE/K/DEF. T3 cannot be computed
+on thirty players, and no board can be built from them.
+
+**The `season` parameter is ignored.** Requesting `season=2024` returns `{"season": 2021, ...}`
+-- the same fixed sample. So historical seasons are not addressable on the free tier, and the
+one season on offer cannot be validated.
+
+Whether a PAID key addresses history is **UNRESOLVED**. Settling it costs money, and the hard
+stop says report the price and stop. Nothing was purchased and no account was created.
+
+---
+
+## wayback machine — UNRESOLVED, and more promising than the handoff expected
+
+The handoff calls this a long shot and warns that a partial scrape is worse than none. On the
+evidence, reachability and parseability are both better than that framing suggests. Coverage at
+full pool depth is the open question.
+
+### an early reading of mine was wrong, and the correction matters
+
+My first CDX sweep reported nfl.com and CBS as unreachable. They were not -- archive.org
+returned **HTTP 503 under throttling**, and I read a rate limit as an absence. On retry with
+backoff both answered, and both are well covered. Recording this because "the archive does not
+have it" and "I asked too fast" are different findings that look identical if you only ask once.
+
+### preseason captures (Aug 1 - Sep 8) by season
+
+    site          2018 2019 2020 2021 2022 2023 2024 2025
+    nfl.com          3   10   12    3   23    9    7   15
+    cbssports        2    8    5   29   12   17   10   49
+    fantasypros      2    1    0    2    2    0    0    1
+    fftoday         22    0    1    1    1    0    0    0
+
+nfl.com and CBS have captures in **every season 2018-2025**. FantasyPros and FFToday do not --
+three and four empty seasons respectively -- so those two are out on coverage alone.
+
+### parseability — server-rendered HTML, real numbers
+
+    nfl.com  2021-08-04  HTTP 200, 87,818 bytes
+             <table> 1, <tr> 27, <td> 375
+             contains Josh Allen, Mahomes, L.Jackson, K.Murray
+             numeric cells: 267.4, 277.7
+
+    cbs      2021-08-02  HTTP 200, 1,010,654 bytes
+             <table> 1, <tr> 72, <td> 1120
+             contains Josh Allen, Mahomes, L.Jackson, K.Murray
+             numeric cells: 276.2, 304.6, 105.1, 290.2, 195.1
+
+Not JS-rendered, not paywalled, not a redirect. A parser would work.
+
+### why it is still UNRESOLVED
+
+27 rows on the nfl.com capture is ONE PAGE of a paginated table. A full player pool needs the
+pagination walked, and **every page needs its own archived capture at the same timestamp** --
+which is a much stronger condition than "the site was captured that day". Nothing here
+establishes that. Nor is per-position coverage settled: this tested QB-bearing pages for one
+season on two sites.
+
+What would settle it: for one target season, enumerate the paginated offsets for one site,
+check how many are archived within a few days of each other, and reconstruct a single complete
+positional pool. If that works for 2021 it probably works for the rest; if the pagination is
+not archived, the source is dead and no amount of further CDX querying changes that.
+
+    acquisition   scrape-and-pray. Free in money, expensive in
+                  requests and wall-clock, and archive.org
+                  throttles hard -- 503s throughout this probe.
+                  Would need backoff and a multi-hour budget.
