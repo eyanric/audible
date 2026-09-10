@@ -81,3 +81,111 @@ is the replacement. Adding an archived dependency to reach one scrape fails the 
 requirement this handoff itself sets out ("a source that must be re-purchased every season
 fails" -- an abandoned library is the same problem with a different clock). **UNRESOLVED by
 choice, not by failure.**
+
+---
+
+## G5 — every new term moves an ordering, demonstrated before measurement
+
+    ngs_time_to_throw  413 players displaced from the 2022 board
+    ngs_separation     356
+    ngs_rush_eff       282
+    availability       214
+
+`audible#85`'s `shrink` displaced zero. All four of these can change a board.
+
+## THE NOISE FLOOR, rotated leave-one-season-out
+
+    board-wide: +0.364
+
+**But see the locus finding below -- this number turned out to be the wrong floor for three of
+the four signals tested, and using it would have produced a false positive.**
+
+---
+
+## TASK 3 — the signals, each tested WHERE IT ACTS
+
+### 3a. availability (position-level) — REVERTED, and inert exactly as predicted
+
+Expected locus, stated before running: **the cross-position interleave ONLY.** A value constant
+within a position cannot reorder that position, so its per-position error is inert by
+construction and only the interleave can move.
+
+    board-wide mean delta  +0.071
+    per-position  QB +0.000  RB +0.000  WR +0.000  TE +0.000
+
+**The prediction is confirmed to the digit: all four positions read exactly +0.000.** The
+structural claim was right, and the board-wide movement is +0.071 -- nominally worse, and
+essentially nothing.
+
+Measured position rates (mean games played, prior seasons): RB 9.48, WR 9.80, TE 8.99, QB 7.97.
+These include every player with a row, so backups drag them down; they are a position's average
+availability, not a drafted player's. **REVERTED.**
+
+### 3b. Next Gen Stats — one resolved result, then the control killed it
+
+    signal              locus    focus delta   board-wide   dilution
+    ngs_separation      WR,TE          -0.337       -0.436     -0.100
+    ngs_rush_eff        RB             +0.087       +0.017     +0.070
+    ngs_time_to_throw   QB             +0.669       +0.038     +0.630
+
+**INJECTION 4 FIRES, and `ngs_time_to_throw` is the clean demonstration.** A quarterback-only
+signal reads +0.669 at quarterback and +0.038 board-wide -- a **seventeen-fold attenuation**.
+Averaging a positional effect across four positions does not merely weaken it, it erases it.
+Note the direction: here the dilution hid a HARM, not a benefit. It hides both.
+
+Paired per-player, at each signal's own position:
+
+    ngs_separation     WR  -0.683 [-1.140, -0.213]  n=242  RESOLVED
+    ngs_separation     TE  +0.181 [-0.109, +0.457]  n=128  not resolved
+    ngs_time_to_throw  QB  -0.005 [-0.495, +0.472]  n= 52  not resolved
+    ngs_rush_eff       RB  +0.139 [-0.104, +0.373]  n=319  not resolved
+
+**Receiver separation at wide receiver is the first resolved improvement this project has
+produced** -- across `audible#84`, `#85`, `#86` and everything above, no signal had ever
+excluded zero. It is WR-specific, as the mechanism requires: the same signal at tight end is
++0.181 and not resolved.
+
+### and then the correct control refuted it
+
+The board-wide floor is +0.364. **At wide receiver specifically the floor is -0.296**, because
+the noise knob tuned on a single position's slice behaves differently from the same knob tuned
+board-wide.
+
+    noise at WR:  -0.296 [-0.789, +0.204]
+
+So the honest comparison is separation against noise **at the same locus, at the same lambda**:
+
+    separation - noise at WR:  -0.267 [-0.843, +0.301]  n=227  NOT RESOLVED
+
+And it does not survive dropping a season:
+
+    all six seasons          -0.683 [-1.140, -0.213]  RESOLVED
+    excluding 2021          -0.495 [-0.992, +0.013]  not resolved
+    excluding 2025          -0.582 [-1.103, -0.059]  RESOLVED
+    excluding 2021 and 2025 -0.324 [-0.921, +0.250]  not resolved
+
+    per season: 2019 -0.713  2020 -0.081  2021 -1.673
+                2022 -0.435  2024 +0.690  2025 -2.086
+
+**DISPOSITION: REVERTED.** It beats the untreated baseline and fails against the only control
+that matters.
+
+---
+
+## THE METHODOLOGICAL FINDING — a floor must be measured at the signal's own locus
+
+This is the session's most transferable result, and it is a correction to G3 as written.
+
+G3 says "report the noise floor beside every signal". G4 says "test each signal where it should
+act". **Taken together and applied naively they produce a false positive**, which is exactly
+what happened here: comparing a WR-locus signal (-0.683) against a board-wide floor (+0.364)
+makes it look decisively good. Against the WR-locus floor (-0.296) it is not resolved.
+
+The floor is not a property of the harness. It is a property of the harness AND the slice. A
+knob tuned on 242 receiver-observations has more room to fit than the same knob tuned on 751
+board-wide observations, so the floor moves -- and it moved by 0.66 RWRE here, which is larger
+than the effect being tested.
+
+**Any future session testing a positional signal must measure the floor at that position.**
+Reporting the board-wide floor beside a positional result is not a control; it is a
+mismatched comparison that flatters every positional signal.
