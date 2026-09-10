@@ -531,3 +531,66 @@ the same thing.
 **This project now has zero resolved signals.** `audible#88`'s two resolutions were
 `ngs_separation` at WR and `ngs_time_to_throw` at QB, both at p = 0.049 against a K=40 floor
 drawn under the broken metric. The first is reverted here. The second is re-decided in phase 5.
+
+
+---
+
+## PHASE 5 — 61 loci, 2 resolve, both are HARMS, and 2 is below chance
+
+Every one of the twenty inputs adjudicated at its stated locus against the K=80 floor drawn
+under the fixed metric.
+
+    resolved at a calibrated 5%: 2 of 61 loci
+      improvements: NONE
+      harms:        contract@TE (+0.958, p 0.049)
+                    ffa_experience@TE (+0.772, p 0.049)
+
+**And two is fewer than chance.** 61 loci tested at a nominal 5% expects about **3.1** false
+resolutions; 2 were observed. Neither survives a Bonferroni threshold of 0.0008, and neither
+*could*: the reference test's floor at K=80 is 0.0247, so **to resolve anything against 61
+comparisons this harness would need K ≥ 2439 draws.** At thirteen seconds a draw that is nine
+hours — affordable, and pointless, because the effect sizes are not there.
+
+**`audible#88`'s second resolution is also gone.** `ngs_time_to_throw` at QB read p = 0.049 as a
+harm; under the corrected metric it is **+0.228 at p = 0.889** — the 39th of 61 loci. Both of
+that session's resolutions have now evaporated: one under the metric fix, one under both.
+
+The top of the table, so the next session does not re-run it:
+
+    contract@TE            +0.958   p 0.049   RESOLVED WORSE
+    ffa_experience@TE      +0.772   p 0.049   RESOLVED WORSE
+    ngs_separation@WR      -0.558   p 0.074   not resolved
+    age_at_export@WR       -0.510   p 0.074   not resolved
+    target_share@RB        -0.101   p 0.099   not resolved
+    adp_gap@RB             -0.174   p 0.099   not resolved
+    availability@board     +0.813   p 0.099   not resolved
+
+### INJECTION 5 — what a single floor draw would have decided
+
+    26 of 61 loci get a DIFFERENT disposition:  43%
+    audible#88 measured 5 of 18 = 28% on a smaller set
+
+Twenty-four of the twenty-six are false **RESOLVED BEATS FLOOR** — the single-draw mechanism
+manufactures improvements. One is the reverse: `contract@TE` reads "not resolved" against one
+draw and resolves against the distribution. **43% of dispositions in this session would have
+been wrong under the mechanism `audible#86` and `#87` used.**
+
+### INJECTION 6 — the dilution
+
+**16 of 61 loci carry a board-wide sign opposite to their locus sign**, including every one of
+`depth_slot`'s three positions (+0.24/+0.27/+0.24 at locus, −0.500 board-wide) and both
+`ngs_separation` loci. A board-wide number is not a weak version of a positional one; it can be
+the opposite of it.
+
+### THE COMBINATION CANNOT BE FORMED
+
+The handoff's inclusion rule is: an input joins if it beats the calibrated floor **alone**, or a
+phase-3 model gives it **stable importance across all six folds**.
+
+- **First criterion admits nothing.** Zero improvements resolve.
+- **Second criterion admits nothing either.** Of the twenty football inputs, the largest share
+  the boosted model gives to any *actual value* — as opposed to a position dummy, the
+  projection, or a missingness indicator — is `uncertainty` at **2.9%**.
+
+There is nothing to combine. Reported rather than skipped, because "we tried to combine and
+found no survivors" and "we did not try" are different claims and only one of them is true.
