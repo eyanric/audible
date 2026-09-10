@@ -198,6 +198,20 @@ def draw_floor(seasons: tuple[int, ...], salts: tuple[str, ...] = SALTS) -> Floo
     return Floor(salts=salts, seasons=seasons, per=per)
 
 
+def load_floor(path: str) -> Floor:
+    """Read the draws `s5_floor.py` wrote, so every adjudication uses the SAME floor."""
+    import json
+    from pathlib import Path
+
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    return Floor(
+        salts=tuple(raw["salts"]),
+        seasons=tuple(int(s) for s in raw["seasons"]),
+        per={k: [{int(s): float(v) for s, v in d.items()} for d in draws]
+             for k, draws in raw["per"].items()},
+    )
+
+
 def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else float("nan")
 
