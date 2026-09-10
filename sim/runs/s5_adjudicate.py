@@ -74,6 +74,7 @@ def main() -> int:
         print(f"  {locus:5s} {referee.floor_summary(floor, locus)}")
 
     changed: list[str] = []
+    ptable: list[tuple[str, float, str]] = []
     print("\n" + "=" * 78)
     print("G3/G6 -- RE-ADJUDICATION, interval against interval")
     print("=" * 78)
@@ -104,7 +105,12 @@ def main() -> int:
             print(f"\n  === {locus} ===")
             print(f"    signal     {v.signal}")
             print(f"    floor      {v.floor}")
+            rp = referee.reference_p(d[locus], floor, locus)
+            calibrated = "RESOLVED (reference set)" if rp < 0.05 else "not resolved"
             print(f"    difference {v.difference}   -> {v.disposition}")
+            print(f"    reference-set p {rp:.3f} over {len(floor.salts)} draws "
+                  f"-> {calibrated}")
+            ptable.append((f"{name}@{locus}", rp, v.disposition))
             per = "  ".join(f"{s}:{x:+.2f}" for s, x in sorted(v.per_season.items()))
             print(f"    per season {per}")
             lams = referee.fitted_lambdas(name, seasons, locus, scope=scope, **kw)
@@ -138,6 +144,17 @@ def main() -> int:
     for line in changed:
         print(f"  {line}")
     print(f"  total: {len(changed)}")
+
+    print("\n" + "=" * 78)
+    print("G9 -- THE CALIBRATED TEST. Reference-set p, which needs no bootstrap and whose")
+    print("null distribution is uniform on the draws by construction.")
+    print("=" * 78)
+    for tag, rp, disp in sorted(ptable, key=lambda t: t[1]):
+        mark = "  <== RESOLVED at 5%" if rp < 0.05 else ""
+        print(f"  {tag:28s} p {rp:.3f}   bootstrap said: {disp}{mark}")
+    n_res = sum(1 for _t, rp, _d in ptable if rp < 0.05)
+    print(f"\n  resolved at a calibrated 5%: {n_res} of {len(ptable)}")
+    print(f"  floor of this test with K={len(floor.salts)}: {2 / (len(floor.salts) + 1):.4f}")
     return 0
 
 

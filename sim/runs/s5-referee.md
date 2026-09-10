@@ -5,36 +5,40 @@ variance is larger than most effects this project has measured. Every accept/rej
 `audible#86` and `#87` was made against a single draw of it. This session fixes the mechanism
 and re-decides what the broken mechanism decided.
 
-Scripts behind every number here, all committed (G10):
-`sim/referee.py`, `sim/runs/s5_floor.py`, `sim/runs/s5_gate.py`, `sim/runs/s5_adjudicate.py`.
-The floor's 24 draws are frozen in `sim/runs/s5-floor.json` so every adjudication in this
-session reads the same numbers.
+Scripts behind every number here, all committed (G10): `sim/referee.py`, and under `sim/runs/`
+`s5_floor.py`, `s5_gate.py`, `s5_adjudicate.py`, `s5_probe.py`. Their raw output is committed
+beside them as `s5-*.out`, and the floor's 40 draws are frozen in `s5-floor.json` so every
+adjudication reads the same numbers.
+
+**The adversarial review (G15) changed this document's headline. See the last section.**
 
 ---
 
-## TASK 2 — G5 rebuilt, and what it now rejects
+## TASK 2 — G5 rebuilt
 
 The old gate asked one question — "did some ordering move" — through a **different code path**
 than the one that decided whether the term applied. That is how `availability` passed on 214
 players displaced by 8.95e-16 of floating-point residue.
 
-Three conditions now hold together, and each exists because a specific term slipped through:
+Four conditions now hold together, and each exists because a specific term slipped through:
 
-    1. the term APPLIES in at least two seasons          availability was live in one
-    2. every applied cell clears MIN_SD_REL = 1e-9       that one cell was float residue
-    3. the board ordering MOVES in at least two seasons  shrink was said to move none
+    1. the term APPLIES in at least two seasons               availability was live in one
+    2. every applied cell clears MIN_SD_REL = 1e-9            that one cell was float residue
+    3. the board ordering MOVES in at least two seasons       the weakest of the four
+    4. a POSITION-SCOPE term moves a WITHIN-POSITION ordering shrink moves none
 
 Condition 2 is enforced inside `signals.cells`, **which `adjust` itself calls**. The gate and
-the transform cannot diverge again without that one function changing under both.
+the transform cannot diverge again without that one function changing under both. Verified: the
+set of cells `cells` marks APPLIED equals the set `adjust` modifies, 0 divergences over 159
+term-season-lambda checks.
 
 ### INJECTION 2 — the float-residue term FAILS, as required
 
 `availability` unchanged from `audible#87`, through the within-position path:
 
     availability (scope=position): FAILS
-      applies in 0/6 seasons
-      cells applied/skipped: 0/24
-      players displaced by season: 2019:0 2020:0 2021:0 2022:0 2024:0 2025:0
+      applies in 0/6 seasons          cells applied/skipped: 0/24
+      players displaced: every season 0
       REASON: applies in 0 season(s), needs 2
       REASON: no cell clears the minimum standard deviation
       REASON: moves an ordering in 0 season(s), needs 2
@@ -46,52 +50,76 @@ A detail the old run never surfaced: `availability` has **no value at all in 201
 four cells, because the rate is built from seasons strictly before season−1 and
 `player_stats_2018` is the earliest file. It was a five-season term reported as a six-season one.
 
-### INJECTION 3 — FAILED AS WRITTEN, and the premise is refuted
+### INJECTION 3 — `shrink` is NOT INERT. The premise three handoffs carried is refuted.
 
 `audible#85`, `sim/signals.py`'s own docstring, and this handoff all assert that `shrink` is
 **provably inert**: "uniform scaling of VORP leaves the order unchanged, and the board was
 byte-identical at s=0.0 and s=0.4".
 
-**It is not.** Measured at s=0.40, per season:
+**It is not.** At s=0.40:
 
-    2019  displaced   0   board identical: True
-    2020  displaced 377   board identical: False
-    2021  displaced   0   board identical: True
-    2022  displaced   0   board identical: True
-    2024  displaced 353   board identical: False
-    2025  displaced   0   board identical: True
+    2019 displaced   0 (identical)   2020 displaced 377   2021 displaced   0 (identical)
+    2022 displaced   0 (identical)   2024 displaced 353   2025 displaced   0 (identical)
 
 The algebra is right as far as it goes — within a position, a player and his own replacement
 contract by the same factor, so VORP scales by (1−s) and no pair can cross. It assumes the
 **replacement rank is stable**, and in two seasons it is not. `compute_vorp` assigns FLEX slots
-by simulating every team filling its lineup from the projection-ranked pool, so compressing
-each position toward its own mean changes **who wins the flex**:
+by simulating every team filling its lineup from the projection-ranked pool, so compressing each
+position toward its own mean changes **who wins the flex**:
 
-    2020  RB starters 23->24   rostered 50->52   replacement rank 51->53
-          WR starters 17->16   rostered 37->35   replacement rank 38->36
-    2024  RB starters 23->24   rostered 50->52   replacement rank 51->53
-          WR starters 17->16   rostered 37->35   replacement rank 38->36
-    2021  every position unchanged  -> the board IS byte-identical
+    2020 and 2024   RB starters 23->24  rostered 50->52  replacement rank 51->53
+                    WR starters 17->16  rostered 37->35  replacement rank 38->36
+    2021            every position unchanged  ->  the board IS byte-identical
 
-One flex slot moves from wide receiver to running back, both replacement levels move two ranks,
-and the uniform-scale property breaks. Confirmed on the VORP ratios directly: in 2021 every one
-of 479 players has `new/base = 0.600000` exactly, one distinct ratio; in 2020 there are **318**
-distinct ratios spanning −1.03 to +3.99.
+In 2021 all 479 players share the VORP ratio `0.600000` exactly — one distinct ratio. In 2020
+there are **318** distinct ratios spanning −1.03 to +3.99.
 
-**Consequences, and they are larger than this injection:**
+**And it is a knife edge, not a magnitude effect:**
 
-1. **G4 as written cannot be satisfied.** `shrink` moves an ordering in exactly two seasons,
-   which meets condition 3. The rebuilt gate **passes** it. Tuning the threshold to three
-   seasons purely to force the demanded verdict is the exact failure this session exists to
-   fix, so it was not done. **G4: FAILS — reported, not engineered away.**
-2. **`shrink` was never inert and should have been measured.** `audible#85` rejected it on a
-   false premise.
-3. **The replacement level is not stable under a monotone within-position rescaling.** Any
-   transform that changes the *shape* of a position's distribution can silently move the
-   cross-position interleave through the flex allocation, without moving a single player
-   within his own position. That is a property of the transform the rebuild will inherit.
+    2020  first flip at s = 0.011      2024  first flip at s = 0.059
+    2019, 2021, 2022, 2025  no flip anywhere in (0, 0.400]
 
-### G4/G5 — the terms this session measures
+**A 1.1% contraction flips a flex slot.** So "the replacement level is not stable under a
+monotone within-position rescaling" is understated: it is not stable under a 1% one. Any
+transform that changes the *shape* of a position's distribution can move the cross-position
+interleave without moving a single player within his own position. The rebuild inherits this.
+
+### G4 — the gate DOES reject `shrink`, on a condition that names the mechanism
+
+`shrink` moves an ordering in exactly two seasons, so condition 3 does not reject it. Raising
+that count to three purely to force the demanded verdict would be gerrymandering. Condition 4
+is not: **a term that claims to separate players inside a position must be shown to do that**,
+and `shrink` provably cannot, because it multiplies each position by one positive scalar.
+
+    term                scope      seasons moving a WITHIN-POSITION ordering
+    shrink (s=0.40)     position                                        0/6   <== REJECTED
+    snap_share          position                                        6/6
+    adp_gap             position                                        6/6
+    draft_round         position                                        6/6
+    ngs_separation      position                                        6/6
+    ngs_rush_eff        position                                        6/6
+    ngs_time_to_throw   position                                        6/6
+    contract            position                                        6/6
+    noise               position                                        6/6
+    availability        board                             exempt by scope
+
+Every real position-scope term passes 6/6 and `shrink` fails 0/6. A `board`-scope term is
+exempt by construction, because moving only the interleave is exactly what it claims to do.
+
+`shrink` is also now run **through the gate itself** rather than counted by hand —
+`ordering_gate` takes an `order_fn` for terms that have no cells at all. `audible#87`'s
+injection counted displacements in a script, which is not the same as running the gate.
+
+    shrink (scope=position): FAILS
+      REASON: position-scope term moves a WITHIN-POSITION ordering in 0 season(s), needs 2
+              -- it carries no within-position information
+
+**G4: SATISFIED.**
+
+### G5 — `availability` actually applies now
+
+    scope=position    0 of 496 point values changed   (all 24 cells skipped)
+    scope=board     496 of 496 changed, sd 5.795e-01, 4 distinct values
 
     availability (board)   PASSES  5/5 seasons  cells 5/0    min sd 5.795e-01
     snap_share             PASSES  6/6 seasons  cells 24/0   min sd 2.020e-01
@@ -103,133 +131,112 @@ distinct ratios spanning −1.03 to +3.99.
     contract               PASSES  6/6 seasons  cells 24/0   min sd 1.432e-02
     noise                  PASSES  6/6 seasons  cells 24/0   min sd 5.160e-01
 
-The skipped counts are the positional signals declining to act outside their own locus, which
-is correct: `ngs_rush_eff` applies in 6 of 24 cells because it is charted for ball carriers.
+A position-level constant has zero spread *within* a position, so the within-position path could
+only ever skip it or fire on rounding residue. `board` scope standardises across the pool, which
+is the only route by which such a term can move the interleave.
 
-### G5 — `availability` actually applies now
-
-    scope=position  0 of 496 point values changed   (all 24 cells skipped)
-    scope=board   496 of 496 changed, sd 5.795e-01, 4 distinct values
-
-A position-level constant has zero spread *within* a position, so the within-position path
-could only ever skip it or fire on rounding residue. `board` scope standardises across the pool,
-which is the only route by which such a term can move the cross-position interleave — the locus
-`audible#87` correctly predicted and never tested.
+**`MIN_SD_REL` is not doing the work, and should be retired.** Its tightest real cell is
+`contract` 2025 RB at sd 1.43e-02 against a threshold of 1e-9 — seven orders of magnitude of
+headroom. Of 217 cells examined, 20 were skipped by the threshold, and **all 20 held exactly one
+distinct value**. `distinct <= 1` reproduces every skip with no tunable constant at all, which is
+strictly better for a session whose thesis is "do not tune the referee". Left as-is this session
+because changing it now would move numbers after the review; it is the first thing to change next.
 
 ### INJECTION 5 — the perfect board and the shuffled board
 
-    2019  perfect 0.000000   shuffled 53.038
-    2020  perfect 0.000000   shuffled 52.123
-    2021  perfect 0.000000   shuffled 42.137
-    2022  perfect 0.000000   shuffled 55.229
-    2024  perfect 0.000000   shuffled 53.487
-    2025  perfect 0.000000   shuffled 57.802
+    2019 perfect 0.000000 shuffled 53.038    2020 perfect 0.000000 shuffled 52.123
+    2021 perfect 0.000000 shuffled 42.137    2022 perfect 0.000000 shuffled 55.229
+    2024 perfect 0.000000 shuffled 53.487    2025 perfect 0.000000 shuffled 57.802
 
-Exact zeros, and chance is 42–58 RWRE. The metric is calibrated.
+Exact zeros, chance is 42–58. The metric is calibrated.
 
 ---
 
-## TASK 4 — can the window be extended? NO, and the board is the reason
+## TASK 1 — the floor, drawn forty times
 
-The handoff asks whether Next Gen Stats coverage back to 2016 adds seasons for
-`ngs_separation`, since more seasons is the only thing that raises the LOSO's degrees of
-freedom. It does not, and the binding constraint is **not** the signal:
-
-    2016  board FAIL: espn 2016 is excluded and is not substituted
-          realised FAIL: realised outcomes missing for 2016
-    2017  board FAIL / realised FAIL
-    2018  board FAIL / realised FAIL
-    2019  board 481   realised 572   ngs_separation 125
-    2023  board FAIL: espn 2023 is excluded    realised 577
-
-ESPN is a **seven-season** vintage source beginning 2019 (`audible#83`), and realised outcomes
-are pinned 2019–2025 only. Extending the NGS window would add a signal for seasons that have no
-board and no truth to score it against. **Six seasons is the maximum, 2023 is permanently
-missing, and the LOSO has six folds and cannot have more.** This is a hard ceiling on the
-degrees of freedom available to every result in this project, and it is set by the board source.
-
-
----
-
-## TASK 1 — the floor, drawn twenty-four times
-
-`sim/runs/s5-floor.json` freezes all 24 draws, and `s5_floor.py` reuses the file when it
-exists, so re-running the script cannot silently move a published number.
+**Forty, not twenty-four, and the count is forced.** A two-sided reference-set test against K
+draws cannot report a p below `2/(K+1)`. K=24 bottoms out at **0.080** and therefore **cannot
+express a 5% test at any effect size**. K=39 is the smallest that reaches 0.050. This session
+first drew 24, and the adversarial review showed that number could not do the job.
 
     locus   mean      sd     2.5%      97.5%     min      max
-    board  +0.342   0.387   -0.516   +0.883   -0.702   +1.106
-    QB     +0.218   0.192   +0.000   +0.491   +0.000   +0.491
-    RB     +0.101   0.142   -0.045   +0.347   -0.105   +0.359
-    WR     +0.054   0.462   -0.685   +0.678   -0.712   +0.728
-    TE     +0.161   0.420   -0.507   +0.803   -0.545   +0.857
+    board  +0.326   0.378   -0.454   +0.914   -0.702   +1.106
+    QB     +0.219   0.191   +0.000   +0.492   +0.000   +0.526
+    RB     +0.104   0.136   -0.107   +0.338   -0.169   +0.359
+    WR     +0.050   0.497   -0.715   +0.774   -0.830   +1.380
+    TE     +0.196   0.424   -0.548   +0.764   -0.683   +0.857
 
 **The floor is mildly positive everywhere.** An information-free term makes the board slightly
-worse on average, at every position, which is what a term carrying nothing should do. Nothing
-here is negative on average, so `audible#87`'s "noise HELPS at tight end" has no support at all
-once the draw is repeated.
+worse on average, at every position — which is what a term carrying nothing should do. Nothing
+is negative on average, so `audible#87`'s "noise HELPS at tight end" has no support once the
+draw is repeated.
 
 ### where the single published draw actually sat
 
-    board  legacy +0.364   rank 11/24 among the draws
-    QB     legacy +0.000   rank  1/24
-    RB     legacy +0.113   rank 16/24
-    WR     legacy -0.620   rank  4/24
-    TE     legacy -1.083   rank  1/24
+Ties are counted rather than swallowed, because at QB the fit declines the noise knob outright
+in many draws and they all sit at exactly +0.000:
 
-**This is the whole failure in one table.** `audible#86` and `#87` drew a salt that was
-*perfectly typical board-wide* — 11th of 24 — and *extreme at three of the four positions*,
-including the most extreme of 24 at both QB and TE. So the board-wide number looked
-unremarkable and every positional conclusion built on it was wrong. A referee checked only
-board-wide would have reported nothing amiss.
+    board  legacy +0.364   17 below, 0 tied, 23 above of 40    typical
+    QB     legacy +0.000    0 below, 14 tied, 26 above of 40   tied at the minimum
+    RB     legacy +0.113   22 below, 0 tied, 18 above of 40    typical
+    WR     legacy -0.620    4 below, 0 tied, 36 above of 40    near-extreme
+    TE     legacy -1.083    0 below, 0 tied, 40 above of 40    OUTSIDE the range of all 40
+
+**This is the whole failure in one table.** The salt `audible#86` and `#87` published was
+*typical board-wide and typical at RB*, and *outside the entire empirical support at TE*. So the
+board-wide number looked unremarkable while the positional conclusions built on it were extreme.
+A referee that checked only board-wide would have reported nothing amiss.
+
+(An earlier version of this table reported "rank 1/24 at QB", which was an artefact of counting
+ties as though they were above. Corrected here.)
 
 ### G2 — resampling the salt widens the interval, and the old mechanism resolves nothing
 
-The term under test here is **another information-free draw**: a thing known to carry nothing,
-so an honest interval must contain zero.
+The term under test is **another information-free draw** — known to carry nothing, so an honest
+interval must contain zero.
 
     locus  conditional width  unconditional width  widened   one-draw verdict
-    board            1.431              2.375       1.66x    RESOLVED BEATS FLOOR
-    QB               0.000              0.972         n/a    not resolved
-    RB               0.000              0.717         n/a    not resolved
-    WR               1.792              2.339       1.31x    not resolved
-    TE               1.559              1.857       1.19x    RESOLVED WORSE THAN FLOOR
+    board            1.431              2.438       1.70x    RESOLVED BEATS FLOOR
+    QB               0.000              0.915         n/a    not resolved
+    RB               0.000              0.663         n/a    not resolved
+    WR               1.792              2.535       1.42x    not resolved
+    TE               1.559              1.950       1.25x    RESOLVED WORSE THAN FLOOR
 
-**The broken mechanism resolves a term guaranteed to be information-free, in two of five
-loci, in both directions.** The distribution says "not resolved" at all five, correctly. At QB
-and RB both draws have all-zero deltas — the fit declines the noise knob outright — so the
-conditional difference is identically zero with no spread and the ratio is undefined.
+**The broken mechanism resolves a term guaranteed to be information-free, at two of five loci,
+in both directions.** The distribution says "not resolved" at all five, correctly. At QB and RB
+both draws have all-zero deltas — the fit declines the noise knob — so the conditional
+difference is identically zero and the ratio is undefined.
 
 ---
 
-## TASK 3 — re-adjudication. Interval against interval, and NOTHING resolves.
+## TASK 3 — re-adjudication, interval against interval
 
 Expected loci were stated before any number was computed (G7) and are in `PLAN` at the top of
-`s5_adjudicate.py`. Every figure below is `signal - floor` with the season AND the salt
-resampled together.
+`s5_adjudicate.py`. Every figure is `signal − floor` with the season AND the salt resampled
+together.
 
-    signal              locus  signal delta   difference [2.5%, 97.5%]      disposition
-    snap_share            RB        +0.314   +0.213 [-0.283, +0.589]   not resolved
-                          WR        +0.252   +0.198 [-1.057, +1.510]   not resolved
-                          TE        +0.286   +0.125 [-0.779, +1.064]   not resolved
-    adp_gap               QB        +0.216   -0.002 [-0.827, +0.497]   not resolved
-                          RB        -0.112   -0.213 [-0.763, +0.169]   not resolved
-                          WR        -0.181   -0.235 [-1.506, +1.208]   not resolved
-                          TE        -0.253   -0.414 [-1.431, +0.547]   not resolved
-    draft_round           RB        +0.109   +0.008 [-0.508, +0.333]   not resolved
-    (rookies only)        WR        +0.032   -0.023 [-1.296, +1.377]   not resolved
-                          TE        +0.147   -0.013 [-0.977, +0.966]   not resolved
-    ngs_separation        WR        -0.874   -0.928 [-2.328, +0.481]   not resolved
-    ngs_rush_eff          RB        +0.087   -0.014 [-0.490, +0.269]   not resolved
-    ngs_time_to_throw     QB        +0.669   +0.451 [-0.194, +1.595]   not resolved
-    contract              QB        +0.000   -0.218 [-0.972, +0.000]   not resolved
-                          RB        +0.177   +0.076 [-0.475, +0.479]   not resolved
-                          WR        +0.469   +0.414 [-0.651, +1.585]   not resolved
-                          TE        +0.787   +0.626 [-0.302, +1.633]   not resolved
-    availability       board        +0.813   +0.445 [-0.802, +1.988]   not resolved
+    signal              locus  signal delta   difference [2.5%, 97.5%]      bootstrap
+    snap_share            RB        +0.314   +0.210 [-0.231, +0.568]   not resolved
+                          WR        +0.252   +0.202 [-1.133, +1.502]   not resolved
+                          TE        +0.286   +0.090 [-0.794, +1.138]   not resolved
+    adp_gap               QB        +0.216   -0.003 [-0.768, +0.446]   not resolved
+                          RB        -0.112   -0.216 [-0.719, +0.136]   not resolved
+                          WR        -0.181   -0.231 [-1.651, +1.194]   not resolved
+                          TE        -0.253   -0.450 [-1.423, +0.581]   not resolved
+    draft_round           RB        +0.109   +0.005 [-0.457, +0.334]   not resolved
+    (rookies only)        WR        +0.032   -0.018 [-1.421, +1.453]   not resolved
+                          TE        +0.147   -0.049 [-1.018, +1.033]   not resolved
+    ngs_separation        WR        -0.874   -0.924 [-2.401, +0.593]   not resolved
+    ngs_rush_eff          RB        +0.087   -0.017 [-0.466, +0.279]   not resolved
+    ngs_time_to_throw     QB        +0.669   +0.449 [-0.252, +1.547]   not resolved
+    contract              QB        +0.000   -0.219 [-0.915, +0.000]   not resolved
+                          RB        +0.177   +0.073 [-0.455, +0.479]   not resolved
+                          WR        +0.469   +0.418 [-0.837, +1.632]   not resolved
+                          TE        +0.787   +0.591 [-0.376, +1.686]   not resolved
+    availability       board        +0.813   +0.464 [-0.775, +2.001]   not resolved
 
-**Eighteen loci across eight terms. Not one resolves.** Positive is worse, so most of these
-terms make the board slightly worse than an information-free term does, and none of it is
-distinguishable from zero.
+Positive is worse. **Eighteen loci, and the bootstrap resolves none of them — but see G9: that
+bootstrap is a 0.5% test wearing a 5% label, and the calibrated test resolves two.**
 
 ### old decision beside new (G6)
 
@@ -237,137 +244,213 @@ distinguishable from zero.
     adp gap           REVERTED        -> NOT RESOLVED
     rookie capital    REVERTED        -> NOT RESOLVED
     ngs_rush_eff      REVERTED        -> NOT RESOLVED
-    ngs_time_to_throw REVERTED        -> NOT RESOLVED
+    ngs_time_to_throw REVERTED        -> RESOLVED WORSE at a calibrated 5% (p = 0.049)
     contract          REVERTED        -> NOT RESOLVED
-    ngs_separation    UNRESOLVED      -> NOT RESOLVED (carriers now identified)
+    ngs_separation    UNRESOLVED      -> RESOLVED BETTER at a calibrated 5% (p = 0.049)
     availability      NEVER MEASURED  -> NOT RESOLVED (first real measurement)
 
-**Zero of seven flip from reject to accept.** But all seven change what is being claimed, and
-the change is not cosmetic: REVERTED asserts a term was tested and failed, and NOT RESOLVED
-asserts the harness cannot tell. Six seasons never had the power to support the first claim.
+**Two of eight change materially.** The other six move from REVERTED — which asserts a term was
+tested and failed — to NOT RESOLVED, which asserts the harness cannot tell. Six seasons never
+had the power to support the first claim.
 
 ### INJECTION 1 — what the single draw would have decided
 
-Five loci get a **different disposition** from the one-draw mechanism, and every one of the five
-is a **false resolution** the distribution refuses:
+Five loci get a **different disposition**, and every one is a **false resolution**:
 
-    snap_share@RB          one draw: RESOLVED WORSE   distribution: not resolved
-    draft_round@WR         one draw: RESOLVED WORSE   distribution: not resolved
-    ngs_time_to_throw@QB   one draw: RESOLVED WORSE   distribution: not resolved
-    contract@WR            one draw: RESOLVED WORSE   distribution: not resolved
-    contract@TE            one draw: RESOLVED WORSE   distribution: not resolved
+    snap_share@RB   draft_round@WR   ngs_time_to_throw@QB   contract@WR   contract@TE
+    all five:  one draw says RESOLVED WORSE THAN FLOOR;  the distribution says not resolved
 
-Interval widths grow by **1.06x to 2.90x** once the salt is resampled. The damage the old
-mechanism did is therefore measurable: on this set it manufactures resolution in 5 of 18 loci,
+Interval widths change by **0.98x to 2.90x** once the salt is resampled — note that
+`contract@TE` got marginally *narrower*, so "resampling the salt widens the interval" is a
+tendency and not a law. On this set the old mechanism manufactures resolution at 5 of 18 loci,
 **28%**, all in the same direction.
 
 ### INJECTION 4 — the dilution, per signal
 
     ngs_separation     WR  -0.874 at locus vs +0.287 board-wide   sign FLIPS
+    snap_share         RB  +0.314 at locus vs -0.539 board-wide   sign FLIPS
+    adp_gap            QB  +0.216 at locus vs -0.457 board-wide   sign FLIPS
     ngs_time_to_throw  QB  +0.669 at locus vs +0.579 board-wide
     ngs_rush_eff       RB  +0.087 at locus vs +0.027 board-wide
     contract           QB  +0.000 at locus vs +0.489 board-wide
-    snap_share         RB  +0.314 at locus vs -0.539 board-wide   sign FLIPS
-    adp_gap            QB  +0.216 at locus vs -0.457 board-wide   sign FLIPS
 
-**Three times the board-wide figure carries the opposite sign to the locus figure.** Separation reads
-as a harm board-wide (+0.287) and a benefit at wide receiver (−0.874); snap share reads as a
-benefit board-wide (−0.539) and a harm at running back (+0.314). Averaging a positional effect
-across four positions does not merely weaken it — it can invert it.
+**Three times the board-wide figure carries the opposite sign to the locus figure.** Separation
+reads as a harm board-wide and a benefit at wide receiver; snap share reads as a benefit
+board-wide and a harm at running back. Averaging a positional effect across four positions does
+not merely weaken it — it can invert it.
 
-### `availability` — the first real measurement, and a refuted prediction
+### `availability` — first real measurement, and a refuted prediction with a fixable cause
 
-    board  +0.813 [+0.139, +1.957]   floor +0.368   difference +0.445, not resolved
+    board  +0.813 [+0.150, +1.969]   floor +0.348   difference +0.464, not resolved
     fitted lambda 2020:0.0  2021:-0.1  2022:+0.05  2024:+0.1  2025:-0.1   SIGN FLIPS
 
-Five seasons, not six: the rate is built from seasons strictly before season−1 and
-`player_stats_2018` is the earliest file, so **2019 has no value at all** and the term was a
-five-season term reported as six.
-
-**The structural prediction is REFUTED, and the reason matters.** `audible#87` predicted, and
-this session restated, that a value constant within a position cannot reorder that position, so
-every per-position figure must be exactly +0.000. Measured: RB +0.159, QB −0.036, WR −0.028,
+**The structural prediction failed, and then turned out to be right.** `audible#87` predicted,
+and this session restated, that a value constant within a position cannot reorder that position,
+so every per-position figure must be exactly +0.000. Measured: RB +0.159, QB −0.036, WR −0.028,
 TE +0.0004.
 
-The premise is exactly right and the conclusion does not follow:
+The premise is exactly right and the metric is what breaks it:
 
-    2020  QB order_same=True  pool  9->11     2024  QB order_same=True  pool 10->12
-          RB order_same=True  pool 54->58           RB order_same=True  pool 52->43
-          WR order_same=True  pool 44->37           WR order_same=True  pool 47->53
-          TE order_same=True  pool 21->22           TE order_same=True  pool 19->20
-    2021  every position order_same=True, pool unchanged -> per-position exactly +0.0000
+    2020  QB order_same=True pool  9->11     2024  QB order_same=True pool 10->12
+          RB order_same=True pool 54->58           RB order_same=True pool 52->43
+          WR order_same=True pool 44->37           WR order_same=True pool 47->53
+          TE order_same=True pool 21->22           TE order_same=True pool 19->20
+    2021, 2022, 2025  pool unchanged everywhere -> per-position exactly +0.0000
 
 **The within-position order never changes — not once, in any position, in any season.** What
-changes is POOL MEMBERSHIP. Per-position RWRE is scored over the members a position contributes
-to the top-128 pool, and the interleave decides that membership. So a term that moves only the
-interleave changes every position's score without a single within-position swap. In the three
-seasons where pool composition happens not to move, the per-position figures are exactly
-+0.0000, which is why the prediction looked confirmed.
+changes is POOL MEMBERSHIP, and `score_board.per_position` scores each position over its slice
+of the **global** top-128. Scoring instead over a **position-local** top-32:
 
-This is the same shape as the `shrink` finding: **the per-position metric is not independent of
-the cross-position ordering**, and a "locus" is therefore not as clean a separation as three
-sessions have assumed.
+    2020  QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2021  QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2022  QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2024  QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2025  QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+
+**Exactly zero everywhere, and it cannot depend on the choice of N**, because the within-position
+order is provably unchanged so a position-local top-N is unchanged for any N. **The prediction
+was right; `score_board.per_position` is the defect.** A per-position score should be computed
+over a position-local pool. That is a change to the metric affecting every per-position number
+in `audible#84` through `#87`, so it is reported here and not made mid-session.
+
+Same shape as the `shrink` finding: **the per-position metric is not independent of the
+cross-position ordering**, and a "locus" is not the clean separation three sessions assumed.
 
 ---
 
-## TASK 4 — `ngs_separation` settled: it rests on two seasons
+## TASK 4 — `ngs_separation`: resolved, and resting on two seasons
 
-    WR   signal -0.874 [-1.957, +0.124]   floor +0.054 [-1.090, +1.113]
-         difference -0.928 [-2.328, +0.481]   NOT RESOLVED
-         fitted lambda +0.05 in all six folds -- no sign flip, the one term that is stable
+    WR   signal -0.874 [-1.957, +0.117]   floor +0.050 [-1.113, +1.290]
+         bootstrap difference -0.924 [-2.401, +0.593]   not resolved
+         reference-set p = 0.049 over 40 draws          RESOLVED at a calibrated 5%
+         fitted lambda +0.05 in ALL SIX FOLDS -- the only term whose weight never flips
 
     per season  2019:-0.82  2020:+0.20  2021:-2.79  2022:-0.26  2024:+0.73  2025:-2.30
 
-**2021 and 2025 carry 83% of it.** Sum of the negative seasons is −6.17, of which −5.09 is
-those two.
+**2021 and 2025 carry 83% of it.** The negative seasons sum to −6.17 and those two are −5.09.
 
-    dropping 2021        signal -0.491   difference -0.612 [-2.060, +0.806]  not resolved
-    dropping 2025        signal -0.588   difference -0.665 [-2.124, +0.755]  not resolved
-    dropping both        signal -0.038   difference -0.204 [-1.429, +1.187]  not resolved
+    dropping 2021        signal -0.491   difference -0.581 [-2.102, +0.943]
+    dropping 2025        signal -0.588   difference -0.677 [-2.142, +0.854]
+    dropping both        signal -0.038   difference -0.186 [-1.733, +1.317]
 
 Without those two seasons the effect is **−0.038 — nothing at all.**
 
-**DISPOSITION: NOT RESOLVED, and it is the best-behaved term measured.** It has the largest
-point estimate of any signal, the only fitted weight that is stable across all six folds, and
-it is WR-specific as its mechanism requires. It also rests on two seasons out of six and cannot
-be separated from an information-free term. Both halves are true and neither cancels the other.
+**DISPOSITION: RESOLVED at a calibrated 5%, and fragile.** It is the largest effect this project
+has measured, the only fitted weight stable across all six folds, WR-specific as its mechanism
+requires, and its p sits at `2/41 = 0.0488` — the floor of what 40 draws can express, meaning it
+is more extreme than every information-free draw. It also rests on two seasons out of six. Both
+halves are true and neither cancels the other. More draws would sharpen the p; only more seasons
+would settle the fragility, and there are none.
 
-**The window cannot be extended** — see Task 4 above. The board, not Next Gen Stats, is the
-binding constraint.
+### the window cannot be extended, and the board is why
+
+    2016, 2017, 2018   board FAIL: espn is excluded    realised FAIL: outcomes not pinned
+    2019               board 481   realised 572   ngs_separation 125
+    2023               board FAIL: espn 2023 excluded  realised 577
+
+ESPN is a seven-season vintage source beginning 2019 and outcomes are pinned 2019–2025. NGS
+coverage back to 2016 is irrelevant: those seasons have no board and no truth to score against.
+**Six seasons is a hard ceiling on the LOSO's degrees of freedom, set by the board source.**
 
 ---
 
-## G9 — POWER. Resolution is NOT possible at six seasons, and this is the session's result.
+## G9 — POWER, and the correction the review forced
 
-Stated as plainly as a win, because it is the finding:
+The first version of this document reported "eighteen loci, not one resolves" and called it the
+session's result. That was true of the bootstrap referee and **misleading**, because the referee
+had never been calibrated.
 
-**No signal tested can resolve against an honestly-measured floor with six seasons, and none
-did — eighteen loci, zero resolutions.**
+**A referee's own false-resolution rate is measurable**, and it is the check `audible#86` and
+`#87` never ran. Every floor draw is information-free, so adjudicating draw *j* against the
+other 39 is a test whose null is true:
 
-The arithmetic is not close. Folding the salt's variance in widens intervals by 1.06x to 2.90x,
-and the half-width of the difference interval is what an effect has to exceed to exclude zero:
+    locus  resolved/40   rate   reference-set p:  min    5th   50th
+    board        0/40    0.0%                   0.050  0.050  0.650
+    QB           0/40    0.0%                   0.050  0.100  0.700
+    RB           0/40    0.0%                   0.050  0.050  0.950
+    WR           1/40    2.5%                   0.050  0.050  0.550
+    TE           0/40    0.0%                   0.050  0.050  0.550
 
-    locus   typical difference half-width   what an effect must exceed
-    RB                     0.36 - 0.48                  ~0.4
-    QB                     0.49 - 0.90                  ~0.7
-    TE                     0.92 - 0.99                  ~1.0
-    WR                     1.20 - 1.40                  ~1.4
+**1 of 200 = 0.5% at a nominal 5%.** The bootstrap referee is roughly ten times stricter than
+its label. It is not a conservative 5% test; it is a 0.5% test, and "nothing resolves" under it
+is a much weaker statement than it appears.
 
-`ngs_separation` at WR is the largest effect this project has ever measured at **−0.874**,
-against a bar of roughly **1.4**. It is not marginal; it is short by a factor of about 1.6, and
-that is with two of six seasons carrying 83% of it.
+The **reference-set p-value** needs no calibration argument — its null distribution is uniform
+on the draws by construction, and with K=40 its floor is 0.0488, just inside 5%:
 
-**Three constraints multiply, and only one is fixable:**
+    ngs_separation@WR       p 0.049   <== RESOLVED at a calibrated 5%
+    ngs_time_to_throw@QB    p 0.049   <== RESOLVED at a calibrated 5%
+    adp_gap@RB              p 0.098
+    contract@TE             p 0.098
+    snap_share@RB           p 0.195
+    availability@board      p 0.195
+    ...
+    adp_gap@QB              p 1.000
 
-1. **Six seasons is a hard ceiling.** ESPN begins in 2019, outcomes are pinned 2019–2025, and
-   2023 does not exist. The LOSO has six folds and cannot have more.
-2. **The floor's own sd is 0.14 to 0.46**, comparable to every effect measured.
+**Two of eighteen resolve.** `ngs_separation` at wide receiver is the first calibrated
+resolution this project has produced, in the direction of improvement. `ngs_time_to_throw` at
+quarterback resolves in the direction of harm, which is also information: it is the term the
+board should stop being nudged by.
+
+### so: is resolution possible at six seasons?
+
+**Marginally, and only at the extreme.** Both resolutions sit at the floor of what 40 draws can
+express, so they say "more extreme than 40 information-free terms" and not "p = 0.001". The
+bar remains high:
+
+    locus   difference half-width   what an effect must exceed
+    RB              0.38 - 0.48                  ~0.4
+    QB              0.49 - 0.90                  ~0.7
+    TE              0.92 - 0.99                  ~1.0
+    WR              1.12 - 1.40                  ~1.2
+
+On a consistent scale, `ngs_separation`'s difference of −0.924 against a half-width of 1.497 is
+short by 1.62x under the bootstrap, and clears the reference-set test only because it is more
+extreme than all 40 draws. Three constraints multiply, and only one is fixable:
+
+1. **Six seasons is a hard ceiling** — the board source sets it and it cannot move.
+2. **The floor's own sd is 0.14 to 0.50**, comparable to every effect measured.
 3. **The season is the resampling unit**, and six clusters is very few.
 
-What this rules out: **any future session that tests one signal at a time on this harness and
-expects a resolution.** That design is exhausted. `audible#84`, `#85`, `#86`, `#87` and this
-session have now run it eleven times between them and produced zero honest resolutions.
+What is fixable: **the number of draws**. K=40 buys a 5% test; K=79 would buy 2.5%. That is
+cheap — 13 seconds a draw — and it is the only lever this harness has left.
 
-What it does not rule out: a transform that changes the ordering *shape* rather than nudging it
-with a scalar weight — which is what the standing goal actually asks for — or an outcome metric
-with more than six degrees of freedom.
+What this rules out: expecting a *comfortable* resolution from one scalar-weighted signal at a
+time. What it does not rule out is what the standing goal actually asks for — a transform that
+changes the ordering's shape rather than nudging it with a scalar weight.
+
+---
+
+## WHAT THE ADVERSARIAL REVIEW (G15) OVERTURNED
+
+The review ran foreground, one agent. It changed the headline and found six real defects.
+
+1. **The headline.** "Nothing resolves" was reported without ever calibrating the referee.
+   Measured, it fires 0.5% of the time under a true null at a nominal 5%. Calibrated, **two of
+   eighteen loci resolve.** The review also priced the alternative I might have been tempted by
+   — comparing against the floor's *mean* with `var/24` — and showed it falsely resolves an
+   information-free term **35%** of the time. So the choice of null was right and the
+   *threshold* was wrong, which is a much better place to be wrong.
+2. **24 draws could not express a 5% test.** Floor `2/(K+1)` = 0.080. Redrawn at K=40.
+3. **`s5_gate.py` printed a hardcoded falsehood** — `n_moving = 0` was assigned and never
+   updated, so the committed output read "shrink moves an ordering in 0/6 seasons" directly
+   beneath its own data showing 377 and 353. Fixed, and `shrink` now goes through the real gate.
+4. **G4 was satisfiable after all.** I reported it as failed and refused to tune the threshold.
+   Refusing to tune was right; concluding no honest condition existed was wrong. Condition 4
+   names the mechanism and rejects `shrink` 0/6 while every real term passes 6/6.
+5. **`s5-floor.out` was stale** and contradicted the document; the per-position `availability`
+   figures came from an uncommitted run. Both fixed — every published number now has committed
+   output behind it.
+6. **Four number errors**: "1.06x to 2.90x" was really 0.98x to 2.90x (`contract@TE` narrowed);
+   the WR power minimum was 1.118 not 1.20; the QB legacy "rank 1/24" was a tie artefact with 14
+   draws sharing +0.000; and "eleven runs across five sessions" was a figure with no artefact
+   behind it and has been removed.
+
+The review also proved the **position-local pool** counterfactual that turned a refuted
+prediction into a located defect in `score_board`, and found that `MIN_SD_REL` is redundant
+(`distinct <= 1` reproduces all 20 skips). One finding is recorded and **not** acted on:
+`sim/search.py::_season_inputs` builds `position` by `.update()` across espn/ffa/sleeper so the
+last arm wins, and 1–7 players a season are bucketed differently there than in `sim/signals.py`.
+**A board built through `sim/search.py` is not the board built through `sim/signals.py`.** That
+is a live inconsistency between the two halves of the harness, it predates this session, and it
+is the first thing the next one should look at.

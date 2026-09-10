@@ -1,32 +1,50 @@
-seasons (2019, 2020, 2021, 2022, 2024, 2025)   salts 24
-wrote s5-floor.json
+seasons (2019, 2020, 2021, 2022, 2024, 2025)   salts 40
+reusing s5-floor.json -- the draws are frozen, so re-running this script cannot silently move a published number
 
 === G1. THE FLOOR IS A DISTRIBUTION ===
   locus   mean      sd     2.5%      97.5%    min      max
-  board  +0.342   0.387   -0.516   +0.883   -0.702   +1.106
-  QB     +0.218   0.192   +0.000   +0.491   +0.000   +0.491
-  RB     +0.101   0.142   -0.045   +0.347   -0.105   +0.359
-  WR     +0.054   0.462   -0.685   +0.678   -0.712   +0.728
-  TE     +0.161   0.420   -0.507   +0.803   -0.545   +0.857
+  board  +0.326   0.378   -0.454   +0.914   -0.702   +1.106
+  QB     +0.219   0.191   +0.000   +0.492   +0.000   +0.526
+  RB     +0.104   0.136   -0.107   +0.338   -0.169   +0.359
+  WR     +0.050   0.497   -0.715   +0.774   -0.830   +1.380
+  TE     +0.196   0.424   -0.548   +0.764   -0.683   +0.857
 
 === the single draw audible#86 and #87 published, for comparison ===
-  board legacy  +0.364   rank 11/24 among the 24 draws
-  QB    legacy  +0.000   rank 1/24 among the 24 draws
-  RB    legacy  +0.113   rank 16/24 among the 24 draws
-  WR    legacy  -0.620   rank 4/24 among the 24 draws
-  TE    legacy  -1.083   rank 1/24 among the 24 draws
+  board legacy  +0.364   17 below, 0 tied, 23 above, of 40   
+  QB    legacy  +0.000   0 below, 14 tied, 26 above, of 40   
+  RB    legacy  +0.113   22 below, 0 tied, 18 above, of 40   
+  WR    legacy  -0.620   4 below, 0 tied, 36 above, of 40   
+  TE    legacy  -1.083   0 below, 0 tied, 40 above, of 40   OUTSIDE the range of all draws
 
 === G2. RESAMPLING THE SALT WIDENS THE INTERVAL ===
   The broken mechanism held the salt fixed and resampled only the unit, so the
-  salt's variance could not enter. Same data, both ways:
-  locus   conditional width   unconditional width   widened by
-  board             0.000                 2.110         nanx
-  QB                0.000                 0.972         nanx
-  RB                0.000                 0.717         nanx
-  WR                0.000                 2.381         nanx
-  TE                0.000                 2.350         nanx
+  salt's variance could not enter any interval. The term under test here is
+  ANOTHER information-free draw -- a thing that is known to carry nothing, so the
+  honest interval must contain zero and a mechanism that says otherwise is wrong.
+  locus   conditional width   unconditional width   widened by   verdicts
+  board             1.431                 2.438       1.70x   one-draw: RESOLVED BEATS FLOOR | distribution: not resolved
+  QB                0.000                 0.915        nanx   one-draw: not resolved | distribution: not resolved
+  RB                0.000                 0.663        nanx   one-draw: not resolved | distribution: not resolved
+  WR                1.792                 2.535       1.42x   one-draw: not resolved | distribution: not resolved
+  TE                1.559                 1.950       1.25x   one-draw: RESOLVED WORSE THAN FLOOR | distribution: not resolved
 
-=== per-salt board-wide floor, all 24 draws ===
+=== G9. WHAT IS THE REFEREE'S OWN FALSE-RESOLUTION RATE? ===
+  Every draw is information-free, so judging draw j against the OTHER draws is a
+  test whose null is TRUE. A rule reported as 5% that never fires is not a
+  conservative 5% test -- it is a 0% test, and it cannot resolve anything.
+  This is the check audible#86 and #87 never ran.
+  locus  resolved/n     rate  beats  worse   ref-set p:   min    5th    50th
+  board      0/ 40     0.0%      0      0            0.050  0.050  0.650
+  QB         0/ 40     0.0%      0      0            0.050  0.100  0.700
+  RB         0/ 40     0.0%      0      0            0.050  0.050  0.950
+  WR         1/ 40     2.5%      0      1            0.050  0.050  0.550
+  TE         0/ 40     0.0%      0      0            0.050  0.050  0.550
+
+  smallest two-sided reference-set p attainable with K=40 draws: 0.0488
+  K=24 bottoms out at 0.080 and CANNOT express a 5% test at any effect
+  size. K=39 is the smallest that reaches 0.050. That is why K=40 is drawn here.
+
+=== per-salt board-wide floor, all 40 draws ===
   s5-floor-00  +0.639
   s5-floor-01  -0.378
   s5-floor-02  +0.719
@@ -51,4 +69,20 @@ wrote s5-floor.json
   s5-floor-21  +0.306
   s5-floor-22  +0.425
   s5-floor-23  +0.557
-  mean +0.342  sd 0.387
+  s5-floor-24  +0.000
+  s5-floor-25  +0.000
+  s5-floor-26  +0.000
+  s5-floor-27  +0.792
+  s5-floor-28  +0.497
+  s5-floor-29  +0.000
+  s5-floor-30  +0.452
+  s5-floor-31  +0.403
+  s5-floor-32  +0.909
+  s5-floor-33  +0.000
+  s5-floor-34  -0.448
+  s5-floor-35  +0.000
+  s5-floor-36  +0.436
+  s5-floor-37  +0.747
+  s5-floor-38  +0.618
+  s5-floor-39  +0.399
+  mean +0.326  sd 0.378

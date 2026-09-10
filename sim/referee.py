@@ -42,9 +42,11 @@ from . import arms, rank, signals
 GRID: tuple[float, ...] = (-0.20, -0.10, -0.05, 0.0, 0.05, 0.10, 0.20)
 LOCI: tuple[str, ...] = ("board", "QB", "RB", "WR", "TE")
 
-# G1 requires at least twenty. Twenty-four are drawn, named rather than seeded from a global
-# RNG, so any one of them can be reproduced alone.
-SALTS: tuple[str, ...] = tuple(f"s5-floor-{i:02d}" for i in range(24))
+# G1 requires at least twenty. FORTY are drawn, and the count is not arbitrary: a two-sided
+# reference-set test against K draws cannot report a p-value below 2/(K+1), so K=24 bottoms out
+# at 0.080 and CANNOT EXPRESS A 5% TEST AT ANY EFFECT SIZE. K=39 is the smallest that reaches
+# 0.050. They are named rather than seeded from a global RNG, so any one can be reproduced alone.
+SALTS: tuple[str, ...] = tuple(f"s5-floor-{i:02d}" for i in range(40))
 
 # `audible#86` and `#87`'s single draw, kept ONLY so the damage it did can be measured:
 # `sha256(f"{pid}:{season}")`, no salt. Injection 1 adjudicates against it and reports which
@@ -313,6 +315,65 @@ def adjudicate(
     return Verdict(locus, len(seasons), sig, flo, dif, disposition, dict(signal))
 
 
+def reference_p(signal: dict[int, float], floor: Floor, locus: str) -> float:
+    """Two-sided reference-set p-value: where the signal sits among the draws themselves.
+
+    NO BOOTSTRAP AT ALL. Both sides are measured on the SAME six seasons, so the season shock
+    is common to every draw and conditioning on it is correct -- the honest question is simply
+    "how extreme is this term among terms known to carry nothing".
+
+    THE FLOOR OF THIS TEST IS 2/(K+1), so K draws cannot report a p below that at ANY effect
+    size. K=24 bottoms out at 0.080 and cannot express a 5% test; K=40 reaches 0.049.
+    """
+    draws = [d for d in floor.per[locus] if d]
+    seasons = [s for s in floor.seasons if s in signal]
+    t = _mean([signal[s] for s in seasons])
+    ts = [_mean([d[s] for s in seasons if s in d]) for d in draws]
+    below = sum(1 for x in ts if x <= t)
+    above = sum(1 for x in ts if x >= t)
+    return min(1.0, (2 * min(below, above) + 2) / (len(ts) + 1))
+
+
+def calibrate(floor: Floor, locus: str, *, n_boot: int = 1000) -> dict[str, float]:
+    """What is the referee's ACTUAL false-resolution rate when the truth is known to be null?
+
+    Every draw is information-free by construction, so adjudicating draw j against a floor
+    built from the OTHER draws is a test whose null is true. The rate at which that resolves
+    is the referee's real size. A rule reported as "5%" that fires 0% of the time is not a
+    conservative 5% test -- it is a 0% test, and it cannot resolve anything at any effect size.
+
+    This is the check `audible#86` and `#87` never ran, and it is the reason their referee's
+    30%-plus false-resolution rate went unnoticed.
+    """
+    draws = [d for d in floor.per[locus] if d]
+    resolved = beats = worse = 0
+    ps: list[float] = []
+    for j, d in enumerate(draws):
+        rest = Floor(
+            salts=tuple(s for i, s in enumerate(floor.salts) if i != j),
+            seasons=floor.seasons,
+            per={k: [x for i, x in enumerate(v) if i != j] for k, v in floor.per.items()},
+        )
+        v = adjudicate(d, rest, locus, n_boot=n_boot, seed=BOOT_SEED + j)
+        if v.disposition.startswith("RESOLVED"):
+            resolved += 1
+            beats += v.disposition.endswith("FLOOR") and "BEATS" in v.disposition
+            worse += "WORSE" in v.disposition
+        ps.append(reference_p(d, rest, locus))
+    n = len(draws)
+    ps.sort()
+    return {
+        "n": float(n),
+        "resolved": float(resolved),
+        "rate": resolved / n if n else float("nan"),
+        "beats": float(beats),
+        "worse": float(worse),
+        "p05": ps[max(0, int(0.05 * (len(ps) - 1)))] if ps else float("nan"),
+        "p50": ps[len(ps) // 2] if ps else float("nan"),
+        "pmin": ps[0] if ps else float("nan"),
+    }
+
+
 # --- G5 rebuilt: an artifact cannot pass ------------------------------------------------------
 
 
@@ -328,6 +389,7 @@ class GateResult:
     skipped: int
     min_applied_sd: float
     moved_by_season: dict[int, int]
+    within_moves: dict[int, int]
     passed: bool
     reasons: tuple[str, ...]
     cell_lines: tuple[str, ...]
@@ -339,67 +401,106 @@ MIN_LIVE_SEASONS = 2
 def ordering_gate(
     name: str, seasons: tuple[int, ...], *, scope: str | None = None,
     lam: float = 0.10, rookies_only: bool = False,
+    order_fn: callable | None = None,
 ) -> GateResult:
     """G5, rebuilt. A term is measurable only if it moves an ordering FOR THE REASON CLAIMED.
 
     `audible#87`'s gate asked one question -- "did some ordering move" -- and an inert term
-    passed it on 214 players displaced by 8.95e-16 of floating-point residue. Three conditions
+    passed it on 214 players displaced by 8.95e-16 of floating-point residue. Four conditions
     now have to hold together, and every one of them exists because a specific term slipped
     through the version before it:
 
       1. the term APPLIES in at least two seasons          -- `availability` was live in one
       2. every applied cell clears `signals.MIN_SD_REL`    -- that one cell was float residue
-      3. the board ordering MOVES in at least two seasons  -- `shrink` moved none
+      3. the board ordering MOVES in at least two seasons  -- the weakest of the four
+      4. a POSITION-SCOPE term moves a WITHIN-POSITION ordering in at least two seasons
+
+    Condition 4 is what rejects `shrink`, and it is a statement about the mechanism rather than
+    a tuned threshold: a term that claims to separate players inside a position must be shown
+    to do that, and `shrink` provably cannot -- it multiplies each position by one positive
+    scalar. A `board`-scope term like `availability` is EXEMPT by construction, because moving
+    only the cross-position interleave is exactly what it claims to do. Raising condition 3's
+    season count until `shrink` failed would have been gerrymandering; naming the mechanism is
+    not.
 
     Condition 2 is enforced inside `signals.cells`, which `adjust` itself uses, so the gate
     cannot pass a cell the transform would skip or skip one the transform would apply.
+
+    *order_fn* supplies the board for a term that is not a z-scored signal -- `shrink` has no
+    cells at all, so it could not otherwise be put through this gate at all. `audible#87`'s
+    injection counted displacements by hand instead, which is not the same as running the gate.
     """
     applied = skipped = 0
     live: list[int] = []
     moved: dict[int, int] = {}
+    within: dict[int, int] = {}
     sds: list[float] = []
     lines: list[str] = []
+    has_cells = order_fn is None
 
     for season in seasons:
         loaded = arms.load(signals.SOURCE, season, signals.LEAGUE)
-        cs = signals.cells(loaded.points, loaded.position, season, name,
-                           rookies_only=rookies_only, scope=scope)
-        any_applied = False
-        for c in cs:
-            if c.applied:
-                applied += 1
-                any_applied = True
-                sds.append(c.sd)
-            else:
-                skipped += 1
-            lines.append(
-                f"{season} {c.label:5s} n={c.n:3d} distinct={c.distinct:3d} "
-                f"sd={c.sd:.3e} {'APPLIED' if c.applied else 'skipped'} ({c.reason})"
-            )
-        if any_applied:
-            live.append(season)
+        if has_cells:
+            cs = signals.cells(loaded.points, loaded.position, season, name,
+                               rookies_only=rookies_only, scope=scope)
+            any_applied = False
+            for c in cs:
+                if c.applied:
+                    applied += 1
+                    any_applied = True
+                    sds.append(c.sd)
+                else:
+                    skipped += 1
+                lines.append(
+                    f"{season} {c.label:5s} n={c.n:3d} distinct={c.distinct:3d} "
+                    f"sd={c.sd:.3e} {'APPLIED' if c.applied else 'skipped'} ({c.reason})"
+                )
+            if any_applied:
+                live.append(season)
 
         base = rank.vorp_order(loaded.points, loaded.position, signals.LEAGUE)
-        adj = signals.adjust(loaded.points, loaded.position, season, lam, name,
-                             rookies_only=rookies_only, scope=scope)
-        after = rank.vorp_order(adj, loaded.position, signals.LEAGUE)
+        if order_fn is None:
+            adj = signals.adjust(loaded.points, loaded.position, season, lam, name,
+                                 rookies_only=rookies_only, scope=scope)
+            after = rank.vorp_order(adj, loaded.position, signals.LEAGUE)
+        else:
+            after = order_fn(season, lam)
         moved[season] = sum(1 for a, b in zip(base, after, strict=False) if a != b)
 
+        # Condition 4. Strip each position out of both orderings and compare them alone, so a
+        # change in the interleave cannot be mistaken for within-position information.
+        n_within = 0
+        for pos in rank.SCOREABLE:
+            b_at = [p for p in base if loaded.position.get(p) == pos]
+            a_at = [p for p in after if loaded.position.get(p) == pos]
+            if b_at != a_at:
+                n_within += 1
+        within[season] = n_within
+
+    eff_scope = scope or signals.SIGNAL_SCOPE.get(name, "position")
     reasons: list[str] = []
-    if len(live) < MIN_LIVE_SEASONS:
-        reasons.append(f"applies in {len(live)} season(s), needs {MIN_LIVE_SEASONS}")
-    if applied == 0:
-        reasons.append("no cell clears the minimum standard deviation")
+    if has_cells:
+        if len(live) < MIN_LIVE_SEASONS:
+            reasons.append(f"applies in {len(live)} season(s), needs {MIN_LIVE_SEASONS}")
+        if applied == 0:
+            reasons.append("no cell clears the minimum standard deviation")
     n_moving = sum(1 for v in moved.values() if v > 0)
     if n_moving < MIN_LIVE_SEASONS:
         reasons.append(f"moves an ordering in {n_moving} season(s), needs {MIN_LIVE_SEASONS}")
+    n_within_moving = sum(1 for v in within.values() if v > 0)
+    if eff_scope == "position" and n_within_moving < MIN_LIVE_SEASONS:
+        reasons.append(
+            f"position-scope term moves a WITHIN-POSITION ordering in {n_within_moving} "
+            f"season(s), needs {MIN_LIVE_SEASONS} -- it carries no within-position information"
+        )
 
     return GateResult(
-        name=name, scope=scope or signals.SIGNAL_SCOPE.get(name, "position"),
+        name=name, scope=eff_scope,
         live_seasons=tuple(live), total_seasons=len(seasons),
         applied=applied, skipped=skipped,
         min_applied_sd=min(sds) if sds else float("nan"),
-        moved_by_season=moved, passed=not reasons, reasons=tuple(reasons),
+        moved_by_season=moved, within_moves=within,
+        passed=not reasons, reasons=tuple(reasons),
         cell_lines=tuple(lines),
     )
 

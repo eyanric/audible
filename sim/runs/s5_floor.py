@@ -22,8 +22,9 @@ def main() -> int:
     seasons = referee.espn_seasons()
     print(f"seasons {seasons}   salts {len(referee.SALTS)}")
 
-    if OUT.exists():
-        floor = referee.load_floor(str(OUT))
+    cached = referee.load_floor(str(OUT)) if OUT.exists() else None
+    if cached is not None and len(cached.salts) == len(referee.SALTS):
+        floor = cached
         print(f"reusing {OUT.name} -- the draws are frozen, so re-running this script "
               f"cannot silently move a published number")
     else:
@@ -52,8 +53,14 @@ def main() -> int:
         v = legacy[locus]
         m = sum(v.values()) / len(v)
         xs = sorted(floor.means(locus))
+        # TIES ARE REPORTED, NOT SWALLOWED. Counting `x < m` alone puts a draw tied with nine
+        # others at "rank 1", which reads as extreme when it is not: at QB the fit declines the
+        # noise knob outright in many draws and they all sit at exactly +0.000.
         below = sum(1 for x in xs if x < m)
-        print(f"  {locus:5s} legacy {m:+7.3f}   rank {below + 1}/{len(xs)} among the 24 draws")
+        tied = sum(1 for x in xs if x == m)
+        outside = "OUTSIDE the range of all draws" if (m < xs[0] or m > xs[-1]) else ""
+        print(f"  {locus:5s} legacy {m:+7.3f}   {below} below, {tied} tied, "
+              f"{len(xs) - below - tied} above, of {len(xs)}   {outside}")
 
     print("\n=== G2. RESAMPLING THE SALT WIDENS THE INTERVAL ===")
     print("  The broken mechanism held the salt fixed and resampled only the unit, so the")
@@ -76,7 +83,24 @@ def main() -> int:
         print(f"  {locus:5s} {wc:17.3f} {wu:21.3f} {ratio:10.2f}x   "
               f"one-draw: {cond.disposition} | distribution: {uncond.disposition}")
 
-    print("\n=== per-salt board-wide floor, all 24 draws ===")
+    print("\n=== G9. WHAT IS THE REFEREE'S OWN FALSE-RESOLUTION RATE? ===")
+    print("  Every draw is information-free, so judging draw j against the OTHER draws is a")
+    print("  test whose null is TRUE. A rule reported as 5% that never fires is not a")
+    print("  conservative 5% test -- it is a 0% test, and it cannot resolve anything.")
+    print("  This is the check audible#86 and #87 never ran.")
+    print("  locus  resolved/n     rate  beats  worse   ref-set p:   min    5th    50th")
+    for locus in referee.LOCI:
+        c = referee.calibrate(floor, locus)
+        print(f"  {locus:5s} {int(c['resolved']):6d}/{int(c['n']):-3d} {c['rate']:8.1%} "
+              f"{int(c['beats']):6d} {int(c['worse']):6d} "
+              f"{c['pmin']:16.3f} {c['p05']:6.3f} {c['p50']:6.3f}")
+    k = len(floor.salts)
+    print(f"\n  smallest two-sided reference-set p attainable with K={k} draws: "
+          f"{2 / (k + 1):.4f}")
+    print(f"  K=24 bottoms out at {2 / 25:.3f} and CANNOT express a 5% test at any effect")
+    print("  size. K=39 is the smallest that reaches 0.050. That is why K=40 is drawn here.")
+
+    print(f"\n=== per-salt board-wide floor, all {len(floor.salts)} draws ===")
     for salt, m in zip(floor.salts, floor.means("board"), strict=True):
         print(f"  {salt}  {m:+.3f}")
     xs = floor.means("board")
