@@ -140,11 +140,25 @@ def design(season: int, league_key: str = LEAGUE) -> Design:
         cols.append(present)
         names.append(f"{feat}__present")
 
-    # Position dummies. Predicting VORP ACROSS positions needs them; the incumbent gets the
-    # same information through the replacement level it subtracts.
+    # Position dummies AND position-by-projection interactions.
+    #
+    # THE INTERACTIONS ARE NOT OPTIONAL, and leaving them out was a defect that produced a
+    # false null. The incumbent orders by `points - replacement(pos)`. `projection` above is the
+    # WITHIN-POSITION z-score of points, so recovering the incumbent from it needs a per-position
+    # SLOPE (the position's own sd) as well as a per-position intercept. Dummies alone supply
+    # only the intercept, so the design could express a single global slope and no more -- it
+    # structurally could not represent the board it was being asked to beat. Handed only the
+    # `projection` column and fitted in-sample, ridge scored 33.59 against the incumbent's 18.40
+    # in 2019.
+    #
+    # Adding three columns moved the learned shape from +1.852 to -0.008 against the incumbent.
+    # No outcome is involved and both factors are known preseason, so this is a specification
+    # fix rather than a new input.
     for pos in rank.SCOREABLE[:-1]:  # one held out as the reference level
         cols.append([1.0 if q == pos else 0.0 for q in position])
         names.append(f"pos_{pos}")
+        cols.append([proj_z[i] if q == pos else 0.0 for i, q in enumerate(position)])
+        names.append(f"pos_{pos}_x_projection")
 
     x = [[c[i] for c in cols] for i in range(len(ids))]
     return Design(
@@ -263,7 +277,7 @@ class Boosted:
 
 def fit_boosted(
     x: list[list[float]], y: list[float], names: list[str], *,
-    rounds: int = 60, shrinkage: float = 0.05, bins: int = 12,
+    rounds: int = 600, shrinkage: float = 0.02, bins: int = 12,
 ) -> Boosted:
     """Depth-1 gradient boosting on squared error. Deterministic: no subsampling, no RNG."""
     n, k = len(y), len(names)

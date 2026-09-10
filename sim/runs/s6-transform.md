@@ -480,20 +480,30 @@ sweep. This one does not survive it at all.
 That also explains why `audible#88` saw it: the broken metric's WR slice held 37–47 players,
 which is close to the config N of 43 — the one place the effect is visible.
 
-### 3. it does not help the same players twice — the single most diagnostic result
+### 3. the player-persistence test — WITHDRAWN, it has no discriminating power
 
-A real mechanism should move the same receivers the same way in different seasons. Per-player
-rank-error improvement, correlated across every pair of seasons for the receivers common to both:
+This was published as "the single most diagnostic result": per-player rank-error improvement
+correlated across every pair of seasons gives **mean r = −0.058 over 12 pairs, positive in only
+4 of 12**, and the argument was that a physical measurement carrying a durable property of a
+receiver should not behave that way.
 
-    2019/2020 -0.341   2019/2021 +0.077   2019/2022 -0.159   2020/2021 -0.274
-    2020/2022 -0.055   2020/2024 +0.210   2021/2022 -0.145   2021/2024 -0.057
-    2021/2025 +0.083   2022/2024 -0.086   2022/2025 -0.022   2024/2025 +0.079
+**The review ran the same test on an ORACLE — realised VORP itself, injected as the signal.** It
+is a perfect signal by construction and it works (WR RWRE 12.600 → 8.137 in 2019):
 
-    mean pairwise r -0.058 over 12 pairs; POSITIVE IN ONLY 4 OF 12
+    signal                  pairs   mean r   positive
+    ngs_separation             12   -0.058     4/12     <== the published result
+    snap_share                 12   +0.031     7/12
+    noise (a sha256)           11   -0.146     2/11
+    ORACLE realised VORP       12   -0.048     4/12     <== a PERFECT signal
+    ORACLE at lambda 0.20      11   -0.004     5/11
 
-**There is no player-level persistence at all.** Whoever separation helps in one season is not
-who it helps in the next. A physical measurement of how open a receiver gets should not behave
-like that if it were carrying a durable property of the receiver.
+**A perfect signal scores −0.048 and 4 of 12 — statistically identical to `ngs_separation`, and
+below `snap_share`.** The test cannot tell a perfect signal from a hash, so it cannot tell
+anything.
+
+The reason is structural: `benefit = error_before − error_after` is dominated by how badly ESPN
+misranked that particular player in that particular season, which is season-idiosyncratic
+whatever the signal is. **Withdrawn.** The revert now rests on three lines, not four.
 
 ### 4. leave-two-seasons-out, over every pair rather than the convenient one
 
@@ -521,12 +531,27 @@ signal. It is also **six points with four correlations examined**, where |r| bel
 indistinguishable from zero. It is recorded as a lead for a session with more seasons, not as a
 finding.
 
-### DISPOSITION: REVERTED
+### DISPOSITION: REVERTED, on three lines rather than four, and it is closer than it looked
 
-Not "unresolved, promising" — **reverted**. p = 0.074 under the corrected metric; the sign flips
-across pool size and vanishes at the largest; there is no player-level persistence; and the
-seasons that carry it moved when the metric was fixed. That is four independent ways of saying
-the same thing.
+p = 0.074 under the corrected metric; the fit declines the term entirely at the largest pool
+size and produces an incoherent sign-flipping fit at the smallest; and the seasons that carry it
+moved when the metric was fixed. The persistence test is withdrawn (above).
+
+**Two honest caveats against my own call.** First, the reference-set test is two-sided by
+pre-registration, and **both** of the two draws at or below the signal are on the *improving*
+side — a one-sided p would be 3/81 = **0.037**, which resolves. The revert depends on the
+two-sided convention, which was fixed in advance and is the right one, but it is a coin's width.
+
+Second, the N=86 reading of "+0.000" is a **decline, not a sign flip**: the LOSO fit chooses
+lambda = 0 in all six folds, so the delta is zero by construction. Presenting it in a
+three-point series as evidence that the sign flips overstated it. (The WR pool is 174–183 every
+season, so N=86 is genuinely scoring 86 receivers — it is not a truncation artifact.) At N=21
+the fitted lambda is `{2019: 0.0, 2020: -0.05, 2021: +0.05, 2022: 0.0, 2024: -0.05, 2025: 0.0}`
+— sign-flipping across folds, so "+0.349 means separation is a harm at half the pool" is three
+different fits averaged rather than one coherent one.
+
+**Only N=43 produces a coherent fit at all**, which is itself the finding: the term is
+measurable at exactly one pool size.
 
 **This project now has zero resolved signals.** `audible#88`'s two resolutions were
 `ngs_separation` at WR and `ngs_time_to_throw` at QB, both at p = 0.049 against a K=40 floor
@@ -552,7 +577,7 @@ comparisons this harness would need K ≥ 2439 draws.** At thirteen seconds a dr
 hours — affordable, and pointless, because the effect sizes are not there.
 
 **`audible#88`'s second resolution is also gone.** `ngs_time_to_throw` at QB read p = 0.049 as a
-harm; under the corrected metric it is **+0.228 at p = 0.889** — the 39th of 61 loci. Both of
+harm; under the corrected metric it is **+0.228 at p = 0.889** — the 52nd of 61 loci. Both of
 that session's resolutions have now evaporated: one under the metric fix, one under both.
 
 The top of the table, so the next session does not re-run it:
@@ -570,9 +595,10 @@ The top of the table, so the next session does not re-run it:
     26 of 61 loci get a DIFFERENT disposition:  43%
     audible#88 measured 5 of 18 = 28% on a smaller set
 
-Twenty-four of the twenty-six are false **RESOLVED BEATS FLOOR** — the single-draw mechanism
-manufactures improvements. One is the reverse: `contract@TE` reads "not resolved" against one
-draw and resolves against the distribution. **43% of dispositions in this session would have
+**23** of the 26 are false **RESOLVED BEATS FLOOR** — the single-draw mechanism manufactures
+improvements. **2** are false RESOLVED WORSE (`contract@RB`, `ff_opp_exp@RB`). **1** is the
+reverse: `contract@TE` reads "not resolved" against one draw and resolves against the
+distribution. **43% of dispositions in this session would have
 been wrong under the mechanism `audible#86` and `#87` used.**
 
 ### INJECTION 6 — the dilution
