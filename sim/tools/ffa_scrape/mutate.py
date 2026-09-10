@@ -24,6 +24,7 @@ import argparse
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 GATE = REPO / "sim" / "test_g_ffa_scrape.py"
+
+# How recently the corpus manifest must have been written for a scrape to count as
+# in flight. A file takes about 18 seconds, so two minutes is comfortably clear.
+SCRAPE_IDLE_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -643,6 +648,11 @@ def _all_gate_ids() -> set[str]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", default=None, help="run one mutation by name")
+    parser.add_argument(
+        "--force-beside-a-run",
+        action="store_true",
+        help="mutate even though the corpus manifest was written recently",
+    )
     args = parser.parse_args(argv)
 
     dirty = subprocess.run(
@@ -652,6 +662,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     if dirty:
         print("refusing to mutate a dirty tree -- commit or stash first:\n" + dirty)
         return 2
+
+    # REFUSE TO RUN BESIDE A SCRAPE. This harness edits the modules a run imports, and it
+    # leaves them mutated for the length of a pytest run. A scrape already in flight is
+    # safe -- Python compiled those modules at import and never re-reads them -- but two
+    # things near it are NOT: a scrape STARTED mid-sweep would load a mutated verifier and
+    # write files nothing had really checked, and a `git add -A` at the wrong moment would
+    # commit the mutation. Neither is hypothetical; this session did the second one to
+    # itself and had to notice.
+    #
+    # A manifest touched in the last two minutes means a run is writing. Two minutes is
+    # comfortably longer than the ~18s a file takes.
+    manifest = REPO / "sim" / "data" / "ffa_corpus" / "manifest.jsonl"
+    if manifest.exists():
+        idle = time.time() - manifest.stat().st_mtime
+        if idle < SCRAPE_IDLE_SECONDS:
+            print(
+                f"refusing to mutate while a scrape is running -- {manifest.name} was "
+                f"written {idle:.0f}s ago. Wait for it, or pass --force-beside-a-run if "
+                "you are certain there is none."
+            )
+            if not args.force_beside_a_run:
+                return 2
 
     baseline_code, baseline_failures = _run_gates()
     if baseline_code != 0:

@@ -592,6 +592,7 @@ def test_the_manifest_and_readme_are_the_only_things_meant_to_be_committed() -> 
     assert set(tracked) <= {
         "sim/data/ffa_corpus/README.md",
         "sim/data/ffa_corpus/manifest.jsonl",
+        "sim/data/ffa_corpus/COVERAGE.md",
     }, tracked
 
 
@@ -1497,3 +1498,52 @@ def test_this_module_never_builds_a_settles_with_production_defaults() -> None:
         if "driver_mod.Settles(" in line and "f.name: 0.0 for f in fields" not in line
     ]
     assert bare == [], f"these build a Settles with production defaults: {bare}"
+
+
+def test_wait_idle_paces_itself_even_while_the_stuck_set_is_growing(monkeypatch) -> None:
+    """A latent SPIN, found by a mutation rather than by review.
+
+    `wait_idle` used to `continue` after growing the stuck set, skipping the sleep. That is
+    safe only while `newly_stuck` eventually stops being produced -- and
+    `busy_beyond_baseline` adds the `$pendingMessages` marker AFTER subtracting the
+    baseline, so a marker can never be subtracted out. A mutation that let markers into the
+    stuck set made `newly_stuck` non-empty on every poll and the loop re-entered forever
+    without pacing. Under the frozen clock these gates use, that hung the entire suite for
+    nine minutes before it was noticed.
+
+    Against the live app the real clock still bounds the loop at `idle_timeout`, so the
+    production symptom is a CPU spin rather than a hang. Either way the loop must pace.
+
+    Here a fresh output appears on every poll, so the stuck set grows every time. The gate
+    is simply that this RETURNS.
+    """
+    page = FakeShinyPage()
+    settles = replace(INSTANT, idle_timeout=10.0, stuck_after=0.0)
+    driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
+    driver.establish()
+
+    clock = {"t": 1000.0}
+    polls = {"n": 0}
+    monkeypatch.setattr(driver_mod.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(
+        driver_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s)
+    )
+
+    original = page.evaluate
+
+    def evaluate(script: str, arg: object = None) -> object:
+        if script is driver_mod._BUSY_JS:
+            polls["n"] += 1
+            # A NEW never-resolving output every single poll.
+            return {"busy": [f"output_{polls['n']}"], "pending": 0}
+        return original(script, arg)
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    driver.wait_idle()  # the gate: this returns at all
+
+    # And it returned by running out the clock, not by luck.
+    assert clock["t"] >= 1000.0 + settles.idle_timeout
+    assert polls["n"] <= settles.idle_timeout / 0.25 + 2, (
+        f"{polls['n']} polls for a {settles.idle_timeout}s window -- the loop is not pacing"
+    )

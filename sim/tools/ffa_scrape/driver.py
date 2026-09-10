@@ -24,10 +24,15 @@ app, and each re-measured by `probe.py` before a run is trusted:
      defect.
   2. AN AGGREGATION ONLY TAKES EFFECT AFTER A SETTINGS -> PROJECTIONS ROUND TRIP, with a long
      settle. Setting it while on the Projections page does nothing at all.
-  3. `weighted` NEEDS NO SETTINGS TRIP, because a year change already leaves it there. Those
-     jobs cost roughly a third of the others, which is why the stage order front-loads them.
+  3. `weighted` NEEDS NO SETTINGS TRIP *AFTER A REAL YEAR CHANGE*, because that is what
+     leaves the app on weighted. Writing 2019 over 2019 is not a change and resets nothing --
+     measured, and the live app served `robust` for a `weighted` request one job after a
+     robust one in the same season. `prepare` therefore tracks the EFFECTIVE aggregation.
   4. RAW FILES SELF-VERIFY on their fifth column; `proj` files cannot. `verify.py` holds that.
-  5. THE POSITION DROPDOWN FILTERS THE CHART ONLY. Downloads always carry all nine positions.
+  5. THE POSITION DROPDOWN FILTERS THE CHART ONLY. A download carries every position the app
+     has FOR THAT SCOPE, which is not always nine: weekly 2015 carries only the six offensive
+     and special-teams positions, and 2016 wk13-17 and 2017 wk7 lose IDP too. `verify.py`
+     requires the six everywhere and records IDP rather than demanding it.
 
 SESSIONS DROP. shinyapps.io reloads on idle or on a resource cap, and a reload resets the year
 to 2026, the week to 0 and the file type to `proj` with no input from us. That is not an
@@ -283,7 +288,14 @@ class ShinyDriver:
                 self._idle_baseline |= frozenset(newly_stuck)
                 self.log(f"    {len(newly_stuck)} more output(s) never resolve; "
                          f"stuck set is now {len(self._idle_baseline)}")
-                continue
+            # SLEEP ON EVERY PATH, including the one that just grew the stuck set. This
+            # used to `continue` instead, and that is a spin: `busy_beyond_baseline` adds
+            # the `$pendingMessages` marker AFTER subtracting the baseline, so a marker can
+            # never be subtracted out. Anything that keeps producing `newly_stuck` therefore
+            # re-enters the loop immediately, forever, without pacing. Against the live app
+            # the real clock still bounds it at `idle_timeout`, so it presents as a CPU spin
+            # rather than a hang -- but a mutation that let the marker into the stuck set
+            # froze the whole gate suite for nine minutes, which is how this surfaced.
             time.sleep(0.25)
         self.log(f"    still busy after {self.settles.idle_timeout}s; continuing")
 
