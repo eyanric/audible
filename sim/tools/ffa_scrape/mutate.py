@@ -591,7 +591,10 @@ MUTATIONS: tuple[Mutation, ...] = (
         "a-torn-tail-is-terminated-instead-of-dropped",
         "manifest.py",
         '            path.write_bytes(raw[: cut + 1] if cut != -1 else b"")',
-        '            path.write_bytes(raw + b"\n")',
+        # RAW string. A non-raw one puts an ACTUAL newline inside the b"..." literal and the
+        # mutated module is a syntax error rather than a behavioural change -- pytest cannot
+        # even collect, and a collection error is not evidence that any gate caught anything.
+        r'            path.write_bytes(raw + b"\n")',
     ),
     Mutation(
         "plan-ignores-the-digest",
@@ -822,6 +825,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if stale:
         print("stale or ambiguous mutation patterns -- these test nothing:")
         for line in stale:
+            print(f"  {line}")
+        return 2
+
+    # A mutation must produce VALID PYTHON. One that does not is a syntax error, pytest
+    # cannot collect at all, and a collection error is not evidence that any gate caught
+    # anything -- `_run_gates` refuses to score it, which is how this was found: a non-raw
+    # `"\n"` in a replacement put a real newline inside a bytes literal.
+    unparseable = []
+    for mutation in MUTATIONS:
+        source = mutation.path.read_text(encoding="utf-8")
+        try:
+            compile(source.replace(mutation.old, mutation.new, 1), mutation.target, "exec")
+        except SyntaxError as exc:
+            unparseable.append(f"{mutation.name} ({mutation.target}): {exc}")
+    if unparseable:
+        print("mutations that do not produce valid Python -- these test nothing:")
+        for line in unparseable:
             print(f"  {line}")
         return 2
 
