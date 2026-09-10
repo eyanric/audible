@@ -69,7 +69,14 @@ def _attempt(
     try:
         if scale != 1.0:
             driver.settles = original.scaled(scale)
-        driver.prepare(job.kind, job.year, job.week, job.avg)
+        # The retry is strictly stronger than the first attempt, not merely
+        # slower: it also forces the Settings trip the first attempt may have
+        # judged unnecessary. A wrong aggregation is the failure this retry
+        # exists for, so the retry must not repeat the judgement that caused it.
+        driver.prepare(
+            job.kind, job.year, job.week, job.avg,
+            force_settings_trip=scale != 1.0,
+        )
         result = driver.fetch_payload()
     finally:
         driver.settles = original

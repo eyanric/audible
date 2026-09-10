@@ -647,11 +647,15 @@ class FakeDriver:
         self.script = {name: list(steps) for name, steps in script.items()}
         self.settles = driver_mod.Settles()
         self.prepared: list[tuple[str, int, int, str]] = []
+        self.forced: list[bool] = []
         self.establishes = 0
         self._pending: object | None = None
 
-    def prepare(self, kind: str, year: int, week: int, avg: str) -> None:
+    def prepare(
+        self, kind: str, year: int, week: int, avg: str, *, force_settings_trip: bool = False
+    ) -> None:
         self.prepared.append((kind, year, week, avg))
+        self.forced.append(force_settings_trip)
         name = filename(kind, year, week, avg)
         steps = self.script.get(name)
         if not steps:
@@ -1197,3 +1201,169 @@ def test_the_driver_waits_for_a_populated_app_not_a_present_one() -> None:
     driver = _driver_on(page)
     with pytest.raises(TimeoutError):
         driver.establish()
+
+
+def test_an_output_that_never_resolves_joins_the_stuck_set_and_stops_costing(
+    monkeypatch,
+) -> None:
+    """REFUTED PREMISE, fourth of five. A baseline taken at establish time covers only what
+    was pending on the Projections tab; the first click to Settings renders outputs that
+    were never requested before, and some of those never resolve either. Measured against
+    the live app: every Settings trip sat out the full idle timeout again.
+
+    So the stuck set GROWS. The first wait pays `stuck_after`; every later one pays nothing.
+    """
+    page = FakeShinyPage()
+    settles = driver_mod.Settles(idle_timeout=30.0, stuck_after=4.0)
+    driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
+    driver.establish()
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(driver_mod.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(driver_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+
+    # A Settings output appears and never finishes.
+    page.working = ["settings_page-some_output_that_never_finishes"]
+    start = clock["t"]
+    driver.wait_idle()
+    first_cost = clock["t"] - start
+    assert 4.0 <= first_cost < 30.0, first_cost
+    assert "settings_page-some_output_that_never_finishes" in driver._idle_baseline
+
+    start = clock["t"]
+    driver.wait_idle()
+    assert clock["t"] - start == 0.0, "a known-stuck output was waited on again"
+
+
+def test_an_output_that_finishes_in_time_never_joins_the_stuck_set(monkeypatch) -> None:
+    """CONTROL. A stuck set that grew on everything would be the same as no check at all."""
+    page = FakeShinyPage()
+    settles = driver_mod.Settles(idle_timeout=30.0, stuck_after=4.0)
+    driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
+    driver.establish()
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(driver_mod.time, "time", lambda: clock["t"])
+
+    def tick(seconds: float) -> None:
+        clock["t"] += seconds
+        if clock["t"] >= 1002.0:
+            page.working = []  # it finished, well inside stuck_after
+
+    page.working = ["projections_page-proj-projection_table"]
+    monkeypatch.setattr(driver_mod.time, "sleep", tick)
+    driver.wait_idle()
+    assert "projections_page-proj-projection_table" not in driver._idle_baseline
+    assert len(driver._idle_baseline) == 5
+
+
+def test_a_pending_message_queue_never_joins_the_stuck_set(monkeypatch) -> None:
+    """It is a count, not an output id -- adding `$pendingMessages=3` to the stuck set would
+    mean a queue of exactly 3 was ignored forever and any other length was not."""
+    page = FakeShinyPage()
+    settles = driver_mod.Settles(idle_timeout=12.0, stuck_after=2.0)
+    driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
+    driver.establish()
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(driver_mod.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(driver_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    page.pending = 3
+    driver.wait_idle()
+    assert not any(name.startswith("$") for name in driver._idle_baseline)
+
+
+def test_a_weighted_job_after_a_robust_one_in_the_SAME_year_still_gets_weighted() -> None:
+    """REFUTED PREMISE, and the one the live probe caught in this driver.
+
+    "Changing the year resets the aggregation" is true. The corollary is not: setting the
+    year to the value it already holds changes nothing, so it resets nothing. A weighted job
+    that follows a robust job in the same year was relying on a year change that never
+    happened, and the live app served `robust` under a `weighted` request. Measured:
+
+        weekly-2019-wk5: asked for 'weighted', file holds ['robust']
+
+    The verifier caught it, which is what the verifier is for -- but a run where a third of
+    the jobs fail and retry is not a run. The driver now tracks the EFFECTIVE aggregation
+    and takes the Settings trip whenever it is not already what the job wants.
+
+    The earlier ordering gate did not catch this because it walked weighted -> average ->
+    robust: the weighted job came first, right after a real year change.
+    """
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+
+    driver.prepare("raw", 2019, 0, "robust")
+    assert inspect_csv(driver.fetch_payload().text).sole_avg_type == "robust"
+
+    driver.prepare("raw", 2019, 5, "weighted")  # same year -- no reset comes for free
+    payload = driver.fetch_payload()
+    assert verify_payload(payload.text, kind="raw", week=5, avg="weighted") == []
+    assert inspect_csv(payload.text).sole_avg_type == "weighted"
+
+
+def test_a_run_of_weighted_jobs_in_one_year_pays_for_at_most_one_settings_trip() -> None:
+    """The cost model survives the fix. Seventeen weekly jobs in a season take one trip
+    between them at worst, not seventeen -- which is the whole reason stage 1 is cheap."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "robust")
+
+    trips = []
+    for week in range(1, 18):
+        page.calls.clear()
+        driver.prepare("raw", 2019, week, "weighted")
+        assert inspect_csv(driver.fetch_payload().text).sole_avg_type == "weighted"
+        trips.append("click:tab_settings" in page.calls)
+    assert sum(trips) <= 1, f"{sum(trips)} settings trips across 17 weighted jobs"
+
+
+def test_a_year_change_still_buys_the_weighted_job_its_reset_for_free() -> None:
+    """The optimisation is not abandoned, only made conditional."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "robust")
+
+    page.calls.clear()
+    driver.prepare("raw", 2020, 0, "weighted")  # a REAL year change
+    assert "click:tab_settings" not in page.calls, page.calls
+    assert inspect_csv(driver.fetch_payload().text).sole_avg_type == "weighted"
+
+
+def test_a_re_established_session_does_not_trust_a_remembered_aggregation() -> None:
+    """After a reload the app is weighted again, but believing that without CHECKING is the
+    same class of assumption that caused all of this. Unknown means take the trip.
+
+    The job here is 2026 -- the year a reload already leaves behind -- so no year change
+    occurs and nothing tells the driver the aggregation was reset. That is the only case
+    where the remembered value would have to be trusted, and it is not.
+    """
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "robust")
+    driver.establish()
+    assert driver._effective_avg is None
+
+    page.calls.clear()
+    driver.prepare("raw", 2026, 0, "weighted")
+    assert "click:tab_settings" in page.calls, page.calls
+
+
+def test_the_retry_forces_the_settings_trip_the_first_attempt_judged_unnecessary(
+    tmp_path: Path,
+) -> None:
+    """A wrong aggregation is the failure the retry exists for, so the retry must not repeat
+    the judgement that caused it. Slower alone would not help if the first attempt skipped
+    the trip on a belief that was wrong."""
+    job = Job(kind="raw", year=2019, week=5, avg="weighted")
+    fake, result = _run(
+        {job.filename: [raw_csv(avg_type="robust"), raw_csv(avg_type="weighted")]},
+        [job],
+        tmp_path,
+    )
+    assert result.completed == [job.filename]
+    assert fake.forced == [False, True], fake.forced

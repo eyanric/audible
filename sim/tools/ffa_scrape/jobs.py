@@ -44,7 +44,14 @@ class Job:
 
     @property
     def needs_settings_trip(self) -> bool:
-        """Weighted is what a year change leaves behind, so only the other two cost a trip."""
+        """The COST MODEL that orders the stages, not the driver's decision.
+
+        A weighted job is cheap when it follows a year change, which is what leaves the app
+        on weighted. It is not free unconditionally -- writing 2019 over 2019 resets nothing
+        -- so `ShinyDriver.prepare` decides per job from the aggregation it believes is
+        effective. This property answers "is this stage cheap in aggregate", and stage
+        `weekly-weighted` is 187 jobs across 11 year changes.
+        """
         return self.avg != "weighted"
 
 

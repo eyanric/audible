@@ -106,6 +106,10 @@ class Settles:
     # captured any earlier carries outputs that are still genuinely working.
     after_load: float = 6.0
     idle_timeout: float = 20.0
+    # How long an output may stay continuously busy before it is reclassified as one that
+    # never resolves. Comfortably longer than a real recalculation and far shorter than the
+    # idle timeout, so a genuinely slow output is still waited for.
+    stuck_after: float = 4.0
     # The app is slow to populate its widgets on a cold worker; this is the wait for the
     # year dropdown to hold a real value, not for the DOM to exist.
     ready_timeout: float = 180.0
@@ -221,6 +225,9 @@ class ShinyDriver:
         self.log = log
         self._session_token: str | None = None
         self._idle_baseline: frozenset[str] = frozenset()
+        # What the SERVER will serve, which is not what the widget reads.
+        # None means unknown, and unknown pays for a Settings trip.
+        self._effective_avg: str | None = None
 
     # -- primitives ---------------------------------------------------------------------
 
@@ -228,7 +235,7 @@ class ShinyDriver:
         time.sleep(seconds)
 
     def busy_beyond_baseline(self) -> set[str]:
-        """Output ids recalculating that were NOT already stuck when we established."""
+        """Output ids recalculating that are not in the known-stuck set."""
         state = self.page.evaluate(_BUSY_JS)
         busy = set(state["busy"]) - self._idle_baseline
         if state["pending"]:
@@ -238,12 +245,21 @@ class ShinyDriver:
     def wait_idle(self) -> None:
         """Wait until Shiny has stopped doing work it started for US.
 
+        THE STUCK SET GROWS. A baseline taken at establish time can only cover outputs that
+        were already pending on the Projections tab. The first click to Settings renders
+        outputs that were never requested before, and some of THOSE never resolve either --
+        measured: after this was baseline-only, every Settings trip sat out the full idle
+        timeout again. So an output that stays continuously busy for `stuck_after` seconds
+        is reclassified as stuck and stops being waited on, for the rest of the session.
+
         NOT a substitute for the settles. Idle means no request is in flight; it does not
         mean the server has finished propagating an aggregation change through to the
         download handler. Behaviour 2 is precisely a case where the page is idle and the
         answer is still stale.
         """
-        deadline = time.time() + self.settles.idle_timeout
+        started = time.time()
+        deadline = started + self.settles.idle_timeout
+        since: dict[str, float] = {}
         while time.time() < deadline:
             try:
                 busy = self.busy_beyond_baseline()
@@ -253,6 +269,21 @@ class ShinyDriver:
                 continue
             if not busy:
                 return
+            now = time.time()
+            for name in busy:
+                since.setdefault(name, now)
+            newly_stuck = {
+                name
+                for name, first in since.items()
+                if name in busy
+                and not name.startswith("$")
+                and now - first >= self.settles.stuck_after
+            }
+            if newly_stuck:
+                self._idle_baseline |= frozenset(newly_stuck)
+                self.log(f"    {len(newly_stuck)} more output(s) never resolve; "
+                         f"stuck set is now {len(self._idle_baseline)}")
+                continue
             time.sleep(0.25)
         self.log(f"    still busy after {self.settles.idle_timeout}s; continuing")
 
@@ -338,6 +369,9 @@ class ShinyDriver:
                 "by hand -- this tool never handles the password."
             )
         self._session_token = self.session_token()
+        # A re-established session is a new session. Nothing is remembered
+        # about what it will serve.
+        self._effective_avg = None
         self.log(f"  session {self._session_token}, control reads {text!r}")
 
     def assert_same_session(self) -> None:
@@ -349,23 +383,44 @@ class ShinyDriver:
 
     # -- the job sequence ---------------------------------------------------------------
 
-    def prepare(self, kind: str, year: int, week: int, avg: str) -> None:
+    def prepare(
+        self, kind: str, year: int, week: int, avg: str, *, force_settings_trip: bool = False
+    ) -> None:
         """Put the live session into the state this job asks for.
 
         ORDER IS THE WHOLE POINT. Year first, because setting it resets the aggregation.
         Aggregation second and only via Settings, because setting it on the Projections page
         has no effect. File type last, because it is the only input whose settle is short.
+
+        A YEAR CHANGE ONLY RESETS THE AGGREGATION WHEN THE YEAR ACTUALLY CHANGES. Writing
+        2019 over 2019 is not a change and resets nothing -- measured against the live app,
+        which served `robust` for a `weighted` request one job after a robust one in the same
+        season. The first version of this method skipped the Settings trip for every weighted
+        job on the strength of a reset that had not happened.
+
+        So the driver tracks the EFFECTIVE aggregation -- what the SERVER will serve, which
+        is not what the widget reads (behaviour 2) -- and takes the trip whenever that is not
+        already what the job wants. Seventeen weekly jobs in one season still cost at most
+        one trip between them, so the cost model that orders the stages survives.
+
+        None means unknown, which is what a fresh or re-established session gets. Unknown
+        takes the trip: a reload does leave the app on `weighted`, but believing that without
+        checking is the same class of assumption that produced 36 mislabelled files.
         """
         self.click_tab(TAB_PROJ)
+        year_before = self.read_input(YEAR_INPUT)
         self.set_input(YEAR_INPUT, str(year), self.settles.after_year)
+        if year_before != str(year):
+            self._effective_avg = "weighted"  # behaviour 1, and only on a real change
         self.set_input(WEEK_INPUT, str(week), self.settles.after_week)
 
-        if avg != "weighted":
+        if force_settings_trip or self._effective_avg != avg:
             self.click_tab(TAB_SETTINGS)
             self.set_input(AVG_INPUT, avg, self.settles.after_avg)
             self.click_tab(TAB_PROJ)
             self._pause(self.settles.after_tab_proj)
             self.wait_idle()
+            self._effective_avg = avg
 
         self.set_input(KIND_INPUT, kind, self.settles.after_kind)
 
