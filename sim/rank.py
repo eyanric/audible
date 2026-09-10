@@ -299,8 +299,17 @@ def score_board(
 
     per_pos: dict[str, float] = {}
     if position is not None:
-        sizes = position_pool or {}
-        default_n = max(5, pool_size // len(SCOREABLE))
+        # NO SILENT DEFAULT. A fallback here would be a THIRD per-position rule -- neither the
+        # global slice this replaced nor the config-derived one -- and a caller that forgot the
+        # argument would get it without any signal that the metric had changed under them.
+        # `audible#87` shipped exactly that class of defect: a gate and the transform it gated
+        # decided the same question through two code paths.
+        if position_pool is None:
+            raise ValueError(
+                "score_board(position=...) requires position_pool; "
+                "pass rank.position_pool_sizes(league_key)"
+            )
+        sizes = position_pool
         for pos in SCOREABLE:
             # THE POSITION'S OWN TOP-N, TAKEN FROM THE FULL BOARD -- not from the global pool.
             #
@@ -313,7 +322,10 @@ def score_board(
             #
             # `position_pool` must NEVER be derived from the board under test. See
             # `position_pool_sizes`, which reads the league config and nothing else.
-            members = [p for p in board if position.get(p) == pos][:sizes.get(pos, default_n)]
+            n_pos = sizes.get(pos)
+            if n_pos is None:
+                continue
+            members = [p for p in board if position.get(p) == pos][:n_pos]
             if len(members) < 5:
                 continue
             # Re-ranked WITHIN the position, so QB depth does not flatter a positional number.

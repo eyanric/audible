@@ -24,6 +24,30 @@ G1 -- `availability` must now read EXACTLY +0.0000 at every position
     double  sizes {'QB': 36, 'RB': 86, 'WR': 86, 'TE': 48}  worst per-position delta 0.00e+00
 
 ==============================================================================
+G1 -- THE TEST THAT IS NOT CIRCULAR: does an RB-only term leak into QB/WR/TE?
+==============================================================================
+  `availability` reading +0.000000 is TRUE BY CONSTRUCTION under the new rule: it
+  scales each position by one positive scalar, so the position's own top-N is the
+  same list in the same order and the metric compares x with x. It is a
+  consistency check, not evidence. This is the evidence.
+  2019  NEW QB +0.000000  RB +0.893499  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +0.930466  WR -0.071040  TE -1.236142
+  2020  NEW QB +0.000000  RB +2.925954  WR +0.000000  TE +0.000000
+        OLD QB -0.177778  RB +3.278558  WR -1.055943  TE +0.392268
+  2021  NEW QB +0.000000  RB +1.408655  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +1.213035  WR +0.000000  TE +0.000000
+  2022  NEW QB +0.000000  RB +3.432389  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +4.451750  WR -0.541116  TE +0.043793
+  2024  NEW QB +0.000000  RB +2.459382  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +2.616684  WR +0.000000  TE +0.000000
+  2025  NEW QB +0.000000  RB +4.324676  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +4.250783  WR +0.000000  TE -0.023529
+
+  worst leak into an UNTOUCHED position -- NEW 0.00e+00, OLD 1.236
+  seasons where the OLD rule leaked: 4/6
+  NEW rule leaks nothing anywhere: True
+
+==============================================================================
 G2 -- `search.py` and `signals.py` must build the SAME board
 ==============================================================================
   2019: position disagreements  0   boards identical: True

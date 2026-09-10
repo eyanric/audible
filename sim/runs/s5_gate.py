@@ -116,11 +116,13 @@ def main() -> int:
 
         perfect = [p for p in rank.realised_order(realised) if p in rv]
         sp = rank.score_board(perfect, rv, teams=teams, pool_size=pool,
-                              position=loaded.position, indexing=signals.INDEXING)
+                              position=loaded.position, indexing=signals.INDEXING,
+                         position_pool=rank.position_pool_sizes(signals.LEAGUE))
         shuffled = list(perfect)
         rng.shuffle(shuffled)
         ss = rank.score_board(shuffled, rv, teams=teams, pool_size=pool,
-                              position=loaded.position, indexing=signals.INDEXING)
+                              position=loaded.position, indexing=signals.INDEXING,
+                         position_pool=rank.position_pool_sizes(signals.LEAGUE))
         print(f"    {season}  perfect {sp.rwre:.6f}   shuffled {ss.rwre:8.3f}   "
               f"n={sp.n}")
     return 0

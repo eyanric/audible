@@ -74,6 +74,64 @@ def g1_availability() -> None:
         print(f"    {tag:7s} sizes {sizes}  worst per-position delta {max(vals):.2e}")
 
 
+def g1_leakage() -> None:
+    """The NON-tautological test. `availability` alone proves nothing -- see the note below.
+
+    A per-player pseudo-random term applied to RB ONLY. Under `scope=position` the QB, WR and TE
+    cells hold no values at all, so those three positions are untouched by construction and MUST
+    read exactly zero. RB must move. That is falsifiable, and the old global-slice rule fails it.
+    """
+    print("\n" + "=" * 78)
+    print("G1 -- THE TEST THAT IS NOT CIRCULAR: does an RB-only term leak into QB/WR/TE?")
+    print("=" * 78)
+    print("  `availability` reading +0.000000 is TRUE BY CONSTRUCTION under the new rule: it")
+    print("  scales each position by one positive scalar, so the position's own top-N is the")
+    print("  same list in the same order and the metric compares x with x. It is a")
+    print("  consistency check, not evidence. This is the evidence.")
+    sizes = rank.position_pool_sizes(LK)
+    teams, pool = int(rank.league(LK).num_teams), rank.pool_size_for(LK)
+    worst_new = worst_old = 0.0
+    leaky_old = 0
+    for season in referee.espn_seasons():
+        loaded = arms.load(signals.SOURCE, season, LK)
+        rv = rank.realised_vorp(rank.realised_per_game(season, LK))
+        vals = {p: v for p, v in referee.salt_values("s6-rb-only", season).items()
+                if loaded.position.get(p) == "RB"}
+
+        scored = []
+        for lam in (0.0, 0.20):
+            pts = signals.adjust(loaded.points, loaded.position, season, lam, "noise",
+                                 scope="position", values=vals)
+            order = [p for p in rank.vorp_order(pts, loaded.position, LK) if p in rv]
+            new = rank.score_board(order, rv, teams=teams, pool_size=pool,
+                                   position=loaded.position, indexing=signals.INDEXING,
+                                   position_pool=sizes).per_position
+            # The OLD rule, reproduced here so the comparison is like-for-like.
+            old = {}
+            for pos in rank.SCOREABLE:
+                members = [p for p in order[:pool] if loaded.position.get(p) == pos]
+                if len(members) < 5:
+                    continue
+                old[pos] = rank.score_board(members, rv, teams=teams,
+                                            pool_size=len(members),
+                                            indexing=signals.INDEXING).rwre
+            scored.append((new, old))
+        dn = {p: scored[1][0][p] - scored[0][0][p] for p in scored[0][0]}
+        do = {p: scored[1][1][p] - scored[0][1][p] for p in scored[0][1] if p in scored[1][1]}
+        leak_new = max(abs(v) for p, v in dn.items() if p != "RB")
+        leak_old = max(abs(v) for p, v in do.items() if p != "RB")
+        worst_new, worst_old = max(worst_new, leak_new), max(worst_old, leak_old)
+        leaky_old += leak_old > 1e-12
+        print(f"  {season}  NEW " + "  ".join(f"{p} {dn[p]:+.6f}" for p in ("QB", "RB", "WR", "TE")
+                                              if p in dn))
+        print("        OLD " + "  ".join(f"{p} {do[p]:+.6f}" for p in ("QB", "RB", "WR", "TE")
+                                          if p in do))
+    print(f"\n  worst leak into an UNTOUCHED position -- NEW {worst_new:.2e}, "
+          f"OLD {worst_old:.3f}")
+    print(f"  seasons where the OLD rule leaked: {leaky_old}/6")
+    print(f"  NEW rule leaks nothing anywhere: {worst_new < 1e-12}")
+
+
 def g2_boards_agree() -> None:
     print("\n" + "=" * 78)
     print("G2 -- `search.py` and `signals.py` must build the SAME board")
@@ -150,6 +208,7 @@ def injections_3_and_4() -> None:
 def main() -> int:
     g1_position_pools()
     g1_availability()
+    g1_leakage()
     g2_boards_agree()
     injection_1()
     injections_3_and_4()
