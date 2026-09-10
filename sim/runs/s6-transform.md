@@ -158,9 +158,33 @@ and `audible#88`'s two resolutions sat exactly on that floor. K=80 floors at **0
     WR      +0.050 sd 0.497             +0.254 sd 0.379
     TE      +0.196 sd 0.424             +0.124 sd 0.267
 
-WR's floor rose from +0.050 to +0.254 — a fifth of a rank slot, and directly relevant because
-`ngs_separation` at WR is the one calibrated resolution this project has. Phase 4 re-decides it
-against this floor rather than the old one.
+**That WR move is NOT established, and the review's decomposition is why.** Splitting the 80
+S6 draws into two independent K=40 halves *under the identical fixed metric*:
+
+    locus   s5 K=40 broken   s6 first 40   s6 last 40   s6 K=80   MC se (K=80)
+    board           +0.326        +0.268       +0.193    +0.230          0.033
+    QB              +0.219        +0.252       +0.213    +0.233          0.030
+    RB              +0.104        +0.102       +0.093    +0.097          0.020
+    WR              +0.050        +0.344       +0.165    +0.254          0.042
+    TE              +0.196        +0.056       +0.192    +0.124          0.030
+
+The WR move of +0.204 is **2.29 SE**, and two halves of the same fixed-metric draws differ by
+**0.180** — nearly the whole claimed effect. Across five loci one 2.3-SE reading is what noise
+produces. TE is worse: its "fall" from +0.196 to +0.124 reverses entirely on the other half.
+**So the honest statement is that the metric fix moved the floor by an amount K=80 cannot
+resolve**, and phase 4 decides `ngs_separation` against a WR floor carrying a standard error of
+about 0.042 on the mean and far more on the tails.
+
+**The published 2.5%/97.5% endpoints are over-precise.** Bootstrapped over the draws, the 2.5%
+endpoint has a standard error of 0.07–0.30; the board's −0.448 has a 95% interval of
+[−0.828, 0.000] and is effectively unidentified. They are quoted to three decimals above because
+that is what the script printed; they should be read as one significant figure.
+
+**And the calibration is 3 events, not 400 independent tests.** 3/400 = 0.75% pools 80 draws
+seen at 5 loci, and `board` is an aggregate of the four positions from the same draw. Per locus
+the exact 95% interval on 1/80 is [0.03%, 6.77%] and on 0/80 is [0%, 4.51%] — **the data cannot
+distinguish 1.2% from 5%.** "Still conservative" is an over-read; the honest claim is that no
+calibration failure was detected, at a resolution that could not detect a mild one.
 
 **Referee calibration under the fixed metric**: 3 false resolutions in 400 tests whose null is
 true, **0.75% at a nominal 5%**. Still conservative, so the bootstrap interval is reported and
@@ -233,3 +257,78 @@ went from a reported 0% to a real 71%.
     ffa points_vor / floor_vor / ceiling_vor / rank / position_rank
         FFA's OWN replacement transform of its own projection. Feeding these to a ranking model
         tests FFA's transform rather than an input.
+
+
+### the phase-2 review found four inputs whose DEFINITION was wrong
+
+Not "did not help" — wrong. Phase 3 was consuming them, so they were fixed before it ran.
+
+**`ffa_ceiling` and `ffa_floor` were incoherent.** Defined as `ceiling/points` and
+`floor/points`, they are mechanically a monotone *inversion* of the projection: r = −0.59 and
++0.58 against ESPN points. A 296-point back reads `ceiling_rel` 1.12 and a fringe back reads
+1.7+. Both carried sign +1, i.e. both were declared "more is better", which cannot be true of a
+quantity and its opposite. **Dropped**, and replaced with `ffa_skew` = `(ceiling − points) /
+(points − floor)` — how lopsided the distribution is rather than how wide, which as a ratio of
+two spreads does not inherit the projection's level.
+
+**Five of the 26 candidates were one axis.** Pairwise within-position correlations:
+
+    uncertainty vs ffa_spread        r = -0.98    a term and its own negation, listed twice
+    uncertainty vs ffa_uncertainty   r = -0.80    same construct, opposite declared polarity
+    the whole dispersion group       |r| 0.75-0.98
+
+**Dropped** `ffa_spread` and `ffa_uncertainty`; `uncertainty` (`sd_pts/points`) carries the axis.
+
+**`ffa_tier` and `ffa_aav` are the projection restated**, at Spearman 0.99 and 0.91 against
+FFA's own points within position. Phase 2's own exclusion list rejects `rank` and
+`position_rank` as "FFA's OWN replacement transform of its own projection" — these two are the
+same thing and were kept by oversight. **Dropped**, applying the session's rule to itself.
+
+**`age` is NOT vintage, and three sessions have called it vintage.** The FFA file stamps it at
+export: across nine season files, **1,395 of 1,397 year-over-year transitions have delta exactly
+0.0** while `experience` correctly increments by 1. Against `ff_playerids.birthdate` the offset
+is +7.50 in 2019, +5.85 in 2022, +0.95 in 2025 — the file describes ages as of the ~2026 pull.
+
+It is not an outcome leak, and the offset is near-uniform within a season so the within-position
+z-scored *ordering* is nearly unharmed. But the level is wrong by up to seven years, the
+birthday-month split perturbs the ordering by a year, and **`sim/residual.py::PREDICTORS`
+carried the comment "FFA preseason projection file, vintage"**. Renamed `age_at_export` and both
+comments corrected. `experience` is genuinely vintage.
+
+**`depth_slot` averaged defence and special teams.** The pin carries Offense, Defense and
+Special Teams depth entries; the unfiltered mean made a WR3 who returns kicks read as a WR2.
+**32% of covered board players got a different value**, largest movers by more than a full slot,
+Spearman 0.95 between the two versions. Now filtered to Offense and REG.
+
+Its docstring was also wrong twice: `pos_rank` **is** populated — in the 554k newer-format rows,
+which carry a NULL season and are therefore invisible to a `season == N` filter — and the pin
+does **not** stop at 2024. It holds 2025 and the 2026 offseason in that second schema, so a 2026
+board is blocked by a schema mismatch rather than by absent data.
+
+**`ff_opportunity`'s denominator rewarded missing half a season.** Both fields divided by games
+the player *appeared* in, so "expected fantasy points per game" scored a six-game player as
+though he had played a full year — the median player had 9 rows in 2024 and only 101 of 604 had
+17. Split into `ff_opp_exp` (volume: per **team** game) and `ff_opp_eff` (efficiency: over
+expectation, per appearance).
+
+**After the corrections: 21 candidates, all 21 pass G5.** The earlier count of 26 was inflated
+by five terms that were duplicates or disguised projections.
+
+### two coverage claims restated
+
+**"Every FFA-derived input is capped at 39–43%"** — the cap is real and the join is exonerated:
+the name+position join loses 0–4 rows a season (≤1.8%) and the mfl→gsis crosswalk loses zero, so
+the top-N export is the whole constraint. But the run's own table reads **46% in 2025**, so the
+range is a mean-of-means and not a cap. And it is **eleven** FFA-derived candidates, not nine.
+
+**"The Next Gen inputs read 7–24% only because they are charted for one position each"** — both
+halves wrong. `ngs_separation` and `ngs_cushion` reach **28% of tight ends**, not one position.
+And within its own charted position the dilution factor is **1.96x at WR, 4.0x at RB, 7.6x at
+QB** — not the 17.5x `audible#87` measured for a different quantity. Within-position coverage:
+
+    ngs_separation      WR 47%   TE 28%
+    ngs_rush_eff        RB 36%
+    ngs_time_to_throw   QB 53%
+
+Under half of receivers are charted. The low board-wide figures are only partly dilution; the
+rest is real absence.

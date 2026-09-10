@@ -38,7 +38,9 @@ FFA_DIR = REPO / "sim" / "data" / "ffa"
 # Every predictor here must be knowable BEFORE the season is played. Each is named with where
 # it comes from, because "is this a leak?" is the only question that matters about a feature.
 PREDICTORS: tuple[str, ...] = (
-    "age",                 # FFA preseason projection file, vintage
+    "age",                 # FFA projection file, but STAMPED AT EXPORT, not vintage --
+                           # see the note in `ffa_meta`. Level is wrong by up to 7 years;
+                           # the within-position ORDERING is nearly unharmed.
     "experience",          # FFA preseason projection file, vintage
     "sd_rel",              # sd_pts / points -- projection dispersion, FFA preseason
     "spread_rel",          # (ceiling - floor) / points, FFA preseason
@@ -106,6 +108,9 @@ def ffa_meta(season: int) -> dict[str, dict[str, float]]:
             ceil_, floor_ = num("ceiling"), num("floor")
             out[gsis] = {
                 "points": pts,
+                # NOT VINTAGE. Stamped at EXPORT: 1,395 of 1,397 year-over-year transitions
+                # have delta exactly 0 while `experience` increments correctly. Offset against
+                # `ff_playerids.birthdate` is +7.50 in 2019, +5.85 in 2022, +0.95 in 2025.
                 "age": num("age") or float("nan"),
                 "experience": num("experience") or float("nan"),
                 # S6 phase 2. The board reads `points` and throws the rest away. These are the
@@ -119,6 +124,14 @@ def ffa_meta(season: int) -> dict[str, dict[str, float]]:
                     (floor_ / pts) if (floor_ is not None and pts > 0) else float("nan")
                 ),
                 "tier": num("tier") if num("tier") is not None else float("nan"),
+                # How LOPSIDED, not how wide: upside over downside. Unlike ceiling/points and
+                # floor/points -- which are mechanically a monotone inversion of the projection
+                # -- a ratio of two spreads does not inherit the projection's level.
+                "skew": (
+                    ((ceil_ - pts) / (pts - floor_))
+                    if (ceil_ is not None and floor_ is not None and pts - floor_ > 1e-9)
+                    else float("nan")
+                ),
                 "aav": num("aav") if num("aav") is not None else float("nan"),
                 "uncertainty": (
                     num("uncertainty") if num("uncertainty") is not None else float("nan")
