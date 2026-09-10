@@ -58,13 +58,31 @@ def _looks_like_html(text: str) -> bool:
     return head.startswith("<!doctype html") or head.startswith("<html")
 
 
+def _reject(result: object, text: str) -> list[str]:
+    """Reasons a payload never even reaches the CSV checks."""
+    if not getattr(result, "ok", False):
+        status = getattr(result, "status", 0)
+        error = getattr(result, "error", "")
+        return [f"fetch-failed: status {status} {error}".strip()]
+    if _looks_like_html(text):
+        # A logged-out session serves the login page with a 200. It is not a CSV and it is
+        # not an error the browser reports.
+        return [f"html-payload: {len(text)} bytes of HTML, not CSV"]
+    return []
+
+
 def _attempt(
     driver: ShinyDriver,
     job: Job,
     *,
     scale: float,
-) -> tuple[str | None, list[str]]:
-    """One attempt. Returns (payload, reasons) -- a payload only when reasons is empty."""
+) -> tuple[str | None, list[str], str | None]:
+    """One attempt.
+
+    Returns (payload, reasons, witness_sha). A payload only when reasons is empty; a witness
+    only for `proj` jobs, where it is the sha256 of the raw file that vouched for the
+    aggregation.
+    """
     original = driver.settles
     try:
         if scale != 1.0:
@@ -73,23 +91,41 @@ def _attempt(
         # slower: it also forces the Settings trip the first attempt may have
         # judged unnecessary. A wrong aggregation is the failure this retry
         # exists for, so the retry must not repeat the judgement that caused it.
+        #
+        # A `proj` job is prepared as `raw` FIRST. A proj export carries no avg_type
+        # column, so alone it cannot say which aggregation produced it -- fetch the raw
+        # file from the same session state, read its fifth column, and the aggregation is
+        # witnessed. The proj fetch that follows differs in exactly one input.
+        witness_sha: str | None = None
         driver.prepare(
-            job.kind, job.year, job.week, job.avg,
+            "raw" if job.kind == "proj" else job.kind,
+            job.year,
+            job.week,
+            job.avg,
             force_settings_trip=scale != 1.0,
         )
+        if job.kind == "proj":
+            witness = driver.fetch_payload()
+            reasons = _reject(witness, witness.text)
+            if reasons:
+                return None, [f"witness-{r}" for r in reasons], None
+            reasons = verify_payload(
+                witness.text, kind="raw", week=job.week, avg=job.avg
+            )
+            if reasons:
+                return None, [f"witness-{r}" for r in reasons], None
+            witness_sha = sha256_of(witness.text)
+            driver.switch_kind("proj")
         result = driver.fetch_payload()
     finally:
         driver.settles = original
 
-    if not result.ok:
-        return None, [f"fetch-failed: status {result.status} {result.error}".strip()]
-    if _looks_like_html(result.text):
-        # A logged-out session serves the login page with a 200. It is not a CSV and it is
-        # not an error the browser reports.
-        return None, [f"html-payload: {len(result.text)} bytes of HTML, not CSV"]
+    reasons = _reject(result, result.text)
+    if reasons:
+        return None, reasons, None
 
     reasons = verify_payload(result.text, kind=job.kind, week=job.week, avg=job.avg)
-    return (result.text if not reasons else None), reasons
+    return (result.text if not reasons else None), reasons, witness_sha
 
 
 def run_jobs(
@@ -113,10 +149,11 @@ def run_jobs(
         result.attempted += 1
         reasons: list[str] = []
         payload: str | None = None
+        witness_sha: str | None = None
 
         for scale in (1.0, RETRY_SCALE):
             try:
-                payload, reasons = _attempt(driver, job, scale=scale)
+                payload, reasons, witness_sha = _attempt(driver, job, scale=scale)
                 consecutive_recoveries = 0
             except SessionLost as exc:
                 consecutive_recoveries += 1
@@ -128,6 +165,7 @@ def run_jobs(
                 driver.establish()
                 reasons = [f"session-lost: {exc}"]
                 payload = None
+                witness_sha = None
                 continue
             except NotLoggedIn:
                 raise
@@ -157,6 +195,7 @@ def run_jobs(
                 bytes=size,
                 rows=report.rows,
                 measured_avg_type=report.sole_avg_type,
+                witness_sha256=witness_sha,
                 positions=dict(sorted(report.positions.items())),
                 fetched_at=now(),
             ),

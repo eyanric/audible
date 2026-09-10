@@ -449,6 +449,19 @@ class ShinyDriver:
             raise SessionLost(f"inputs drifted before the fetch: {drifted}")
         self.assert_same_session()
 
+    def switch_kind(self, kind: str) -> None:
+        """Change only the file type, leaving year, week and aggregation where they are.
+
+        This is what makes a `proj` file verifiable. A proj export carries no `avg_type`
+        column, so on its own the aggregation it was fetched under cannot be confirmed from
+        its own bytes -- the handoff calls them unverifiable and says to prefer raw. That is
+        true of a proj file fetched ALONE. Fetch the raw file from the same session state
+        first, read its fifth column, and the aggregation is witnessed: the proj file that
+        follows differs only in this one input.
+        """
+        self.set_input(KIND_INPUT, kind, self.settles.after_kind)
+        self.assert_same_session()
+
     def fetch_payload(self) -> FetchResult:
         href, text = self.download_control()
         if href is None:

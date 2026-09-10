@@ -344,7 +344,8 @@ def _entry(job: Job, size: int = 1234) -> ManifestEntry:
     return ManifestEntry(
         file=job.filename, kind=job.kind, year=job.year, week=job.week, avg=job.avg,
         sha256="0" * 64, bytes=size, rows=999, measured_avg_type=job.avg,
-        positions={p: 1 for p in POSITIONS}, fetched_at="2026-09-10T00:00:00Z",
+        witness_sha256=None, positions={p: 1 for p in POSITIONS},
+        fetched_at="2026-09-10T00:00:00Z",
     )
 
 
@@ -469,8 +470,8 @@ def test_a_manifest_entry_carries_every_field_the_report_promises(tmp_path: Path
     entry = ManifestEntry(
         file="ffa_raw_2019_wk0_average.csv", kind="raw", year=2019, week=0, avg="average",
         sha256=sha256_of(payload), bytes=len(payload.encode("utf-8")), rows=report.rows,
-        measured_avg_type=report.sole_avg_type, positions=dict(report.positions),
-        fetched_at="2026-09-10T12:00:00Z",
+        measured_avg_type=report.sole_avg_type, witness_sha256=None,
+        positions=dict(report.positions), fetched_at="2026-09-10T12:00:00Z",
     )
     append_entry(path, entry)
     loaded = load_manifest(path)["ffa_raw_2019_wk0_average.csv"]
@@ -1547,3 +1548,119 @@ def test_wait_idle_paces_itself_even_while_the_stuck_set_is_growing(monkeypatch)
     assert polls["n"] <= settles.idle_timeout / 0.25 + 2, (
         f"{polls['n']} polls for a {settles.idle_timeout}s window -- the loop is not pacing"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# THE WITNESS. A proj export carries no avg_type column, so on its own the aggregation it
+# was fetched under cannot be confirmed from its own bytes -- the handoff calls proj files
+# unverifiable and says to prefer raw.
+#
+# That is true of a proj file fetched ALONE. Fetch the raw file from the same session state
+# first, read its fifth column, and the aggregation is witnessed: the proj fetch that
+# follows differs in exactly one input. 27 otherwise-unverifiable files for about fourteen
+# minutes of extra fetching.
+# ---------------------------------------------------------------------------------------
+
+
+def _witness_driver(page: FakeShinyPage) -> driver_mod.ShinyDriver:
+    return driver_mod.ShinyDriver(page, INSTANT, log=lambda _m: None)
+
+
+def test_a_proj_job_fetches_a_raw_witness_first(tmp_path: Path) -> None:
+    page = FakeShinyPage()
+    driver = _witness_driver(page)
+    driver.establish()
+
+    job = Job(kind="proj", year=2019, week=0, avg="robust")
+    result = runner.run_jobs(
+        driver, [job], data_dir=tmp_path,
+        manifest_path=tmp_path / manifest_mod.MANIFEST_NAME,
+        now=lambda: "2026-09-10T00:00:00+00:00", log=lambda _m: None,
+    )
+    assert result.completed == [job.filename], result.failed
+    entry = load_manifest(tmp_path / manifest_mod.MANIFEST_NAME)[job.filename]
+
+    # The proj file itself still says nothing about its aggregation...
+    assert entry.measured_avg_type is None
+    # ...and the raw file fetched from the same state is what stands behind it.
+    assert entry.witness_sha256 == sha256_of(raw_csv(avg_type="robust"))
+
+
+def test_a_proj_job_is_rejected_when_its_witness_holds_the_wrong_aggregation(
+    tmp_path: Path,
+) -> None:
+    """THE point of the witness, and a defect that is otherwise undetectable.
+
+    The app is made to serve `weighted` regardless. The proj payload is byte-identical to a
+    correct one -- there is nothing in it to catch -- and the job is rejected anyway,
+    because the raw file fetched from the same session state said `weighted`.
+    """
+    page = FakeShinyPage()
+    page.effective_avg = "weighted"
+    # Pin it: the Settings round trip no longer takes.
+    page.click = lambda selector: None  # type: ignore[method-assign]
+    driver = _witness_driver(page)
+    driver.establish()
+
+    job = Job(kind="proj", year=2019, week=0, avg="average")
+    result = runner.run_jobs(
+        driver, [job], data_dir=tmp_path,
+        manifest_path=tmp_path / manifest_mod.MANIFEST_NAME,
+        now=lambda: "2026-09-10T00:00:00+00:00", log=lambda _m: None,
+    )
+    assert result.completed == []
+    assert not (tmp_path / job.filename).exists(), "an unwitnessed proj file reached disk"
+    reasons = result.failed[0][1]
+    assert any(r.startswith("witness-avg-type-mismatch") for r in reasons), reasons
+
+
+def test_a_raw_job_needs_no_witness(tmp_path: Path) -> None:
+    """CONTROL. A raw file vouches for itself; paying for a witness would double the run."""
+    page = FakeShinyPage()
+    driver = _witness_driver(page)
+    driver.establish()
+
+    job = Job(kind="raw", year=2019, week=0, avg="robust")
+    runner.run_jobs(
+        driver, [job], data_dir=tmp_path,
+        manifest_path=tmp_path / manifest_mod.MANIFEST_NAME,
+        now=lambda: "2026-09-10T00:00:00+00:00", log=lambda _m: None,
+    )
+    entry = load_manifest(tmp_path / manifest_mod.MANIFEST_NAME)[job.filename]
+    assert entry.witness_sha256 is None
+    assert entry.measured_avg_type == "robust"
+
+
+def test_the_witness_and_the_proj_file_differ_in_exactly_one_input() -> None:
+    """The whole argument rests on this: if anything else changed between the two fetches,
+    the witness would be vouching for a different request."""
+    page = FakeShinyPage()
+    driver = _witness_driver(page)
+    driver.establish()
+    driver.prepare("raw", 2021, 0, "average")
+    before = dict(page.inputs)
+    driver.switch_kind("proj")
+    after = dict(page.inputs)
+    changed = {k for k in after if after[k] != before[k]}
+    assert changed == {driver_mod.KIND_INPUT}, changed
+
+
+def test_a_manifest_written_before_witnessing_existed_still_loads(tmp_path: Path) -> None:
+    """Backward compatibility, because 101 weekly files were already on disk when the
+    witness was added. A line with no witness_sha256 reads as None, not as an error."""
+    path = tmp_path / manifest_mod.MANIFEST_NAME
+    path.write_text(
+        json.dumps(
+            {
+                "file": "ffa_raw_2019_wk0_weighted.csv", "kind": "raw", "year": 2019,
+                "week": 0, "avg": "weighted", "sha256": "0" * 64, "bytes": 10,
+                "rows": 5, "measured_avg_type": "weighted", "positions": {},
+                "fetched_at": "2026-09-10T00:00:00Z",
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry = load_manifest(path)["ffa_raw_2019_wk0_weighted.csv"]
+    assert entry.witness_sha256 is None

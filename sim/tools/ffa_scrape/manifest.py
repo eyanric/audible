@@ -39,6 +39,12 @@ class ManifestEntry:
     # is therefore unverifiable -- recorded as None rather than echoing `avg` back, so the
     # manifest never claims a verification that did not happen.
     measured_avg_type: str | None
+    # For a `proj` file, the sha256 of the RAW file fetched from the same session state
+    # immediately before it. A proj export has no avg_type column of its own, so this is
+    # what stands behind its aggregation: the raw witness did carry one, and it matched.
+    # None for raw files, which vouch for themselves, and None for any proj file fetched
+    # before witnessing existed.
+    witness_sha256: str | None
     positions: Mapping[str, int]
     fetched_at: str
 
@@ -80,6 +86,7 @@ def load_manifest(path: Path) -> dict[str, ManifestEntry]:
             bytes=payload["bytes"],
             rows=payload["rows"],
             measured_avg_type=payload.get("measured_avg_type"),
+            witness_sha256=payload.get("witness_sha256"),
             positions=payload.get("positions", {}),
             fetched_at=payload["fetched_at"],
         )
