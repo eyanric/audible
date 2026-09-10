@@ -51,6 +51,11 @@ PLAN: tuple[tuple[str, str | None, dict, tuple[str, ...], str, str], ...] = (
 )
 
 
+def legacy_for(seasons: tuple[int, ...]) -> dict[str, dict[int, float]]:
+    """audible#86/#87's single draw, computed once and reused."""
+    return referee.deltas("noise", seasons, salt=referee.LEGACY_SALT)
+
+
 def main() -> int:
     floor = referee.load_floor(str(FLOOR_JSON))
     print(f"floor: {len(floor.salts)} draws over seasons {floor.seasons}")
@@ -110,13 +115,17 @@ def main() -> int:
             # INJECTION 1: the same call, decided against ONE draw.
             one = referee.adjudicate(d[locus], floor, locus, resample_salt=False,
                                      fixed_salt_index=0)
-            legacy_d = referee.deltas("noise", seasons, salt=referee.LEGACY_SALT)
+            legacy_d = legacy_for(seasons)
             tag = f"{name}@{locus}"
             if one.disposition != v.disposition:
                 changed.append(f"{tag}: one draw said {one.disposition!r}, "
                                f"distribution says {v.disposition!r}")
+            wc = one.difference.hi - one.difference.lo
+            wu = v.difference.hi - v.difference.lo
             print(f"    INJECTION 1 against salt[0] alone: {one.difference} "
                   f"-> {one.disposition}")
+            print(f"    G2 interval width: one draw {wc:.3f} -> distribution {wu:.3f}"
+                  f"  ({wu / wc if wc else float('nan'):.2f}x wider)")
             if locus in legacy_d:
                 lm = sum(legacy_d[locus].values()) / len(legacy_d[locus])
                 sm = sum(d[locus].values()) / len(d[locus])

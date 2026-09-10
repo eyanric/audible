@@ -22,14 +22,19 @@ def main() -> int:
     seasons = referee.espn_seasons()
     print(f"seasons {seasons}   salts {len(referee.SALTS)}")
 
-    floor = referee.draw_floor(seasons)
-    OUT.write_text(json.dumps({
-        "salts": list(floor.salts),
-        "seasons": list(floor.seasons),
-        "per": {k: [{str(s): v for s, v in d.items()} for d in draws]
-                for k, draws in floor.per.items()},
-    }, indent=1), encoding="utf-8")
-    print(f"wrote {OUT.name}")
+    if OUT.exists():
+        floor = referee.load_floor(str(OUT))
+        print(f"reusing {OUT.name} -- the draws are frozen, so re-running this script "
+              f"cannot silently move a published number")
+    else:
+        floor = referee.draw_floor(seasons)
+        OUT.write_text(json.dumps({
+            "salts": list(floor.salts),
+            "seasons": list(floor.seasons),
+            "per": {k: [{str(s): v for s, v in d.items()} for d in draws]
+                    for k, draws in floor.per.items()},
+        }, indent=1), encoding="utf-8")
+        print(f"wrote {OUT.name}")
 
     print("\n=== G1. THE FLOOR IS A DISTRIBUTION ===")
     print("  locus   mean      sd     2.5%      97.5%    min      max")
@@ -52,20 +57,24 @@ def main() -> int:
 
     print("\n=== G2. RESAMPLING THE SALT WIDENS THE INTERVAL ===")
     print("  The broken mechanism held the salt fixed and resampled only the unit, so the")
-    print("  salt's variance could not enter. Same data, both ways:")
-    print("  locus   conditional width   unconditional width   widened by")
+    print("  salt's variance could not enter any interval. The term under test here is")
+    print("  ANOTHER information-free draw -- a thing that is known to carry nothing, so the")
+    print("  honest interval must contain zero and a mechanism that says otherwise is wrong.")
+    print("  locus   conditional width   unconditional width   widened by   verdicts")
     for locus in referee.LOCI:
         draws = [d for d in floor.per[locus] if d]
         if len(draws) < 2:
             continue
-        # Conditional: one draw, season bootstrap only -- audible#87's mechanism.
-        cond = referee.adjudicate(draws[0], floor, locus, resample_salt=False,
+        # Conditional: judged against ONE other draw, season bootstrap only -- #87's mechanism.
+        cond = referee.adjudicate(draws[1], floor, locus, resample_salt=False,
                                   fixed_salt_index=0)
         # Unconditional: the salt is resampled alongside the season.
-        uncond = referee.adjudicate(draws[0], floor, locus, resample_salt=True)
+        uncond = referee.adjudicate(draws[1], floor, locus, resample_salt=True)
         wc = cond.difference.hi - cond.difference.lo
         wu = uncond.difference.hi - uncond.difference.lo
-        print(f"  {locus:5s} {wc:17.3f} {wu:21.3f} {wu / wc if wc else float('nan'):11.2f}x")
+        ratio = wu / wc if wc else float("nan")
+        print(f"  {locus:5s} {wc:17.3f} {wu:21.3f} {ratio:10.2f}x   "
+              f"one-draw: {cond.disposition} | distribution: {uncond.disposition}")
 
     print("\n=== per-salt board-wide floor, all 24 draws ===")
     for salt, m in zip(floor.salts, floor.means("board"), strict=True):

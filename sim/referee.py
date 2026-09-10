@@ -104,6 +104,38 @@ def _pick(cell: tuple[float, dict[str, float]], locus: str) -> float | None:
     return cell[0] if locus == "board" else cell[1].get(locus)
 
 
+@lru_cache(maxsize=256)
+def table(
+    name: str, seasons: tuple[int, ...], salt: str | None = "__signal__",
+    scope: str | None = None, rookies_only: bool = False,
+) -> dict[tuple[int, float], tuple[float, dict[str, float]]]:
+    """Every (season, weight) board scored once, and reused by every locus.
+
+    ONE TABLE PER TERM IS THE POINT, not the speed. `audible#87` reported a per-position
+    number and a board-wide number that came from two different statistics, and neither
+    reproduced. Deriving every locus from the same scored boards makes that impossible.
+    """
+    def values_for(season: int) -> dict[str, float] | None:
+        return None if salt == "__signal__" else salt_values(salt, season)
+
+    return {
+        (s, lam): score_at(s, lam, name, values=values_for(s), scope=scope,
+                           rookies_only=rookies_only)
+        for s in seasons for lam in GRID
+    }
+
+
+def _fit(tab: dict, seasons: tuple[int, ...], locus: str, held: int) -> float:
+    """The weight the OTHER seasons choose at this locus. Ties go to the smaller |lambda|."""
+    others = [s for s in seasons if s != held]
+    best, best_lam = float("inf"), 0.0
+    for lam in GRID:
+        vals = [v for v in (_pick(tab[(s, lam)], locus) for s in others) if v is not None]
+        if vals and sum(vals) / len(vals) < best:
+            best, best_lam = sum(vals) / len(vals), lam
+    return best_lam
+
+
 def deltas(
     name: str, seasons: tuple[int, ...], *,
     salt: str | None = "__signal__", scope: str | None = None,
@@ -112,31 +144,14 @@ def deltas(
     """Leave-one-season-out delta per locus per season, from ONE table of scored boards.
 
     For each held-out season the weight is fitted on the OTHER seasons at that locus, then the
-    held-out season is scored at the fitted weight and at zero. Every locus is derived from the
-    same |seasons| x |GRID| table, so a per-position number and the board-wide number beside it
-    are guaranteed to come from the same boards -- `audible#87` reported two different
-    statistics under one label and neither reproduced.
+    held-out season is scored at the fitted weight and at zero.
     """
-    def values_for(season: int) -> dict[str, float] | None:
-        return None if salt == "__signal__" else salt_values(salt, season)
-
-    tab = {
-        (s, lam): score_at(s, lam, name, values=values_for(s), scope=scope,
-                           rookies_only=rookies_only)
-        for s in seasons for lam in GRID
-    }
-
+    tab = table(name, seasons, salt, scope, rookies_only)
     out: dict[str, dict[int, float]] = {}
     for locus in LOCI:
         per_season: dict[int, float] = {}
         for held in seasons:
-            others = [s for s in seasons if s != held]
-            best, best_lam = float("inf"), 0.0
-            for lam in GRID:
-                vals = [v for v in (_pick(tab[(s, lam)], locus) for s in others)
-                        if v is not None]
-                if vals and sum(vals) / len(vals) < best:
-                    best, best_lam = sum(vals) / len(vals), lam
+            best_lam = _fit(tab, seasons, locus, held)
             base = _pick(tab[(held, 0.0)], locus)
             treated = _pick(tab[(held, best_lam)], locus)
             if base is not None and treated is not None:
@@ -152,24 +167,8 @@ def fitted_lambdas(
     rookies_only: bool = False,
 ) -> dict[int, float]:
     """The weight each fold chose. A sign that flips across folds is not a fitted weight."""
-    def values_for(season: int) -> dict[str, float] | None:
-        return None if salt == "__signal__" else salt_values(salt, season)
-
-    tab = {
-        (s, lam): score_at(s, lam, name, values=values_for(s), scope=scope,
-                           rookies_only=rookies_only)
-        for s in seasons for lam in GRID
-    }
-    out: dict[int, float] = {}
-    for held in seasons:
-        others = [s for s in seasons if s != held]
-        best, best_lam = float("inf"), 0.0
-        for lam in GRID:
-            vals = [v for v in (_pick(tab[(s, lam)], locus) for s in others) if v is not None]
-            if vals and sum(vals) / len(vals) < best:
-                best, best_lam = sum(vals) / len(vals), lam
-        out[held] = best_lam
-    return out
+    tab = table(name, seasons, salt, scope, rookies_only)
+    return {held: _fit(tab, seasons, locus, held) for held in seasons}
 
 
 # --- the floor as a distribution -------------------------------------------------------------
