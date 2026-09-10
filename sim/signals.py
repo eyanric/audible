@@ -83,6 +83,16 @@ def signal_values(name: str, season: int) -> dict[str, float]:
         return {p: rates[q] for p, q in loaded.position.items() if q in rates}
     if name == "contract":
         return contract_value(season)
+    # --- S6 phase 2: everything the board already carries and the ordering discards ---------
+    if name in FFA_FIELDS:
+        field, sign = FFA_FIELDS[name]
+        meta = residual.ffa_meta(season)
+        return {p: sign * m[field] for p, m in meta.items()
+                if m.get(field) == m.get(field)}  # NaN filtered by self-inequality
+    if name == "depth_slot":
+        return depth_slot(season)
+    if name in FF_OPP_FIELDS:
+        return ff_opportunity_prior(FF_OPP_FIELDS[name], season)
     if name == "age":
         meta = residual.ffa_meta(season)
         return {p: m["age"] for p, m in meta.items() if m.get("age") == m.get("age")}
@@ -368,3 +378,87 @@ def contract_value(season: int) -> dict[str, float]:
         if g not in best or int(yr) > best[g][0]:
             best[g] = (int(yr), float(pct))
     return {g: v for g, (_y, v) in best.items()}
+
+
+# --- S6 phase 2: the inputs the board already carries and the ordering has never read --------
+
+# FFA publishes these vintage in every season's projections file. `points` is the only column
+# any ordering in this project has ever read. Sign is +1 where more is better and -1 where less
+# is, so every signal here is "increasing means the player should rank higher".
+FFA_FIELDS: dict[str, tuple[str, float]] = {
+    "ffa_ceiling": ("ceiling_rel", 1.0),   # upside as a multiple of the projection
+    "ffa_floor": ("floor_rel", 1.0),       # downside as a multiple of the projection
+    "ffa_tier": ("tier", -1.0),            # tier 1 is the best tier
+    "ffa_dropoff": ("dropoff", 1.0),       # points to the next player at the position
+    "ffa_aav": ("aav", 1.0),               # auction value: the market's own price
+    "ffa_experience": ("experience", 1.0),
+    "ffa_uncertainty": ("uncertainty", -1.0),
+    "ffa_spread": ("spread_rel", -1.0),    # (ceiling - floor) / points
+}
+
+# `ff_opportunity` models expected fantasy points from volume and situation, so the EXPECTED
+# column is an opportunity measure and the DIFF column is efficiency over expectation. Both are
+# read from season-1, never from the season being ranked.
+FF_OPP_FIELDS: dict[str, str] = {
+    "ff_opp_exp": "total_fantasy_points_exp",
+    "ff_opp_diff": "total_fantasy_points_diff",
+}
+
+
+@lru_cache(maxsize=16)
+def ff_opportunity_prior(column: str, season: int) -> dict[str, float]:
+    """Per-game `ff_opportunity` value from season-1. Vintage by construction."""
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / "ff_opportunity_s3.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"ff_opportunity pin missing: {path}")
+    # THE SEASON COLUMN IS A STRING IN THIS PIN. Comparing it to an int raises
+    # ComputeError, and an earlier version of this module reported 0% coverage instead of the
+    # error because the caller swallowed it. Cast both sides.
+    frame = (
+        pl.read_parquet(path)
+        .filter(pl.col("season").cast(pl.Utf8) == str(season - 1))
+        .select(["player_id", column])
+        .drop_nulls()
+    )
+    total: dict[str, float] = {}
+    games: dict[str, int] = {}
+    for pid, val in frame.iter_rows():
+        total[str(pid)] = total.get(str(pid), 0.0) + float(val)
+        games[str(pid)] = games.get(str(pid), 0) + 1
+    return {p: total[p] / games[p] for p in total if games[p] >= 4}
+
+
+@lru_cache(maxsize=16)
+def depth_slot(season: int) -> dict[str, float]:
+    """Prior-season mean depth-chart slot, NEGATED so that increasing means higher on the chart.
+
+    `depth_team` is the string "1", "2", "3"; `pos_rank` is null in the pinned vintage, so the
+    slot is what is actually available. Averaged over the season's weeks, so a player who was
+    promoted mid-season sits between the two.
+
+    THE PIN STOPS AT 2024, so 2026 would have no prior season. That is reported rather than
+    worked around -- substituting a nearby season is exactly what this project refuses to do.
+    """
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / "depth_charts_s3.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"depth chart pin missing: {path}")
+    frame = (
+        pl.read_parquet(path)
+        .filter((pl.col("season") == season - 1) & pl.col("gsis_id").is_not_null())
+        .select(["gsis_id", "depth_team"])
+        .drop_nulls()
+    )
+    total: dict[str, float] = {}
+    n: dict[str, int] = {}
+    for pid, slot in frame.iter_rows():
+        try:
+            v = float(slot)
+        except (TypeError, ValueError):
+            continue
+        total[str(pid)] = total.get(str(pid), 0.0) + v
+        n[str(pid)] = n.get(str(pid), 0) + 1
+    return {p: -(total[p] / n[p]) for p in total if n[p] >= 4}

@@ -131,3 +131,105 @@ rather than a constant someone chose.
                  shuffled 42.137 to 57.802
     INJECTION 3  availability through the within-position path FAILS G5 on all four conditions
     INJECTION 4  shrink FAILS G5: moves a within-position ordering in 0/6 seasons
+
+
+---
+
+## THE FLOOR, redrawn under the fixed metric at K=80
+
+`audible#88`'s floor was drawn with the broken per-position rule, so every per-position draw in
+it was computed under a metric that no longer exists. K also moved from 40 to 80: a two-sided
+reference-set test against K draws cannot report a p below `2/(K+1)`, so K=40 floored at 0.0488
+and `audible#88`'s two resolutions sat exactly on that floor. K=80 floors at **0.0247**.
+
+    locus   mean      sd     2.5%      97.5%     min      max
+    board  +0.230   0.291   -0.448   +0.753   -0.828   +0.986
+    QB     +0.233   0.267   -0.402   +0.710   -0.521   +0.804
+    RB     +0.097   0.175   -0.284   +0.506   -0.524   +0.559
+    WR     +0.254   0.379   -0.481   +0.859   -0.819   +0.863
+    TE     +0.124   0.267   -0.398   +0.545   -0.508   +0.960
+
+**The metric fix moved the floor itself, and most at wide receiver:**
+
+    locus   audible#88 (broken, K=40)   S6 (fixed, K=80)
+    board   +0.326 sd 0.378             +0.230 sd 0.291
+    QB      +0.219 sd 0.191             +0.233 sd 0.267
+    RB      +0.104 sd 0.136             +0.097 sd 0.175
+    WR      +0.050 sd 0.497             +0.254 sd 0.379
+    TE      +0.196 sd 0.424             +0.124 sd 0.267
+
+WR's floor rose from +0.050 to +0.254 — a fifth of a rank slot, and directly relevant because
+`ngs_separation` at WR is the one calibrated resolution this project has. Phase 4 re-decides it
+against this floor rather than the old one.
+
+**Referee calibration under the fixed metric**: 3 false resolutions in 400 tests whose null is
+true, **0.75% at a nominal 5%**. Still conservative, so the bootstrap interval is reported and
+the reference-set p decides.
+
+---
+
+## PHASE 2 — every input, and whether it can move an ordering
+
+**26 candidates. 26 pass the rebuilt G5. 5 excluded before testing, with the reason.**
+
+That all 26 pass is not a finding about their quality. **G5 asks only whether a term is
+MEASURABLE** — does it apply in more than one season, with real spread, moving a within-position
+ordering if it claims within-position information. It is a floor on auditability, not on value.
+`noise` passes it too, and `noise` is a sha256.
+
+### coverage against ESPN's scoreable pool
+
+    input               mean   note
+    noise               100%   information-free by construction
+    contract             84%
+    availability         83%   five seasons, not six -- 2019 has no prior data at all
+    snap_share           81%
+    depth_slot           80%   the pin stops at 2024, so 2026 has no prior season
+    td_oe                79%
+    draft_round          78%   rookies only, so the applied subset is far smaller
+    ff_opp_exp           71%
+    ff_opp_diff          71%
+    target_share         67%   2019 is 0% -- prior-season target data begins in 2019
+    ffa_* (all eight)    39-43%
+    age, uncertainty     42-43%
+    adp_gap              42%
+    ngs_separation       24%   receivers only
+    ngs_cushion          24%
+    ngs_rush_eff          9%   backs only
+    ngs_time_to_los       9%
+    ngs_time_to_throw     7%   passers only
+
+**Every FFA-derived input is capped at 39–43%** because FFA's projections file is a top-N export
+— 72 RB / 72 WR / 37 QB / 36 TE in 2022 — against an ESPN pool of 454–496. That is nine separate
+candidate inputs that can never speak for more than about two players in five, and it is a
+property of the source rather than of the signal.
+
+**The Next Gen inputs look catastrophic at 7–24% and are not.** They are charted for one
+position each, so the denominator is the whole board while the numerator is one position. As a
+share of *their own* position they are far higher; the low number is the cross-position
+dilution `audible#87` measured at 17.5x, visible here as a coverage figure.
+
+### a defect in this session's own harness, found and fixed
+
+`ff_opportunity`'s `season` column is a **string** in the pin, so `pl.col("season") == season-1`
+raised `ComputeError`. The coverage helper caught every exception and returned 0%, so a broken
+input was reported as an input that covers nothing — indistinguishable from an absent one. Both
+were fixed: the filter casts, and the helper no longer swallows. `ff_opp_exp` and `ff_opp_diff`
+went from a reported 0% to a real 71%.
+
+### excluded before testing
+
+    injuries / practice participation
+        HARD STOP. audible#71 measured RB 2.58 games missed against WR 3.29 at ADP <= 100 --
+        the opposite of the folklore -- and a player-level injury term is forbidden.
+    participation (route running)
+        Play-level, no season column, no gsis key. Route participation is the known nflverse
+        gap and is delivered post-season only.
+    ftn_charting
+        Pinned 2022-2025. As a PRIOR-season term that is seasons 2023-2026, and ESPN has no
+        2023 board, so two usable seasons. Too few for a six-fold LOSO.
+    officials
+        Not player-keyed. Nothing to join to a board.
+    ffa points_vor / floor_vor / ceiling_vor / rank / position_rank
+        FFA's OWN replacement transform of its own projection. Feeding these to a ranking model
+        tests FFA's transform rather than an input.

@@ -108,6 +108,21 @@ def ffa_meta(season: int) -> dict[str, dict[str, float]]:
                 "points": pts,
                 "age": num("age") or float("nan"),
                 "experience": num("experience") or float("nan"),
+                # S6 phase 2. The board reads `points` and throws the rest away. These are the
+                # columns FFA has published vintage every season since 2018 and no ordering in
+                # this project has ever read. Ratios rather than levels, so a term is comparable
+                # across a decade in which scoring inflated.
+                "ceiling_rel": (
+                    (ceil_ / pts) if (ceil_ is not None and pts > 0) else float("nan")
+                ),
+                "floor_rel": (
+                    (floor_ / pts) if (floor_ is not None and pts > 0) else float("nan")
+                ),
+                "tier": num("tier") if num("tier") is not None else float("nan"),
+                "aav": num("aav") if num("aav") is not None else float("nan"),
+                "uncertainty": (
+                    num("uncertainty") if num("uncertainty") is not None else float("nan")
+                ),
                 "sd_rel": (sd / pts) if (sd is not None and pts > 0) else float("nan"),
                 "spread_rel": (
                     ((ceil_ - floor_) / pts)

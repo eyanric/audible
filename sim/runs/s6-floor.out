@@ -1,0 +1,32 @@
+seasons (2019, 2020, 2021, 2022, 2024, 2025)   salts 80
+wrote s6-floor.json
+
+=== THE FLOOR, under the FIXED per-position metric ===
+  locus   mean      sd     2.5%      97.5%     min      max
+  board  +0.230   0.291   -0.448   +0.753   -0.828   +0.986
+  QB     +0.233   0.267   -0.402   +0.710   -0.521   +0.804
+  RB     +0.097   0.175   -0.284   +0.506   -0.524   +0.559
+  WR     +0.254   0.379   -0.481   +0.859   -0.819   +0.863
+  TE     +0.124   0.267   -0.398   +0.545   -0.508   +0.960
+
+=== what the fix did to the floor itself ===
+  locus   audible#88 (broken metric, K=40)   S6 (fixed, K=80)
+  board   +0.326 sd 0.378              +0.230 sd 0.291
+  QB      +0.219 sd 0.191              +0.233 sd 0.267
+  RB      +0.104 sd 0.136              +0.097 sd 0.175
+  WR      +0.050 sd 0.497              +0.254 sd 0.379
+  TE      +0.196 sd 0.424              +0.124 sd 0.267
+
+=== the referee's own false-resolution rate, under the fixed metric ===
+  Every draw is information-free, so judging draw j against the other 79 is a
+  test whose null is TRUE.
+  locus  resolved/n     rate  beats  worse   ref-set p:   min    5th    50th
+  board      0/ 80     0.0%      0      0            0.025  0.050  0.550
+  QB         1/ 80     1.2%      1      0            0.025  0.050  0.550
+  RB         1/ 80     1.2%      1      0            0.025  0.050  0.900
+  WR         0/ 80     0.0%      0      0            0.025  0.050  0.525
+  TE         1/ 80     1.2%      0      1            0.025  0.050  0.525
+
+  smallest two-sided reference-set p attainable with K=80: 0.0247
+
+  board-wide mean +0.230  sd 0.291
