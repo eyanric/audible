@@ -275,6 +275,103 @@ MUTATIONS: tuple[Mutation, ...] = (
         "return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()",
         "return hashlib.sha256(b\"\").hexdigest()",
     ),
+    # --- OVER-FIRING. Every mutation above disables a check, and a CONTROL -- a gate that
+    # asserts a good payload is ACCEPTED -- survives all of them by construction. Without
+    # these, a verifier rewritten to reject everything would pass the whole suite, and the
+    # controls would be exactly the tests-that-cannot-fail this harness exists to find.
+    Mutation(
+        "the-aggregation-check-fires-on-a-match-too",
+        "verify.py",
+        "if report.avg_types != frozenset({avg}):",
+        "if True:",
+    ),
+    Mutation(
+        "the-position-check-fires-on-a-complete-file",
+        "verify.py",
+        "missing = NINE_POSITIONS - set(report.positions)",
+        'missing = {"XX"}',
+    ),
+    Mutation(
+        "the-nine-positions-are-ten",
+        "verify.py",
+        '{"QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "DB"}',
+        '{"QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "DB", "FB"}',
+    ),
+    Mutation(
+        "the-row-floor-rejects-every-file",
+        "verify.py",
+        "if report.rows < floor:",
+        "if True:",
+    ),
+    Mutation(
+        "the-weekly-floor-is-above-the-season-floor",
+        "verify.py",
+        '("raw", False): 120,  # weekly\n    ("proj", False): 80,',
+        '("raw", False): 9000,\n    ("proj", False): 9000,',
+    ),
+    Mutation(
+        "a-proj-file-is-rejected-for-lacking-an-aggregation-column",
+        "verify.py",
+        "if AVG_TYPE_COLUMN in report.columns:\n            reasons.append(",
+        "if AVG_TYPE_COLUMN not in report.columns:\n            reasons.append(",
+    ),
+    Mutation(
+        "the-ragged-check-fires-on-a-clean-file",
+        "verify.py",
+        "if report.ragged:",
+        "if report.ragged >= 0:",
+    ),
+    Mutation(
+        "the-filename-ignores-its-arguments",
+        "naming.py",
+        'return f"ffa_{kind}_{year}_wk{week}_{avg}.csv"',
+        'return "ffa_raw_2019_wk0_weighted.csv"',
+    ),
+    Mutation(
+        "parse-accepts-a-name-it-cannot-read",
+        "naming.py",
+        "if match is None:",
+        "if False:",
+    ),
+    Mutation(
+        "plan-queues-nothing-ever",
+        "jobs.py",
+        "        queued.append(job)",
+        "        pass",
+    ),
+    Mutation(
+        "2026-is-refused-its-one-played-week",
+        "jobs.py",
+        "PARTIAL_YEARS: Mapping[int, tuple[int, ...]] = {2026: (0, 1)}",
+        "PARTIAL_YEARS: Mapping[int, tuple[int, ...]] = {2026: (0,)}",
+    ),
+    Mutation(
+        "weekly-starts-a-year-late",
+        "jobs.py",
+        "WEEKLY_FROM = 2015",
+        "WEEKLY_FROM = 2016",
+    ),
+    Mutation(
+        "every-job-claims-it-skips-the-settings-trip",
+        "jobs.py",
+        'return self.avg != "weighted"',
+        "return False",
+    ),
+)
+
+# Gates about the REPOSITORY rather than about this package: no edit to a module here can
+# make them red, so leaving them in the coverage denominator would be dishonest in the other
+# direction -- a permanent UNKILLED that means nothing. They are exercised by failure
+# injection instead (add a CSV, `git add -f`, watch it go red), which is recorded in the PR.
+EXTERNAL_GATES: frozenset[str] = frozenset(
+    {
+        "test_no_csv_is_tracked_anywhere_in_the_repository",
+        "test_the_corpus_directory_is_ignored_by_git",
+        "test_the_manifest_and_readme_are_the_only_things_meant_to_be_committed",
+        # Reconciles the synthetic fixtures against a real export. On a machine without the
+        # gitignored corpus it skips, so it cannot be part of a coverage claim either.
+        "test_the_synthetic_raw_fixture_matches_a_real_export",
+    }
 )
 
 
@@ -285,18 +382,27 @@ def _bare(test_id: str) -> str:
 
 
 def _run_gates() -> tuple[int, set[str]]:
-    """Return (exit code, set of failing test ids)."""
+    """Return (exit code, set of failing gate names).
+
+    No `-q` here either, and for the same reason as `_all_gate_ids`: `addopts` supplies one,
+    a second makes it `-qq`, and `-qq` drops the `FAILED ...` lines that `-rf` exists to
+    print. The harness then saw a red run with an EMPTY failure set and under-counted which
+    gates each mutation killed -- which is the same class of defect as the one it is here to
+    find, in the instrument rather than in the code.
+    """
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", str(GATE), "-m", "slow", "-q", "--no-header", "-p",
+        [sys.executable, "-m", "pytest", str(GATE), "-m", "slow", "--no-header", "-p",
          "no:cacheprovider", "--tb=no", "-rf"],
         cwd=REPO,
         capture_output=True,
         text=True,
     )
-    failing = set(re.findall(r"^FAILED (\S+)", proc.stdout, re.M))
+    failing = set(re.findall(r"^FAILED \S*test_g_ffa_scrape\.py::(\S+)", proc.stdout, re.M))
+    if proc.returncode != 0 and not failing:
+        raise RuntimeError(f"a red run named no failures:\n{proc.stdout[-3000:]}")
     # Parametrised ids collapse to the function so a mutation killing one case counts for
     # the gate; the gate is the unit a reader cares about.
-    return proc.returncode, {f.split("[")[0] for f in failing}
+    return proc.returncode, {_bare(f) for f in failing}
 
 
 def _all_gate_ids() -> set[str]:
@@ -333,8 +439,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if baseline_code != 0:
         print(f"baseline is not green ({baseline_failures}); fix that before mutating")
         return 2
-    every_gate = _all_gate_ids()
-    print(f"baseline: green, {len(every_gate)} gates\n")
+    every_gate = _all_gate_ids() - EXTERNAL_GATES
+    print(f"baseline: green, {len(every_gate)} gates in scope "
+          f"({len(EXTERNAL_GATES)} external, injected instead)\n")
 
     killed: set[str] = set()
     survivors: list[str] = []

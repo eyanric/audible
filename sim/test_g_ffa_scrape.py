@@ -262,9 +262,17 @@ def test_the_filename_is_exactly_the_documented_shape() -> None:
     assert filename("raw", 2015, 1, "average") == "ffa_raw_2015_wk1_average.csv"
 
 
-def test_the_filename_is_deterministic() -> None:
+def test_the_filename_is_deterministic_and_sensitive_to_every_argument() -> None:
+    """Stability alone is satisfied by a function that returns a constant -- which would
+    overwrite the whole corpus into one file -- so sensitivity is asserted beside it."""
     calls = [filename("raw", 2022, 9, "robust") for _ in range(50)]
     assert len(set(calls)) == 1
+
+    base = filename("raw", 2022, 9, "robust")
+    assert filename("proj", 2022, 9, "robust") != base
+    assert filename("raw", 2023, 9, "robust") != base
+    assert filename("raw", 2022, 10, "robust") != base
+    assert filename("raw", 2022, 9, "average") != base
 
 
 def test_every_job_in_every_stage_has_a_unique_filename() -> None:
