@@ -57,3 +57,16 @@ jobs:
         env:
           AUDIBLE_UI_REQUIRED: "1"
         run: uv run pytest -rs
+
+      # THE GATES THAT KEEP PAID DATA OUT OF A PUBLIC REMOTE HAD NEVER RUN ON A PR.
+      # `testpaths = ["tests"]` and `-m "not slow"` both exclude sim/, so the step above
+      # collects zero tests from it -- and three of the gates in this file exist to assert
+      # that no subscription CSV is tracked anywhere in the repository. A gate that does not
+      # run asserts nothing, which is the same failure the suite above was added to prevent.
+      #
+      # Scoped to this ONE file rather than all of sim/: the other gates there are
+      # defect-reproduction gates with pinned-data dependencies CI does not carry, and a
+      # step that fails for an unrelated reason is a step people learn to ignore. The gates
+      # that read the gitignored corpus skip here and say so under -rs.
+      - name: ffa scraper gates
+        run: uv run pytest sim/test_g_ffa_scrape.py -m slow -rs
