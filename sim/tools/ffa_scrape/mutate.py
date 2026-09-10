@@ -101,8 +101,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "positions-missing-never-fires",
         "verify.py",
-        "missing = NINE_POSITIONS - set(report.positions)",
-        "missing = set()",
+        "    missing = CORE_POSITIONS - present",
+        "    missing = set()",
     ),
     Mutation(
         "idp-is-required-again",
@@ -312,8 +312,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "the-position-check-fires-on-a-complete-file",
         "verify.py",
-        "missing = NINE_POSITIONS - set(report.positions)",
-        'missing = {"XX"}',
+        "    missing = CORE_POSITIONS - present",
+        '    missing = {"XX"}',
     ),
     Mutation(
         "the-nine-positions-are-ten",
@@ -433,33 +433,32 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "the-runner-asks-for-weighted-whatever-the-job-says",
         "runner.py",
-        "driver.prepare(job.kind, job.year, job.week, job.avg)",
-        'driver.prepare(job.kind, job.year, job.week, "weighted")',
+        "            job.kind, job.year, job.week, job.avg,",
+        '            job.kind, job.year, job.week, "weighted",',
     ),
     # --- driver.py: the ORDER, which is the mechanism of the original defect -------------
+    # The ORIGINAL defect, restored exactly: skip the Settings trip for any weighted job on
+    # the strength of a year change that may not have happened. This is the logic the live
+    # probe caught serving `robust` for a `weighted` request.
     Mutation(
-        "the-aggregation-is-set-before-the-year",
+        "the-driver-goes-back-to-skipping-the-trip-for-weighted",
         "driver.py",
-        "        self.click_tab(TAB_PROJ)\n"
-        "        self.set_input(YEAR_INPUT, str(year), self.settles.after_year)\n"
-        "        self.set_input(WEEK_INPUT, str(week), self.settles.after_week)\n"
-        "\n"
-        '        if avg != "weighted":\n'
-        "            self.click_tab(TAB_SETTINGS)\n"
-        "            self.set_input(AVG_INPUT, avg, self.settles.after_avg)\n"
-        "            self.click_tab(TAB_PROJ)\n"
-        "            self._pause(self.settles.after_tab_proj)\n"
-        "            self.wait_idle()\n",
-        '        if avg != "weighted":\n'
-        "            self.click_tab(TAB_SETTINGS)\n"
-        "            self.set_input(AVG_INPUT, avg, self.settles.after_avg)\n"
-        "            self.click_tab(TAB_PROJ)\n"
-        "            self._pause(self.settles.after_tab_proj)\n"
-        "            self.wait_idle()\n"
-        "\n"
-        "        self.click_tab(TAB_PROJ)\n"
-        "        self.set_input(YEAR_INPUT, str(year), self.settles.after_year)\n"
-        "        self.set_input(WEEK_INPUT, str(week), self.settles.after_week)\n",
+        "if force_settings_trip or self._effective_avg != avg:",
+        'if avg != "weighted":',
+    ),
+    # The other half: a real year change no longer buys the reset, so every weighted job
+    # pays for a trip it does not need. Correct output, wrong cost model.
+    Mutation(
+        "a-year-change-no-longer-clears-the-effective-aggregation",
+        "driver.py",
+        "if year_before != str(year):",
+        "if False:",
+    ),
+    Mutation(
+        "the-year-is-read-back-as-whatever-we-are-about-to-write",
+        "driver.py",
+        "        year_before = self.read_input(YEAR_INPUT)",
+        "        year_before = str(year)",
     ),
     Mutation(
         "the-aggregation-is-set-without-the-settings-trip",
@@ -472,8 +471,26 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "weighted-pays-for-a-settings-trip-it-does-not-need",
         "driver.py",
-        '        if avg != "weighted":',
+        "        if force_settings_trip or self._effective_avg != avg:",
         "        if True:",
+    ),
+    Mutation(
+        "a-pending-message-queue-joins-the-stuck-set",
+        "driver.py",
+        '                and not name.startswith("$")',
+        "                and True",
+    ),
+    Mutation(
+        "everything-busy-is-stuck-immediately",
+        "driver.py",
+        "                and now - first >= self.settles.stuck_after",
+        "                and True",
+    ),
+    Mutation(
+        "the-session-regex-only-reads-the-relative-href",
+        "driver.py",
+        '_SESSION_RE = re.compile(r"(?:^|/)session/([^/?#]+)/")',
+        '_SESSION_RE = re.compile(r"^session/([^/?#]+)/")',
     ),
     Mutation(
         "the-per-write-read-back-is-dropped",
@@ -565,6 +582,14 @@ EXTERNAL_GATES: dict[str, str] = {
         "model control for behaviour 2; re-measured live by `probe`",
     "test_a_fresh_load_reads_2026_week_0_proj":
         "model control for the reload defaults; re-measured live by `probe`",
+    # META-GATES. These are about the GATE FILE, not about this package: one reads its own
+    # source and one inspects the test fixture's settles. No edit to a module here can make
+    # either fail, and both are injected instead -- add a bare `driver_mod.Settles()` to the
+    # gate file and watch them go red.
+    "test_no_offline_gate_sleeps_through_a_production_settle":
+        "about the gate file's own fixture; injected by un-zeroing INSTANT",
+    "test_this_module_never_builds_a_settles_with_production_defaults":
+        "reads the gate file's own source; injected by adding a bare Settles(",
 }
 
 
@@ -632,6 +657,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     if baseline_code != 0:
         print(f"baseline is not green ({baseline_failures}); fix that before mutating")
         return 2
+    # FAIL FAST ON STALE PATTERNS. A mutation whose `old` no longer appears in its target
+    # tests nothing, and the source moves under these constantly -- splitting the position
+    # check and adding effective-aggregation tracking stranded five of them at once. They
+    # were reported as SURVIVORS, which is the right conservative call, but only after a
+    # full sweep. Checking up front names all of them in a second.
+    stale = []
+    for mutation in MUTATIONS:
+        count = mutation.path.read_text(encoding="utf-8").count(mutation.old)
+        if count != 1:
+            stale.append(f"{mutation.name} ({mutation.target}): matches {count}x, want 1")
+    if stale:
+        print("stale or ambiguous mutation patterns -- these test nothing:")
+        for line in stale:
+            print(f"  {line}")
+        return 2
+
     collected = _all_gate_ids()
     stale = sorted(set(EXTERNAL_GATES) - collected)
     if stale:
