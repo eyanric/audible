@@ -73,19 +73,30 @@ def cmd_login(args: argparse.Namespace) -> int:
         driver = ShinyDriver(page, Settles())
         print(f"opening {APP_URL} -- sign in yourself; this tool never handles a password.")
         driver.establish(expect_login=False)
+        print(f"waiting up to {args.wait / 60:.0f} minutes for the download control to "
+              f"stop reading {LOCKED_TEXT!r}.")
+
+        # NEVER reload while a human is typing. An earlier version of this polled with a
+        # `page.reload()` every two seconds, which would have wiped the login form mid
+        # password. The control is a Shiny output and updates reactively, so polling its
+        # text is enough; the page may also navigate during sign-in, and a read that throws
+        # is a page in transit rather than a failure.
         deadline = time.time() + args.wait
+        last = None
         while time.time() < deadline:
-            _, text = driver.download_control()
+            try:
+                _, text = driver.download_control()
+            except Exception:  # noqa: BLE001 -- mid-navigation reads throw; keep waiting
+                text = None
+            if text and text != last:
+                print(f"  control reads {text!r}")
+                last = text
             if text and text != LOCKED_TEXT:
-                print(f"logged in: the download control reads {text!r}")
-                print(f"profile saved at {args.profile}")
+                print(f"logged in. profile saved at {args.profile}")
                 context.close()
                 return 0
-            time.sleep(2.0)
-            page.reload(wait_until="domcontentloaded")
-            page.wait_for_selector("a#projections_page-proj-download_projections-download",
-                                   timeout=60_000)
-        print(f"gave up after {args.wait}s; the control still reads {LOCKED_TEXT!r}")
+            time.sleep(3.0)
+        print(f"gave up after {args.wait}s; the control last read {last!r}")
         context.close()
         return 1
 
