@@ -443,3 +443,91 @@ was famous enough to be exported".
 **Zero, exactly, in all six folds, and the RWRE is unchanged to three decimals.** The model
 correctly refuses an information-free input — which is the thing `audible#85`'s search could not
 do, where a sha256 bought 42% of the apparent gain.
+
+
+---
+
+## PHASE 4 — `ngs_separation` does NOT hold. Four independent lines, all the same way.
+
+It was the only calibrated resolution this project had produced: p = 0.049 at WR in
+`audible#88`, fitted weight +0.05 in all six folds, the only term whose weight never flipped
+sign. **It does not survive the phase-1 metric fix.** A wrong call here is expensive, so all
+four tests are reported, including the one that is merely suggestive.
+
+### 1. the verdict itself
+
+    signal     -0.558 [-1.394, +0.322]
+    floor      +0.254 [-0.699, +1.288]
+    difference -0.812 [-1.845, +0.325]      bootstrap: not resolved
+    reference-set p 0.074 over 80 draws     floor of the test 0.0247
+    -> NOT RESOLVED
+
+`audible#88` read p = 0.049 at K=40 under the broken per-position metric. Under the fixed metric
+at K=80 it is **0.074**. The fitted weight is still +0.05 in all six folds, which remains the
+most stable thing about it.
+
+### 2. the effect exists at exactly one pool size
+
+    N = 21 (half)     signal +0.349    per season +0.00 +0.71 +1.01 +0.00 +0.37 +0.00
+    N = 43 (config)   signal -0.558    per season -1.82 +1.17 -1.14 -0.46 +0.47 -1.56
+    N = 86 (double)   signal +0.000    per season +0.00 +0.00 +0.00 +0.00 +0.00 +0.00
+
+**The sign flips.** At half the pool separation is a *harm*; at double it is declined outright —
+the LOSO fit chooses lambda = 0 in every fold. Phase 1 established that N can decide the sign of
+a term that carries information, and required every per-position conclusion to survive the
+sweep. This one does not survive it at all.
+
+That also explains why `audible#88` saw it: the broken metric's WR slice held 37–47 players,
+which is close to the config N of 43 — the one place the effect is visible.
+
+### 3. it does not help the same players twice — the single most diagnostic result
+
+A real mechanism should move the same receivers the same way in different seasons. Per-player
+rank-error improvement, correlated across every pair of seasons for the receivers common to both:
+
+    2019/2020 -0.341   2019/2021 +0.077   2019/2022 -0.159   2020/2021 -0.274
+    2020/2022 -0.055   2020/2024 +0.210   2021/2022 -0.145   2021/2024 -0.057
+    2021/2025 +0.083   2022/2024 -0.086   2022/2025 -0.022   2024/2025 +0.079
+
+    mean pairwise r -0.058 over 12 pairs; POSITIVE IN ONLY 4 OF 12
+
+**There is no player-level persistence at all.** Whoever separation helps in one season is not
+who it helps in the next. A physical measurement of how open a receiver gets should not behave
+like that if it were carrying a durable property of the receiver.
+
+### 4. leave-two-seasons-out, over every pair rather than the convenient one
+
+    all six seasons                     -0.558   p 0.074
+    without 2020 and 2024               -1.246   p 0.025
+    without 2021 and 2025               -0.160   p 0.346   <== the pair audible#88 dropped
+    without 2019 and 2025               +0.008   p 0.420   <== the worst pair
+    14 of 15 pairs leave it negative
+
+The concentration is real but it is **not the pair `audible#88` identified**. Under the fixed
+metric the largest single contributor is 2019 (−1.82), not 2021. **Which seasons carry the
+effect changed when the metric was corrected**, which is itself evidence that what is being
+measured is not stable.
+
+### the one thing that looked like a mechanism
+
+    correlation of the per-season delta with, over six seasons:
+      charted count            r = -0.862      <== the only |r| above the noise threshold
+      WR pool size             r = +0.434
+      separation sd            r = -0.425
+      realised WR VORP sd      r = +0.328
+
+More charted receivers, more benefit. That is a plausible mechanism — more coverage, more
+signal. It is also **six points with four correlations examined**, where |r| below about 0.81 is
+indistinguishable from zero. It is recorded as a lead for a session with more seasons, not as a
+finding.
+
+### DISPOSITION: REVERTED
+
+Not "unresolved, promising" — **reverted**. p = 0.074 under the corrected metric; the sign flips
+across pool size and vanishes at the largest; there is no player-level persistence; and the
+seasons that carry it moved when the metric was fixed. That is four independent ways of saying
+the same thing.
+
+**This project now has zero resolved signals.** `audible#88`'s two resolutions were
+`ngs_separation` at WR and `ngs_time_to_throw` at QB, both at p = 0.049 against a K=40 floor
+drawn under the broken metric. The first is reverted here. The second is re-decided in phase 5.

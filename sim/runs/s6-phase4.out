@@ -1,0 +1,79 @@
+seasons (2019, 2020, 2021, 2022, 2024, 2025)   floor draws 80
+
+==============================================================================
+1. THE VERDICT, against the K=80 floor drawn under the FIXED metric
+==============================================================================
+  signal     -0.558 [-1.394, +0.322] sd 0.438
+  floor      +0.254 [-0.699, +1.288] sd 0.484
+  difference -0.812 [-1.845, +0.325] sd 0.555   bootstrap: not resolved
+  reference-set p 0.074 over 80 draws  (floor of the test 0.0247)
+  -> NOT resolved
+  audible#88 read p = 0.049 at K=40 under the BROKEN per-position metric
+  fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: 0.05, 2024: 0.05, 2025: 0.05}
+  per season 2019:-1.82  2020:+1.17  2021:-1.14  2022:-0.46  2024:+0.47  2025:-1.56
+
+  ACROSS N -- phase 1 showed N can decide a sign for a term that carries
+  information, so the verdict has to survive the sweep to be a verdict:
+    half    WR N= 21   signal +0.349   per season +0.00  +0.71  +1.01  +0.00  +0.37  +0.00
+    config  WR N= 43   signal -0.558   per season -1.82  +1.17  -1.14  -0.46  +0.47  -1.56
+    double  WR N= 86   signal +0.000   per season +0.00  +0.00  +0.00  +0.00  +0.00  +0.00
+
+==============================================================================
+2. DOES THE PER-SEASON EFFECT TRACK ANYTHING MEASURABLE ABOUT THE SEASON?
+==============================================================================
+  2019  delta  -1.82   WRs 188  charted  89 ( 47%)   separation sd 0.447   realised WR VORP sd   3.57
+  2020  delta  +1.17   WRs 188  charted  83 ( 44%)   separation sd 0.398   realised WR VORP sd   3.48
+  2021  delta  -1.14   WRs 185  charted  91 ( 49%)   separation sd 0.474   realised WR VORP sd   3.46
+  2022  delta  -0.46   WRs 185  charted  89 ( 48%)   separation sd 0.597   realised WR VORP sd   3.36
+  2024  delta  +0.47   WRs 186  charted  81 ( 44%)   separation sd 0.442   realised WR VORP sd   3.57
+  2025  delta  -1.56   WRs 178  charted  91 ( 51%)   separation sd 0.537   realised WR VORP sd   3.17
+
+  correlation of the per-season delta with, over six seasons:
+    WR pool size             r = +0.434
+    charted count            r = -0.862
+    separation sd            r = -0.425
+    realised WR VORP sd      r = +0.328
+  SIX POINTS. Any |r| below about 0.81 is not distinguishable from zero here, and
+  four correlations were examined, so this is descriptive rather than a test.
+
+==============================================================================
+3. DOES SEPARATION HELP THE SAME PLAYERS ACROSS SEASONS?
+==============================================================================
+  A real mechanism should move the same receivers the same way. Noise should not.
+    2019 vs 2020: n= 30  r = -0.341
+    2019 vs 2021: n= 23  r = +0.077
+    2019 vs 2022: n= 17  r = -0.159
+    2020 vs 2021: n= 28  r = -0.274
+    2020 vs 2022: n= 21  r = -0.055
+    2020 vs 2024: n= 15  r = +0.210
+    2021 vs 2022: n= 28  r = -0.145
+    2021 vs 2024: n= 21  r = -0.057
+    2021 vs 2025: n= 18  r = +0.083
+    2022 vs 2024: n= 27  r = -0.086
+    2022 vs 2025: n= 20  r = -0.022
+    2024 vs 2025: n= 27  r = +0.079
+
+  mean pairwise r -0.058 over 12 pairs; positive in 4/12
+
+==============================================================================
+4. LEAVE-TWO-SEASONS-OUT, over EVERY pair rather than the convenient one
+==============================================================================
+  all six seasons: -0.558
+    without 2020 and 2024: -1.246   reference-set p 0.025
+    without 2020 and 2022: -1.012   reference-set p 0.025
+    without 2020 and 2021: -0.842   reference-set p 0.049
+    without 2022 and 2024: -0.839   reference-set p 0.049
+    without 2020 and 2025: -0.738   reference-set p 0.074
+    without 2019 and 2020: -0.674   reference-set p 0.049
+    without 2021 and 2024: -0.669   reference-set p 0.074
+    without 2024 and 2025: -0.564   reference-set p 0.123
+    without 2019 and 2024: -0.500   reference-set p 0.074
+    without 2021 and 2022: -0.435   reference-set p 0.123
+    without 2022 and 2025: -0.330   reference-set p 0.198
+    without 2019 and 2022: -0.266   reference-set p 0.099
+    without 2021 and 2025: -0.160   reference-set p 0.346  <== the pair audible#88 dropped
+    without 2019 and 2021: -0.096   reference-set p 0.198
+    without 2019 and 2025: +0.008   reference-set p 0.420
+
+  WORST pair: without 2019 and 2025 the effect is +0.008
+  14/15 pairs leave it negative
