@@ -206,7 +206,30 @@ recorded size sits beside it.
 ## Coverage
 
 See `COVERAGE.md` beside this file, regenerated from the manifest by
-`uv run python -m sim.tools.ffa_scrape status --gaps`. **Gaps are named, never substituted.**
+`uv run python -m sim.tools.ffa_scrape status --write-coverage`. **Gaps are named, never
+substituted.**
+
+### The one gap: 2020 week 17
+
+Not a scraper failure. FFA has no usable data for that scope, and says so three different
+ways. Measured against controls either side:
+
+```
+raw  2020 wk16 weighted  200  170355 B  521 rows  all 9 positions   fine
+raw  2020 wk17 weighted  200      23 B    1 row   1 column, head "x"
+raw  2020 wk17 average   200    1577 B    3 rows  DB, DL, LB only
+proj 2020 wk17 weighted  500     223 B  "An error has occurred"
+raw  2020 wk18 weighted  200   80840 B  238 rows  all 9 positions   fine
+raw  2021 wk17 weighted  200  225808 B  623 rows  all 9 positions   fine
+```
+
+Week 16 and playoff week 18 are both healthy, and week 17 of the next season is healthy.
+The `weighted` response is a degenerate one-column frame; the `average` response is a
+well-formed 65-column CSV holding three defensive players and nothing else; `proj` returns
+a 500. The verifier rejected all three, which is the correct outcome for each.
+
+**Do not substitute week 16 or 18 for it.** A weekly model that silently fills this in is
+modelling a week that FFA never projected.
 
 ## Do not extend the window before 2018
 
