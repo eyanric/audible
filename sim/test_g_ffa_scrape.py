@@ -2201,3 +2201,84 @@ def test_no_live_session_identifier_is_committed() -> None:
         text = (_REPO / name).read_text(encoding="utf-8", errors="ignore")
         for token in captured:
             assert token not in text, f"{name} carries a captured session identifier"
+
+
+# ---------------------------------------------------------------------------------------
+# A PLAYWRIGHT ERROR IS A LOST SESSION WEARING SOMEONE ELSE'S TYPE.
+#
+# The first guard for this was `except (SessionLost, Recoverable)`, where Recoverable was a
+# class whose metaclass `__instancecheck__` matched on `__name__`. It was INERT: CPython
+# matches except clauses through PyType_IsSubtype, which never consults __instancecheck__,
+# so `isinstance(exc, Recoverable)` answered True while the clause let the exception
+# straight through. The guard silently reverted to `except SessionLost` and the defect it
+# was written to fix was still there.
+#
+# Nothing caught that, because every session-loss gate injects SessionLost -- which matches
+# by real subtyping and exercises only the half that already worked. These raise types that
+# are NOT SessionLost subclasses, which is the whole point.
+# ---------------------------------------------------------------------------------------
+
+
+class PlaywrightishError(Exception):
+    """Stands in for playwright's `Error`, whose __name__ is exactly 'Error'."""
+
+
+PlaywrightishError.__name__ = "Error"
+
+
+class PlaywrightishTimeout(Exception):
+    pass
+
+
+PlaywrightishTimeout.__name__ = "TimeoutError"
+
+
+class UnrelatedError(Exception):
+    """Not a name the driver knows. Must NOT be swallowed."""
+
+
+@pytest.mark.parametrize("boom", [PlaywrightishError, PlaywrightishTimeout])
+def test_a_playwright_error_is_recovered_from_not_fatal(
+    boom: type[Exception], tmp_path: Path
+) -> None:
+    """The exact failure that ended stage 2 eight files in: a modal intercepted a tab click
+    and the resulting TimeoutError escaped run_jobs, killing the run with seven good files
+    on disk and nothing recorded to say why."""
+    job = Job(kind="raw", year=2020, week=0, avg="weighted")
+    fake, result = _run(
+        {job.filename: [boom, raw_csv(avg_type="weighted", season_year="2020", week_col="0")]},
+        [job],
+        tmp_path,
+    )
+    assert fake.establishes == 1, "the session was not re-established"
+    assert result.recoveries == 1
+    assert result.completed == [job.filename], result.failed
+
+
+def test_an_unknown_exception_still_kills_the_run(tmp_path: Path) -> None:
+    """CONTROL, and the reason this is a NAME list rather than `except Exception`. A guard
+    that swallowed everything would turn a genuine bug into an infinite retry loop against
+    someone else's server."""
+    job = Job(kind="raw", year=2020, week=0, avg="weighted")
+    with pytest.raises(UnrelatedError):
+        _run({job.filename: [UnrelatedError, UnrelatedError]}, [job], tmp_path)
+
+
+def test_a_lapsed_login_is_never_treated_as_recoverable(tmp_path: Path) -> None:
+    """NotLoggedIn is the one failure a human has to fix. Retrying it 600 times against
+    someone else's server is the opposite of helpful."""
+    assert not runner.is_recoverable(driver_mod.NotLoggedIn("locked"))
+    job = Job(kind="raw", year=2020, week=0, avg="weighted")
+    with pytest.raises(driver_mod.NotLoggedIn):
+        _run({job.filename: [driver_mod.NotLoggedIn]}, [job], tmp_path)
+
+
+def test_the_recoverable_check_is_not_an_except_clause_trick() -> None:
+    """The mechanism, pinned. `isinstance` and except-clause matching disagree for a class
+    with a custom __instancecheck__, and this code must not depend on the latter."""
+    assert runner.is_recoverable(PlaywrightishError("navigation"))
+    assert runner.is_recoverable(driver_mod.SessionLost("gone"))
+    assert not runner.is_recoverable(UnrelatedError("real bug"))
+    assert not hasattr(runner, "Recoverable"), (
+        "the inert metaclass class is back; except clauses do not consult __instancecheck__"
+    )

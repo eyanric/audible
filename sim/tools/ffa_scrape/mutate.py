@@ -430,6 +430,24 @@ MUTATIONS: tuple[Mutation, ...] = (
         "return result.text, reasons",
     ),
     Mutation(
+        "playwright-errors-are-fatal-again",
+        "runner.py",
+        "                if not is_recoverable(exc):",
+        "                if not isinstance(exc, SessionLost):",
+    ),
+    Mutation(
+        "every-exception-is-recoverable",
+        "runner.py",
+        "                if not is_recoverable(exc):",
+        "                if False:",
+    ),
+    Mutation(
+        "the-recoverable-name-list-is-empty",
+        "runner.py",
+        'RECOVERABLE_NAMES = frozenset({"TimeoutError", "Error", "TargetClosedError"})',
+        "RECOVERABLE_NAMES = frozenset()",
+    ),
+    Mutation(
         "there-is-no-retry",
         "runner.py",
         "for scale in (1.0, RETRY_SCALE):",

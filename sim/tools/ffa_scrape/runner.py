@@ -48,16 +48,21 @@ MAX_CONSECUTIVE_RECOVERIES = 5
 RECOVERABLE_NAMES = frozenset({"TimeoutError", "Error", "TargetClosedError"})
 
 
-class _RecoverableByName(type):
-    def __instancecheck__(cls, obj: object) -> bool:
-        return type(obj).__name__ in RECOVERABLE_NAMES
+def is_recoverable(exc: BaseException) -> bool:
+    """Is this a lost session wearing someone else's exception type?
 
+    CHECKED AFTER THE CATCH, NEVER IN THE except CLAUSE. The first version of this was a
+    class with a metaclass `__instancecheck__` matching on `__name__`, used as
+    `except (SessionLost, Recoverable)`. It was INERT: CPython matches except clauses
+    through PyType_IsSubtype, which never consults `__instancecheck__` -- the same reason
+    an ABC virtual subclass cannot be caught. `isinstance(exc, Recoverable)` answered True
+    while the except clause let the exception straight through, so the guard silently
+    reverted to `except SessionLost` and the defect it was written to fix was still there.
 
-class Recoverable(Exception, metaclass=_RecoverableByName):
-    """Never raised. Exists so `except (SessionLost, Recoverable)` reads as intended."""
-
-
-RECOVERABLE: tuple[type[BaseException], ...] = (Recoverable,)
+    No gate caught that, because every session-loss gate injects SessionLost, which matches
+    by real subtyping and exercises only the half that worked.
+    """
+    return isinstance(exc, SessionLost) or type(exc).__name__ in RECOVERABLE_NAMES
 
 
 @dataclass
@@ -198,7 +203,9 @@ def run_jobs(
                     consecutive_recoveries = 0
             except NotLoggedIn:
                 raise
-            except (SessionLost, *RECOVERABLE) as exc:
+            except Exception as exc:
+                if not is_recoverable(exc):
+                    raise
                 consecutive_recoveries += 1
                 result.recoveries += 1
                 log(f"    {type(exc).__name__} ({exc}); re-establishing "
