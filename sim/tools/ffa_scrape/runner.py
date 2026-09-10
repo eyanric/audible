@@ -115,7 +115,7 @@ def _attempt(
             if reasons:
                 return None, [f"witness-{r}" for r in reasons], None
             witness_sha = sha256_of(witness.text)
-            driver.switch_kind("proj")
+            driver.switch_kind("proj", job.year, job.week)
         result = driver.fetch_payload()
     finally:
         driver.settles = original

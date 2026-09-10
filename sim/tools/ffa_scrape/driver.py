@@ -206,19 +206,42 @@ _READY_JS = f"""
 #
 # The fix is not a longer timeout. It is to READ the thing and close it: a modal is the app
 # trying to say something, and whatever it says belongs in the log.
-_MODAL_JS = """
+# READ ONLY. Separate from the dismiss below because a probe that also clicks cannot be
+# used to ask "did it close?" -- it would dismiss whatever is up now, and report on a modal
+# it had itself just actuated. The first version conflated them.
+_MODAL_PROBE_JS = """
 () => {
   const modal = document.querySelector('#shiny-modal.show, #shiny-modal-wrapper .modal.show');
-  if (!modal) return {present: false, text: null, closed: false};
+  if (!modal) return {present: false, text: null, dismissible: false};
   const text = (modal.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400);
-  // A JS click bypasses the pointer interception that defeated the real one. Try the
-  // documented dismiss controls first, then any button in the footer, then the header X.
-  const button = modal.querySelector(
-    '[data-dismiss="modal"], [data-bs-dismiss="modal"], .btn-close, ' +
-    '.modal-footer button, .modal-header button'
-  );
-  if (button) { button.click(); return {present: true, text: text, closed: true}; }
-  return {present: true, text: text, closed: false};
+  const selectors = [
+    '[data-dismiss="modal"]', '[data-bs-dismiss="modal"]', '.btn-close',
+    '.modal-footer button', '.modal-header button'
+  ];
+  return {present: true, text: text,
+          dismissible: selectors.some(s => modal.querySelector(s) !== null)};
+}
+"""
+
+# THE ACTUATOR. A JS click bypasses the pointer interception that defeated the real one.
+#
+# The selectors are tried IN ORDER, one querySelector each. A single comma-separated
+# querySelector returns the first match in DOCUMENT order, not the first matching selector
+# -- so the priority the comment claimed was not the priority the code had, and a modal
+# whose header X precedes its footer Close in the DOM was dismissed by the X.
+_MODAL_DISMISS_JS = """
+() => {
+  const modal = document.querySelector('#shiny-modal.show, #shiny-modal-wrapper .modal.show');
+  if (!modal) return {clicked: false, via: null};
+  const selectors = [
+    '[data-dismiss="modal"]', '[data-bs-dismiss="modal"]', '.btn-close',
+    '.modal-footer button', '.modal-header button'
+  ];
+  for (const selector of selectors) {
+    const button = modal.querySelector(selector);
+    if (button) { button.click(); return {clicked: true, via: selector}; }
+  }
+  return {clicked: false, via: null};
 }
 """
 
@@ -308,6 +331,14 @@ class ShinyDriver:
             if not busy:
                 return
             now = time.time()
+            # CONTINUITY, not cumulative appearance. An output that resolves and then
+            # legitimately starts a second recalculation must have its clock restarted --
+            # otherwise it is reclassified as one that "never resolves" on the strength of
+            # two short busy spells separated by an idle one, and the docstring above
+            # ("stays continuously busy") describes something the code was not doing.
+            for name in list(since):
+                if name not in busy:
+                    del since[name]
             for name in busy:
                 since.setdefault(name, now)
             newly_stuck = {
@@ -358,17 +389,25 @@ class ShinyDriver:
         Whatever the modal says is logged: it is the app talking, and this run has already
         been surprised once by something nobody wrote down.
         """
-        state = self.page.evaluate(_MODAL_JS)
+        state = self.page.evaluate(_MODAL_PROBE_JS)
         if not state["present"]:
             return None
         text = state["text"]
         self.log(f"    modal: {text!r}")
-        if not state["closed"]:
+        if not state["dismissible"]:
             raise ModalBlocked(f"a modal is up and has no dismiss control: {text!r}")
+        self.page.evaluate(_MODAL_DISMISS_JS)
         self._pause(self.settles.action)
-        still = self.page.evaluate(_MODAL_JS)
+
+        # Re-PROBE, never re-dismiss. And name whatever is up NOW: a second modal behind the
+        # first is a different message, and reporting the one we just closed would send a
+        # reader looking for the wrong thing.
+        still = self.page.evaluate(_MODAL_PROBE_JS)
         if still["present"]:
-            raise ModalBlocked(f"a modal would not close: {text!r}")
+            raise ModalBlocked(
+                f"a modal is still up after dismissing {text!r}; it now reads "
+                f"{still['text']!r}"
+            )
         self.wait_idle()
         return text
 
@@ -439,6 +478,13 @@ class ShinyDriver:
                 "by hand -- this tool never handles the password."
             )
         self._session_token = self.session_token()
+        if self._session_token is None:
+            # Without a token, assert_same_session degrades to a presence check for the
+            # WHOLE RUN -- it would only ever notice the control disappearing, never the
+            # session being replaced under it. Refuse the session rather than run blind.
+            raise SessionLost(
+                f"the download control carries no session id: href={href!r}"
+            )
         # A re-established session is a new session. Nothing is remembered
         # about what it will serve.
         self._effective_avg = None
@@ -493,21 +539,9 @@ class ShinyDriver:
             self._effective_avg = avg
 
         self.set_input(KIND_INPUT, kind, self.settles.after_kind)
+        self._assert_scope(year, week, kind, avg=avg)
 
-        # Read every input back TOGETHER at the end. Each was checked when it was written,
-        # but a session that dropped between two writes would have silently reset the first.
-        seen = {
-            YEAR_INPUT: self.read_input(YEAR_INPUT),
-            WEEK_INPUT: self.read_input(WEEK_INPUT),
-            KIND_INPUT: self.read_input(KIND_INPUT),
-        }
-        wanted = {YEAR_INPUT: str(year), WEEK_INPUT: str(week), KIND_INPUT: kind}
-        drifted = {k: (seen[k], wanted[k]) for k in wanted if seen[k] != wanted[k]}
-        if drifted:
-            raise SessionLost(f"inputs drifted before the fetch: {drifted}")
-        self.assert_same_session()
-
-    def switch_kind(self, kind: str) -> None:
+    def switch_kind(self, kind: str, year: int, week: int) -> None:
         """Change only the file type, leaving year, week and aggregation where they are.
 
         This is what makes a `proj` file verifiable. A proj export carries no `avg_type`
@@ -516,8 +550,45 @@ class ShinyDriver:
         true of a proj file fetched ALONE. Fetch the raw file from the same session state
         first, read its fifth column, and the aggregation is witnessed: the proj file that
         follows differs only in this one input.
+
+        THE FULL READ-BACK RUNS HERE TOO, and it matters more here than anywhere else. A
+        proj payload carries no `season_year` or `week` column either -- its 22 columns are
+        player, position, team, bye_week, points, ... -- so `verify_payload`'s scope check
+        is blind to it. This read-back is the ONLY thing standing between a session that
+        dropped between the witness and the proj fetch and a 2026 week 0 file written under
+        a 2019 name. An earlier version re-read the file type alone and leaned on the
+        session token, which is exactly the assumption the rest of `prepare` refuses to make.
         """
         self.set_input(KIND_INPUT, kind, self.settles.after_kind)
+        self._assert_scope(year, week, kind)
+
+    def _assert_scope(
+        self, year: int, week: int, kind: str, *, avg: str | None = None
+    ) -> None:
+        """Re-read every input TOGETHER, then confirm the session is the same one.
+
+        Each input was checked when it was written, but a session that dropped between two
+        writes would have silently reset the earlier ones while the later one landed on a
+        fresh page and read back correctly.
+
+        `avg` is included when the caller knows what the widget should say. An earlier
+        version left it out while the comment claimed "every input" -- and the aggregation
+        is the one whose corruption is the defect this whole tool exists to prevent. It is
+        a weaker check than the others by nature: the widget can read `average` while the
+        server still serves `weighted` (behaviour 2), so agreement proves nothing on its
+        own. DISAGREEMENT still proves the session moved under us, which is what this is for.
+        """
+        wanted: dict[str, str] = {
+            YEAR_INPUT: str(year),
+            WEEK_INPUT: str(week),
+            KIND_INPUT: kind,
+        }
+        if avg is not None:
+            wanted[AVG_INPUT] = avg
+        seen = {name: self.read_input(name) for name in wanted}
+        drifted = {k: (seen[k], wanted[k]) for k in wanted if seen[k] != wanted[k]}
+        if drifted:
+            raise SessionLost(f"inputs drifted before the fetch: {drifted}")
         self.assert_same_session()
 
     def fetch_payload(self) -> FetchResult:

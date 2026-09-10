@@ -127,11 +127,19 @@ def plan(
     jobs: Iterable[Job],
     done: Mapping[str, ManifestEntry],
     on_disk: Mapping[str, int],
+    digests: Mapping[str, str] | None = None,
 ) -> list[Job]:
     """The jobs still to run: those the manifest and the disk do not BOTH vouch for.
 
-    `on_disk` is a filename -> size mapping rather than a directory, so this stays pure and
-    a test can drive it without a filesystem.
+    `on_disk` is a filename -> size mapping and `digests` a filename -> sha256 mapping,
+    rather than a directory, so this stays pure and a test can drive it without a
+    filesystem.
+
+    SIZE IS NOT EVIDENCE OF CONTENT. The manifest entry already carries a sha256; vouching
+    for a file on length alone means a right-sized wrong-content file is skipped forever and
+    reported as Complete -- and "the corpus is complete" is precisely the claim this tool
+    exists to make truthfully. `digests` is optional only so a caller that genuinely cannot
+    hash (a test) can say so explicitly; the CLI always passes it.
     """
     queued: list[Job] = []
     seen: set[str] = set()
@@ -141,7 +149,10 @@ def plan(
             continue
         seen.add(name)
         entry = done.get(name)
-        if entry is not None and on_disk.get(name) == entry.bytes:
+        if entry is None or on_disk.get(name) != entry.bytes:
+            queued.append(job)
             continue
-        queued.append(job)
+        if digests is not None and digests.get(name) != entry.sha256:
+            queued.append(job)
+            continue
     return queued

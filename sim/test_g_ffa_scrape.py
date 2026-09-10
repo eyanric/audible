@@ -901,6 +901,8 @@ class FakeShinyPage:
         # and its backdrop intercepts pointer events -- a real click just times out.
         self.modal: str | None = None
         self.modal_dismissible = True
+        self.dismissals = 0
+        self.evaluate_href_override: dict | None = None
 
     # -- playwright surface -------------------------------------------------------------
 
@@ -932,14 +934,22 @@ class FakeShinyPage:
         self.tab = tab
 
     def evaluate(self, script: str, arg: object = None) -> object:
-        if script is driver_mod._MODAL_JS:
+        if script is driver_mod._MODAL_PROBE_JS:
+            # READ ONLY. The probe must never dismiss, or "did it close?" becomes a second
+            # dismissal and the driver reports on a modal it just actuated.
             if self.modal is None:
-                return {"present": False, "text": None, "closed": False}
-            text = self.modal
-            if self.modal_dismissible:
+                return {"present": False, "text": None, "dismissible": False}
+            return {
+                "present": True,
+                "text": self.modal,
+                "dismissible": self.modal_dismissible,
+            }
+        if script is driver_mod._MODAL_DISMISS_JS:
+            if self.modal is not None and self.modal_dismissible:
                 self.modal = None
-                return {"present": True, "text": text, "closed": True}
-            return {"present": True, "text": text, "closed": False}
+                self.dismissals += 1
+                return {"clicked": True, "via": '[data-dismiss="modal"]'}
+            return {"clicked": False, "via": None}
         if script is driver_mod._BUSY_JS:
             # MEASURED on the live app: five outputs on tabs this run never opens stay
             # `.recalculating` forever. The model carries them, so a driver that waits for
@@ -968,6 +978,8 @@ class FakeShinyPage:
                 self.session = "s2"
             return True
         if script is driver_mod._HREF_JS:
+            if self.evaluate_href_override is not None:
+                return self.evaluate_href_override
             # MEASURED: relative, no worker prefix. The absolute form the driver was first
             # written against does not occur.
             return {
@@ -1671,7 +1683,7 @@ def test_the_witness_and_the_proj_file_differ_in_exactly_one_input() -> None:
     driver.establish()
     driver.prepare("raw", 2021, 0, "average")
     before = dict(page.inputs)
-    driver.switch_kind("proj")
+    driver.switch_kind("proj", 2021, 0)
     after = dict(page.inputs)
     changed = {k for k in after if after[k] != before[k]}
     assert changed == {driver_mod.KIND_INPUT}, changed
@@ -1761,13 +1773,13 @@ def test_a_modal_that_reappears_immediately_is_not_treated_as_closed() -> None:
 
     def evaluate(script: str, arg: object = None) -> object:
         result = original(script, arg)
-        if script is driver_mod._MODAL_JS:
+        if script is driver_mod._MODAL_DISMISS_JS:
             page.modal = "Please wait..."  # Shiny puts it straight back
         return result
 
     page.evaluate = evaluate  # type: ignore[method-assign]
     driver = driver_mod.ShinyDriver(page, INSTANT, log=lambda _m: None)
-    with pytest.raises(driver_mod.ModalBlocked, match="would not close"):
+    with pytest.raises(driver_mod.ModalBlocked, match="still up after dismissing"):
         driver.clear_modal()
 
 
@@ -1895,3 +1907,169 @@ def test_every_file_in_the_corpus_passes_the_scope_check() -> None:
             failures += 1
     assert checked > 0, "corpus directory is present but empty"
     assert failures == 0, f"{failures} of {checked} corpus files fail verification"
+
+
+# ---------------------------------------------------------------------------------------
+# Findings from the adversarial review, each now a gate. None of these was found by writing
+# the code or by running it; all of them were found by an agent trying to break it.
+# ---------------------------------------------------------------------------------------
+
+
+def test_appending_after_a_torn_tail_does_not_swallow_the_next_line(tmp_path: Path) -> None:
+    """load_manifest tolerates a half-written final line, but appending straight onto one
+    CONCATENATES with it: the good new line is swallowed into an unparseable one, and as
+    soon as a further line follows, that corruption is no longer last and load_manifest
+    raises on it -- turning one lost file into a manifest that will not load at all."""
+    path = tmp_path / manifest_mod.MANIFEST_NAME
+    jobs = jobs_mod.STAGES["season-raw"][:3]
+    append_entry(path, _entry(jobs[0]))
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text[: len(text) - 30], encoding="utf-8")  # the kill, mid-write
+
+    append_entry(path, _entry(jobs[1]))
+    append_entry(path, _entry(jobs[2]))
+
+    entries = load_manifest(path)  # must not raise
+    assert jobs[1].filename in entries, "the line after a torn tail was swallowed"
+    assert jobs[2].filename in entries
+
+
+def test_a_right_sized_wrong_content_file_is_re_fetched(tmp_path: Path) -> None:
+    """plan vouched for a file on LENGTH alone while the manifest entry it had just read
+    carried the sha256. A right-sized wrong-content file was skipped forever and reported
+    Complete -- and "the corpus is complete" is the claim this tool exists to make truthfully.
+    """
+    jobs = jobs_mod.STAGES["season-raw"][:3]
+    done = {job.filename: _entry(job) for job in jobs}
+    on_disk = {job.filename: 1234 for job in jobs}
+    digests = {job.filename: "0" * 64 for job in jobs}  # matches _entry's sha256
+    assert plan(jobs, done, on_disk, digests) == []
+
+    digests[jobs[1].filename] = "f" * 64  # same size, different bytes
+    assert plan(jobs, done, on_disk, digests) == [jobs[1]]
+
+
+def test_plan_without_digests_still_works_but_says_less(tmp_path: Path) -> None:
+    """CONTROL. The digest argument is optional only so a caller that genuinely cannot hash
+    can say so; omitting it must not silently queue everything or silently skip everything."""
+    jobs = jobs_mod.STAGES["season-raw"][:3]
+    done = {job.filename: _entry(job) for job in jobs}
+    on_disk = {job.filename: 1234 for job in jobs}
+    assert plan(jobs, done, on_disk) == []
+    assert plan(jobs, done, {}) == jobs
+
+
+def test_switch_kind_re_reads_the_whole_scope_not_just_the_file_type() -> None:
+    """The proj fetch is the one payload verify_payload cannot scope-check -- a proj export
+    has no season_year or week column -- so this read-back is the only thing between a
+    session that dropped mid-witness and a 2026 wk0 file written under a 2019 name."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "average")
+    page.reset()  # the session drops between the witness and the proj fetch
+    with pytest.raises(driver_mod.SessionLost, match="drifted before the fetch"):
+        driver.switch_kind("proj", 2019, 0)
+
+
+def test_establish_refuses_a_session_with_no_token() -> None:
+    """Without a token, assert_same_session degrades to a presence check for the WHOLE RUN:
+    it would only ever notice the control disappearing, never the session being replaced."""
+    page = FakeShinyPage()
+    page.evaluate_href_override = {"found": True, "href": "download/x?w=1", "text": "Download"}
+    driver = _driver_on(page)
+    with pytest.raises(driver_mod.SessionLost, match="no session id"):
+        driver.establish()
+
+
+def test_the_combined_read_back_includes_the_aggregation() -> None:
+    """It omitted AVG_INPUT while its comment claimed "every input" -- and the aggregation
+    is the one whose corruption is the defect this whole tool exists to prevent."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "robust")
+    reads: list[str] = []
+    original = driver.read_input
+
+    def read(name: str) -> str | None:
+        reads.append(name)
+        return original(name)
+
+    driver.read_input = read  # type: ignore[method-assign]
+    driver.prepare("raw", 2020, 0, "robust")
+    assert driver_mod.AVG_INPUT in reads, reads
+
+
+def test_an_output_that_pauses_and_resumes_is_not_called_permanently_stuck(
+    monkeypatch,
+) -> None:
+    """wait_idle measured cumulative appearance, not continuity, so an output that resolved
+    and then legitimately started a SECOND recalculation was reclassified as one that never
+    resolves -- on the strength of two short busy spells separated by an idle one. The
+    docstring said "stays continuously busy"; the code did not."""
+    page = FakeShinyPage()
+    settles = replace(INSTANT, idle_timeout=30.0, stuck_after=4.0)
+    driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
+    driver.establish()
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(driver_mod.time, "time", lambda: clock["t"])
+    monkeypatch.setattr(
+        driver_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s)
+    )
+
+    flip = {"n": 0}
+    original = page.evaluate
+
+    def evaluate(script: str, arg: object = None) -> object:
+        if script is driver_mod._BUSY_JS:
+            flip["n"] += 1
+            # busy, busy, idle, busy, busy, then idle for good: never 4s continuously.
+            pattern = [True, True, False, True, True, False]
+            on = pattern[min(flip["n"] - 1, len(pattern) - 1)]
+            return {
+                "busy": [*page.stuck_outputs, *(["proj_table"] if on else [])],
+                "pending": 0,
+            }
+        return original(script, arg)
+
+    page.evaluate = evaluate  # type: ignore[method-assign]
+    driver.wait_idle()
+    assert "proj_table" not in driver._idle_baseline, (
+        "an output that paused and resumed was called permanently stuck"
+    )
+
+
+def test_the_modal_probe_never_dismisses() -> None:
+    """The probe and the dismiss were one script. Asking "did it close?" therefore CLOSED
+    whatever was up -- a second modal was dismissed without ever being logged, and the
+    driver reported on a modal it had itself actuated."""
+    page = FakeShinyPage()
+    page.modal = "Something"
+    driver = _driver_on(page)
+    state = driver.page.evaluate(driver_mod._MODAL_PROBE_JS)
+    assert state["present"] and state["dismissible"]
+    assert page.modal == "Something", "the probe dismissed the modal"
+    assert page.dismissals == 0
+
+
+def test_a_second_modal_is_named_rather_than_the_one_just_closed() -> None:
+    """ModalBlocked used to carry the text of the modal that HAD been dismissed, sending a
+    reader looking for the wrong message."""
+    page = FakeShinyPage()
+    page.modal = "First message"
+    original = page.evaluate
+
+    def evaluate(script: str, arg: object = None) -> object:
+        result = original(script, arg)
+        if script is driver_mod._MODAL_DISMISS_JS:
+            page.modal = "Second message"  # a different one behind it
+        return result
+
+    page.evaluate = evaluate  # type: ignore[method-assign]
+    driver = _driver_on(page)
+    with pytest.raises(driver_mod.ModalBlocked) as caught:
+        driver.clear_modal()
+    assert "Second message" in str(caught.value), caught.value
+    assert "First message" in str(caught.value), "the dismissed one should be named too"

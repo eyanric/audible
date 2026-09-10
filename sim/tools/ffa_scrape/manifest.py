@@ -94,8 +94,25 @@ def load_manifest(path: Path) -> dict[str, ManifestEntry]:
 
 
 def append_entry(path: Path, entry: ManifestEntry) -> None:
-    """Append one line and force it to disk before the caller believes the job is done."""
+    """Append one line and force it to disk before the caller believes the job is done.
+
+    HEAL A TORN TAIL FIRST. `load_manifest` tolerates a half-written final line, but
+    appending straight onto one CONCATENATES with it: the good new line is swallowed into
+    an unparseable one, and as soon as a further line follows, that corruption is no longer
+    the last line and `load_manifest` raises on it -- turning one lost file into a manifest
+    that will not load at all.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size:
+        raw = path.read_bytes()
+        if not raw.endswith(b"\n"):
+            # DROP the partial line, do not merely terminate it. `load_manifest` discards a
+            # torn tail because it describes a fetch nobody can vouch for; terminating it
+            # instead would leave an unparseable line that is no longer LAST, and
+            # `load_manifest` is deliberately strict about corruption anywhere else -- so
+            # the next append would turn one lost file into a manifest that will not load.
+            cut = raw.rfind(b"\n")
+            path.write_bytes(raw[: cut + 1] if cut != -1 else b"")
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(entry.as_json() + "\n")
         handle.flush()

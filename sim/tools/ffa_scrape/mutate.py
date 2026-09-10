@@ -264,20 +264,20 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "resume-trusts-the-manifest-without-the-disk",
         "jobs.py",
-        "if entry is not None and on_disk.get(name) == entry.bytes:",
-        "if entry is not None:",
+        "if entry is None or on_disk.get(name) != entry.bytes:",
+        "if entry is None:",
     ),
     Mutation(
         "resume-trusts-the-disk-without-the-size",
         "jobs.py",
-        "if entry is not None and on_disk.get(name) == entry.bytes:",
-        "if entry is not None and name in on_disk:",
+        "if entry is None or on_disk.get(name) != entry.bytes:",
+        "if entry is None or name not in on_disk:",
     ),
     Mutation(
         "resume-queues-everything",
         "jobs.py",
-        "if entry is not None and on_disk.get(name) == entry.bytes:\n            continue",
-        "if False:\n            continue",
+        "        if entry is None or on_disk.get(name) != entry.bytes:",
+        "        if True:",
     ),
     Mutation(
         "the-job-list-is-not-deduplicated",
@@ -413,8 +413,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "plan-queues-nothing-ever",
         "jobs.py",
-        "        queued.append(job)",
-        "        pass",
+        "    return queued",
+        "    return []",
     ),
     Mutation(
         "2026-is-refused-its-one-played-week",
@@ -578,8 +578,62 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "a-modal-that-reappears-is-treated-as-closed",
         "driver.py",
-        '            raise ModalBlocked(f"a modal would not close: {text!r}")',
-        "            return text",
+        '        if still["present"]:',
+        "        if False:",
+    ),
+    Mutation(
+        "a-torn-tail-is-not-healed-before-appending",
+        "manifest.py",
+        "        if not raw.endswith(",
+        "        if False and raw.endswith(",
+    ),
+    Mutation(
+        "a-torn-tail-is-terminated-instead-of-dropped",
+        "manifest.py",
+        '            path.write_bytes(raw[: cut + 1] if cut != -1 else b"")',
+        '            path.write_bytes(raw + b"\n")',
+    ),
+    Mutation(
+        "plan-ignores-the-digest",
+        "jobs.py",
+        "        if digests is not None and digests.get(name) != entry.sha256:",
+        "        if False:",
+    ),
+    Mutation(
+        "plan-requires-a-digest-that-can-never-match",
+        "jobs.py",
+        "        if digests is not None and digests.get(name) != entry.sha256:",
+        "        if digests is not None:",
+    ),
+    Mutation(
+        "switch-kind-checks-only-the-file-type",
+        "driver.py",
+        "        self._assert_scope(year, week, kind)",
+        "        self.assert_same_session()",
+    ),
+    Mutation(
+        "establish-accepts-a-session-with-no-token",
+        "driver.py",
+        "        if self._session_token is None:",
+        "        if False:",
+    ),
+    Mutation(
+        "the-combined-read-back-drops-the-aggregation",
+        "driver.py",
+        "        if avg is not None:",
+        "        if False:",
+    ),
+    Mutation(
+        "wait-idle-measures-appearance-not-continuity",
+        "driver.py",
+        "            for name in list(since):",
+        "            for name in []:",
+    ),
+    Mutation(
+        "the-modal-probe-dismisses-too",
+        "driver.py",
+        "        still = self.page.evaluate(_MODAL_PROBE_JS)",
+        "        still = self.page.evaluate(_MODAL_DISMISS_JS)",
     ),
     Mutation(
         "a-locked-control-does-not-stop-the-start",

@@ -31,7 +31,7 @@ from .driver import (
     open_context,
 )
 from .jobs import STAGE_ORDER, STAGES, Job, plan
-from .manifest import MANIFEST_NAME, load_manifest
+from .manifest import MANIFEST_NAME, load_manifest, sha256_of
 from .naming import parse_filename
 from .runner import run_jobs
 from .verify import IDP_POSITIONS, inspect_csv, verify_payload
@@ -51,6 +51,21 @@ def _on_disk(data_dir: Path) -> dict[str, int]:
     if not data_dir.exists():
         return {}
     return {p.name: p.stat().st_size for p in data_dir.glob("ffa_*.csv")}
+
+
+def _digests(data_dir: Path) -> dict[str, str]:
+    """sha256 per file on disk, so `plan` can vouch for CONTENT and not merely length.
+
+    About a second for a 240-file corpus, against runs measured in tens of minutes. The
+    manifest already carries the digest; not checking it meant a right-sized wrong-content
+    file was skipped forever and reported Complete.
+    """
+    if not data_dir.exists():
+        return {}
+    return {
+        p.name: sha256_of(p.read_text(encoding="utf-8"))
+        for p in data_dir.glob("ffa_*.csv")
+    }
 
 
 def _stage_jobs(stage: str) -> list[Job]:
@@ -250,7 +265,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     data_dir: Path = args.data_dir
     manifest_path = data_dir / MANIFEST_NAME
     jobs = _stage_jobs(args.stage)
-    outstanding = plan(jobs, load_manifest(manifest_path), _on_disk(data_dir))
+    outstanding = plan(
+        jobs, load_manifest(manifest_path), _on_disk(data_dir), _digests(data_dir)
+    )
     done = len(jobs) - len(outstanding)
     queued = outstanding[: args.limit] if args.limit else outstanding
 
@@ -301,6 +318,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     manifest_path = data_dir / MANIFEST_NAME
     entries = load_manifest(manifest_path)
     on_disk = _on_disk(data_dir)
+    digests = _digests(data_dir)
 
     print(f"manifest: {manifest_path} ({len(entries)} entries)")
     print(f"on disk:  {len(on_disk)} files, "
@@ -308,7 +326,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     for stage in STAGE_ORDER:
         jobs = STAGES[stage]
-        missing = plan(jobs, entries, on_disk)
+        missing = plan(jobs, entries, on_disk, digests)
         print(f"{stage}: {len(jobs) - len(missing)}/{len(jobs)}")
         if missing and args.gaps:
             by_year: dict[int, list[str]] = {}
@@ -429,9 +447,10 @@ def _coverage_markdown(entries: dict, data_dir: Path) -> str:
     ]
 
     on_disk = _on_disk(data_dir)
+    digests = _digests(data_dir)
     for stage in STAGE_ORDER:
         jobs = STAGES[stage]
-        missing = plan(jobs, entries, on_disk)
+        missing = plan(jobs, entries, on_disk, digests)
         lines += [f"## {stage} — {len(jobs) - len(missing)}/{len(jobs)}", ""]
         if not missing:
             lines += ["Complete.", ""]
@@ -498,13 +517,34 @@ def _coverage_markdown(entries: dict, data_dir: Path) -> str:
         lines += ["```", ""]
 
     unverifiable = [n for n, e in entries.items() if e.kind == "proj"]
+    unwitnessed = sorted(
+        n for n, e in entries.items() if e.kind == "proj" and not e.witness_sha256
+    )
     lines += [
-        "## Unverifiable by construction",
+        "## proj files and their witnesses",
         "",
         f"{len(unverifiable)} `proj` files. A proj export carries no `avg_type` column, so",
-        "the aggregation it was fetched under cannot be confirmed from its own bytes. Their",
+        "the aggregation it was fetched under cannot be confirmed from its own bytes, and",
         "`measured_avg_type` is null in the manifest rather than an echo of the request.",
         "",
+        "What stands behind each one is a WITNESS: the raw file fetched from the same",
+        "session state immediately before it, whose fifth column did carry the aggregation.",
+        "Its sha256 is recorded beside the proj entry.",
+        "",
+        f"**Witnessed: {len(unverifiable) - len(unwitnessed)} of {len(unverifiable)}.**",
+        "",
+    ]
+    if unwitnessed:
+        lines += [
+            "UNWITNESSED -- these vouch for nothing at all and must not be read as",
+            "aggregation-labelled data:",
+            "",
+            "```",
+            *unwitnessed,
+            "```",
+            "",
+        ]
+    lines += [
         "## Every file",
         "",
         "```",

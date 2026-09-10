@@ -75,11 +75,17 @@ Files without IDP: 31 of 240.
 2017 raw: weeks [7, 10, 11, 12, 13, 14, 15, 16, 17]
 ```
 
-## Unverifiable by construction
+## proj files and their witnesses
 
 27 `proj` files. A proj export carries no `avg_type` column, so
-the aggregation it was fetched under cannot be confirmed from its own bytes. Their
+the aggregation it was fetched under cannot be confirmed from its own bytes, and
 `measured_avg_type` is null in the manifest rather than an echo of the request.
+
+What stands behind each one is a WITNESS: the raw file fetched from the same
+session state immediately before it, whose fifth column did carry the aggregation.
+Its sha256 is recorded beside the proj entry.
+
+**Witnessed: 27 of 27.**
 
 ## Every file
 
