@@ -34,7 +34,7 @@ from .jobs import STAGE_ORDER, STAGES, Job, plan
 from .manifest import MANIFEST_NAME, load_manifest
 from .naming import parse_filename
 from .runner import run_jobs
-from .verify import inspect_csv, verify_payload
+from .verify import IDP_POSITIONS, inspect_csv, verify_payload
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_DATA_DIR = REPO / "sim" / "data" / "ffa_corpus"
@@ -250,12 +250,17 @@ def cmd_run(args: argparse.Namespace) -> int:
     data_dir: Path = args.data_dir
     manifest_path = data_dir / MANIFEST_NAME
     jobs = _stage_jobs(args.stage)
-    queued = plan(jobs, load_manifest(manifest_path), _on_disk(data_dir))
-    if args.limit:
-        queued = queued[: args.limit]
+    outstanding = plan(jobs, load_manifest(manifest_path), _on_disk(data_dir))
+    done = len(jobs) - len(outstanding)
+    queued = outstanding[: args.limit] if args.limit else outstanding
 
-    print(f"stage {args.stage}: {len(jobs)} jobs, {len(jobs) - len(queued)} already done, "
-          f"{len(queued)} queued")
+    # Report the limit SEPARATELY from what is already done. Computing "done" after the
+    # truncation read `187 jobs, 181 already done` against an empty corpus, which is the
+    # kind of line somebody believes.
+    print(f"stage {args.stage}: {len(jobs)} jobs, {done} already done, "
+          f"{len(outstanding)} outstanding")
+    if args.limit and len(queued) < len(outstanding):
+        print(f"  --limit {args.limit}: fetching {len(queued)} of them this run")
     if not queued:
         print("nothing to do")
         return 0
@@ -332,6 +337,27 @@ def cmd_status(args: argparse.Namespace) -> int:
     for line in mislabelled:
         print(f"    {line}")
 
+    # IDP is a property of the SCOPE. Measured: 2015 weekly carries none. Reporting it is
+    # what keeps a downstream reader from assuming every file has it -- the alternative was
+    # rejecting good offensive data over a position group the app does not project.
+    without_idp = sorted(
+        name for name, entry in entries.items()
+        if not set(entry.positions) >= IDP_POSITIONS
+    )
+    print(f"\nfiles with no IDP ({len(without_idp)} of {len(entries)}):")
+    scopes: dict[tuple[int, str], list[int]] = {}
+    for name in without_idp:
+        entry = entries[name]
+        scopes.setdefault((entry.year, entry.kind), []).append(entry.week)
+    for (year, kind), weeks in sorted(scopes.items()):
+        print(f"    {year} {kind}: wk{min(weeks)}-wk{max(weeks)} ({len(weeks)} files)")
+
+    if args.rows:
+        print("\nrow counts by year and week:")
+        for name, entry in sorted(entries.items()):
+            print(f"    {name}: {entry.rows} rows, "
+                  f"{len(entry.positions)} positions, {entry.bytes} bytes")
+
     if args.rehash:
         print("\nrehashing every file against the manifest...")
         from .manifest import sha256_of
@@ -391,6 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="coverage and gaps")
     status.add_argument("--gaps", action="store_true", help="name every missing file")
     status.add_argument("--rehash", action="store_true", help="re-verify every sha256")
+    status.add_argument("--rows", action="store_true", help="per-file row counts")
     status.set_defaults(func=cmd_status)
     return parser
 

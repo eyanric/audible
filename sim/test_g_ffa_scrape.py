@@ -185,11 +185,16 @@ def test_a_proj_payload_that_gained_an_aggregation_column_is_rejected() -> None:
 
 @pytest.mark.parametrize("dropped", POSITIONS)
 def test_a_payload_missing_any_one_position_is_rejected(dropped: str) -> None:
+    """Either as a missing core position or as partial IDP -- both are defective downloads.
+
+    Dropping exactly one of the nine can never be legitimate: a scope without IDP has none
+    of the three, not two.
+    """
     kept = tuple(p for p in POSITIONS if p != dropped)
     payload = raw_csv(positions=kept)
     reasons = verify_payload(payload, kind="raw", week=0, avg="weighted")
-    assert any(r.startswith("positions-missing") for r in reasons), reasons
-    assert dropped in reasons[0] or any(dropped in r for r in reasons)
+    assert any(r.startswith("positions-") for r in reasons), reasons
+    assert any(dropped in r for r in reasons), reasons
 
 
 def test_the_nine_positions_are_the_nine_measured_on_a_real_export() -> None:
@@ -1367,3 +1372,64 @@ def test_the_retry_forces_the_settings_trip_the_first_attempt_judged_unnecessary
     )
     assert result.completed == [job.filename]
     assert fake.forced == [False, True], fake.forced
+
+
+# ---------------------------------------------------------------------------------------
+# IDP is a property of the SCOPE, not evidence of a good download. Measured live:
+#
+#   [1/6] ffa_raw_2015_wk1_weighted.csv
+#       rejected: positions-missing: ['DB', 'DL', 'LB'] absent
+#                 (have ['DST', 'K', 'QB', 'RB', 'TE', 'WR'])
+#
+# The handoff's "downloads always carry all nine positions" was verified on a SEASON file in
+# 2019 and does not generalise. Rejecting 2015 weekly would have thrown away good offensive
+# data over a position group the app does not project for that scope.
+# ---------------------------------------------------------------------------------------
+
+CORE_ONLY: tuple[str, ...] = ("QB", "RB", "WR", "TE", "K", "DST")
+
+
+def test_a_weekly_file_with_no_idp_at_all_is_kept() -> None:
+    """2015 week 1, as measured. Six positions, no IDP, and nothing wrong with it."""
+    payload = raw_csv(positions=CORE_ONLY, per_position=40)
+    assert verify_payload(payload, kind="raw", week=1, avg="weighted") == []
+
+
+def test_a_file_missing_a_CORE_position_is_still_rejected() -> None:
+    """The check that catches a defective download did not go away, it got narrower."""
+    for dropped in CORE_ONLY:
+        kept = tuple(p for p in CORE_ONLY if p != dropped)
+        reasons = verify_payload(
+            raw_csv(positions=kept, per_position=40), kind="raw", week=1, avg="weighted"
+        )
+        assert any(r.startswith("positions-missing") for r in reasons), (dropped, reasons)
+
+
+@pytest.mark.parametrize("partial", [("DL",), ("DL", "LB"), ("DB",), ("LB", "DB")])
+def test_a_file_with_SOME_idp_is_rejected(partial: tuple[str, ...]) -> None:
+    """All-or-nothing. A scope either has IDP or it does not; two of the three is not a
+    narrower file, it is a broken one -- and that is the shape a truncated download takes."""
+    payload = raw_csv(positions=(*CORE_ONLY, *partial), per_position=40)
+    reasons = verify_payload(payload, kind="raw", week=1, avg="weighted")
+    assert any(r.startswith("positions-partial-idp") for r in reasons), reasons
+
+
+def test_a_file_with_every_idp_position_is_kept() -> None:
+    """CONTROL for the rule above."""
+    payload = raw_csv(positions=POSITIONS, per_position=40)
+    assert verify_payload(payload, kind="raw", week=1, avg="weighted") == []
+
+
+def test_the_core_and_idp_sets_partition_the_nine() -> None:
+    assert verify.CORE_POSITIONS | verify.IDP_POSITIONS == NINE_POSITIONS
+    assert not (verify.CORE_POSITIONS & verify.IDP_POSITIONS)
+    assert len(verify.CORE_POSITIONS) == 6
+    assert len(verify.IDP_POSITIONS) == 3
+
+
+def test_a_season_file_with_all_nine_is_still_the_normal_case() -> None:
+    """Nothing about the weekly finding relaxes what a season file is expected to hold; the
+    manifest records the positions either way, so a reader can tell them apart."""
+    report = inspect_csv(raw_csv())
+    assert set(report.positions) == NINE_POSITIONS
+    assert verify_payload(raw_csv(), kind="raw", week=0, avg="weighted") == []

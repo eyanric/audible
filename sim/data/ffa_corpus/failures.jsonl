@@ -1,0 +1,1 @@
+{"at":"2026-09-10T17:49:37+00:00","avg":"weighted","file":"ffa_raw_2015_wk1_weighted.csv","kind":"raw","reasons":["positions-missing: ['DB', 'DL', 'LB'] absent (have ['DST', 'K', 'QB', 'RB', 'TE', 'WR'])"],"week":1,"year":2015}

@@ -105,6 +105,30 @@ MUTATIONS: tuple[Mutation, ...] = (
         "missing = set()",
     ),
     Mutation(
+        "idp-is-required-again",
+        "verify.py",
+        "    missing = CORE_POSITIONS - present",
+        "    missing = NINE_POSITIONS - present",
+    ),
+    Mutation(
+        "partial-idp-is-waved-through",
+        "verify.py",
+        "if idp and idp != IDP_POSITIONS:",
+        "if False:",
+    ),
+    Mutation(
+        "the-core-set-is-empty",
+        "verify.py",
+        'CORE_POSITIONS: Final[frozenset[str]] = frozenset({"QB", "RB", "WR", "TE", "K", "DST"})',
+        "CORE_POSITIONS: Final[frozenset[str]] = frozenset()",
+    ),
+    Mutation(
+        "idp-is-counted-as-core",
+        "verify.py",
+        'IDP_POSITIONS: Final[frozenset[str]] = frozenset({"DL", "LB", "DB"})',
+        "IDP_POSITIONS: Final[frozenset[str]] = frozenset()",
+    ),
+    Mutation(
         "the-nine-positions-are-eight",
         "verify.py",
         '{"QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "DB"}',

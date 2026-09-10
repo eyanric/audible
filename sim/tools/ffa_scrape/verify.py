@@ -24,12 +24,24 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
-# Measured on 2019: QB 158, RB 291, WR 422, TE 218, K 57, DST 33, DL 351, LB 309, DB 399,
-# 2238 rows. The chart's Position dropdown filters the CHART only -- a download always
-# carries all nine, which is what makes the completeness check meaningful.
+# The chart's Position dropdown filters the CHART only -- a download always carries every
+# position the app HAS for that scope, which is what makes a completeness check meaningful.
 NINE_POSITIONS: Final[frozenset[str]] = frozenset(
     {"QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "DB"}
 )
+
+# REQUIRED EVERYWHERE. Measured present in every scope fetched: season 2018-2026 and weekly
+# 2015-2025. A file missing one of these is a defective download.
+CORE_POSITIONS: Final[frozenset[str]] = frozenset({"QB", "RB", "WR", "TE", "K", "DST"})
+
+# RECORDED, NOT REQUIRED. Measured ABSENT from early weekly files -- 2015 week 1 carries
+# only the six above, and rejecting it would throw away good offensive data over a position
+# group the app simply does not project for that scope. The handoff's "downloads always
+# carry all nine" was verified on a SEASON file in 2019 and does not generalise to weekly.
+#
+# So IDP presence goes in the manifest and into the coverage report, where a downstream
+# reader can see exactly which files have it, rather than being silently assumed.
+IDP_POSITIONS: Final[frozenset[str]] = frozenset({"DL", "LB", "DB"})
 
 # Structural, not incidental. `avg_type` sits at index 4 in every raw export measured. If
 # FFA reorders, the read-by-name below still works and this check still fires -- which is
@@ -146,11 +158,20 @@ def verify_payload(
             f"for {kind} wk{week}"
         )
 
-    missing = NINE_POSITIONS - set(report.positions)
+    present = set(report.positions)
+    missing = CORE_POSITIONS - present
     if missing:
         reasons.append(
             f"positions-missing: {sorted(missing)} absent "
             f"(have {sorted(report.positions)})"
+        )
+    # All-or-nothing. A scope either has IDP or it does not; a file with two of the three is
+    # not a narrower file, it is a broken one.
+    idp = IDP_POSITIONS & present
+    if idp and idp != IDP_POSITIONS:
+        reasons.append(
+            f"positions-partial-idp: {sorted(idp)} present but "
+            f"{sorted(IDP_POSITIONS - present)} absent"
         )
 
     if kind == "raw":
