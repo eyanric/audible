@@ -332,3 +332,114 @@ QB** — not the 17.5x `audible#87` measured for a different quantity. Within-po
 
 Under half of receivers are charted. The low board-wide figures are only partly dilution; the
 rest is real absence.
+
+
+---
+
+## THE INCUMBENT BAR THE HANDOFF QUOTES IS MEASURED UNDER A SUPERSEDED INDEXING
+
+G8 requires the incumbent bar beside every result. The handoff gives **20.33 green_hope / 25.32
+danger_zone / 30.94 boyfun**. None of the three reproduces under this session's metric. Searching
+the combinations finds them exactly:
+
+    league             quoted   board idx   realised idx   symmetric idx
+                                 24+25        24+25          24+25
+    espn_green_hope     20.33     20.33         19.34          22.73
+    espn_danger_zone    25.32     25.32         23.64          27.42
+    sleeper_boyfun      30.94     30.94         30.06          34.50
+
+**All three match `board` indexing on 2024+2025, to the digit.** But `board` was superseded:
+`audible#85` pre-registered `symmetric` after measuring `board` as **4.4x asymmetric** — burying
+the best player costs 1.29 while promoting the worst costs 5.66 — and every session since has
+used it.
+
+Comparing a symmetric-scored rebuild against a board-scored incumbent is a **units error**, the
+class of defect S2's G1 caught when a VORP-ordered board scored against raw realised points gave
+the *perfect* board 13.99 instead of 0.
+
+**The correct bar, symmetric indexing, all six seasons:**
+
+    espn_green_hope   22.43      espn_danger_zone  28.10      sleeper_boyfun  32.63
+
+Every result below is against that.
+
+---
+
+## PHASE 3 — four shapes, and all four lose
+
+    shape          RWRE    vs incumbent   eff params   what it does
+    incumbent     22.425                         1.0   points -> replacement -> VORP
+    quantile      22.656        +0.231           1.0   rank on points + q*sd_pts
+    learned       24.277        +1.852          26.9   predict VORP from all inputs
+    boosted       24.574        +2.149           6.0   depth-1 stumps on all inputs
+    two-stage     25.083        +2.658          34.5   predict points, then the incumbent
+
+Effective parameters are the exact trace `tr((X'X + lam I)^-1 X'X)`, not the column count. Every
+penalty was fitted **inside** the fold on the remaining seasons — never once across all six.
+
+    per season   2019    2020    2021    2022    2024    2025
+    incumbent   18.40   23.41   24.40   22.89   25.57   19.89
+    quantile    18.78   23.73   24.53   23.20   25.54   20.16
+    learned     23.03   26.61   24.94   25.18   25.21   20.70
+    boosted     21.40   25.36   24.29   25.24   26.02   25.14
+    two-stage   23.30   26.39   25.70   24.68   26.20   24.22
+
+**The fitted quantile is +0.5 in five of six folds and +0.25 in the sixth** — the board should
+be read *above* its mean, consistently. It still loses.
+
+### the per-position table says something the board-wide number hides
+
+    shape        QB     RB     TE     WR
+    incumbent   4.53   8.33   5.56  10.73
+    quantile    4.94   8.15   5.46  10.49
+    learned     4.98   8.62   5.77  10.53
+    boosted     4.91   8.24   5.43  10.96
+    two-stage   4.75   8.80   6.05  11.13
+
+**The quantile shape BEATS the incumbent at running back, tight end and wide receiver** — −0.18,
+−0.10, −0.24 — and loses at quarterback by +0.41. It improves three positions out of four and
+still loses board-wide.
+
+**So its entire loss is in the cross-position interleave**, which is the `shrink` mechanism this
+session already measured: a transform that changes the *shape* of a position's distribution moves
+the FLEX allocation, `compute_vorp` reassigns a starter slot, and both replacement ranks shift.
+Reading the board above its mean widens each position's spread by a different amount, because
+`sd_pts/points` differs by position — so the interleave moves, and it moves the wrong way.
+
+That is the most useful thing phase 3 produced: **the incumbent's replacement subtraction is
+doing real work that none of these shapes replaced**, and the one shape that improves the
+within-position orderings gives it all back at the interleave.
+
+### the boosted model spends 40% of its capacity relearning replacement
+
+    pos_QB                  40.0%
+    projection              35.1%
+    ffa_dropoff__present    11.4%
+    pos_RB                   3.7%
+    ngs_rush_eff__present    3.5%
+    uncertainty              2.9%
+    adp_gap__present         2.2%
+    contract                 1.2%
+
+Three quarters of the model is "is he a quarterback" plus "what did ESPN project". The position
+dummies are the model rediscovering, badly, what the incumbent gets for free by subtracting a
+per-position replacement level. **Not one of the twenty football inputs clears 3%** except a
+missingness indicator.
+
+**And the third-ranked feature is a MISSINGNESS INDICATOR.** `ffa_dropoff__present` at 11.4%
+means the model learned that *being in FFA's top-N export at all* predicts realised VORP. That is
+true and it is not football: it is FFA's editorial decision about who is worth publishing,
+leaking in as a quality proxy. It is not an outcome leak — the export is vintage — but any future
+model must either drop the indicators or report that a large share of its skill is "this player
+was famous enough to be exported".
+
+### INJECTION 2 — the information-free input
+
+    noise importance, every fold:        0.0000%
+    boosted RWRE with the sha256:        24.574
+    boosted RWRE without it:             24.574
+    incumbent:                           22.425
+
+**Zero, exactly, in all six folds, and the RWRE is unchanged to three decimals.** The model
+correctly refuses an information-free input — which is the thing `audible#85`'s search could not
+do, where a sha256 bought 42% of the apparent gain.

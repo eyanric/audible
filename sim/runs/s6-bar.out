@@ -1,0 +1,21 @@
+
+espn_green_hope  quoted 20.33
+  board      all6  19.80   fit(19-22)  19.53   test(24,25)  20.33 <== MATCHES THE QUOTED BAR
+  realised   all6  19.78   fit(19-22)  20.01   test(24,25)  19.34
+  symmetric  all6  22.43   fit(19-22)  22.27   test(24,25)  22.73
+
+espn_danger_zone  quoted 25.32
+  board      all6  25.42   fit(19-22)  25.47   test(24,25)  25.32 <== MATCHES THE QUOTED BAR
+  realised   all6  24.77   fit(19-22)  25.34   test(24,25)  23.64
+  symmetric  all6  28.10   fit(19-22)  28.44   test(24,25)  27.42
+
+sleeper_boyfun  quoted 30.94
+  board      all6  29.01   fit(19-22)  28.05   test(24,25)  30.94 <== MATCHES THE QUOTED BAR
+  realised   all6  28.83   fit(19-22)  28.21   test(24,25)  30.06
+  symmetric  all6  32.63   fit(19-22)  31.70   test(24,25)  34.50
+
+  The quoted bar is `board` indexing on 2024+2025. This session uses `symmetric`,
+  pre-registered in audible#85 and unchanged since, because `board` was measured as
+  4.4x ASYMMETRIC -- burying the best player costs 1.29, promoting the worst costs
+  5.66. The correct bar under the pre-registered indexing, all six seasons, is
+  green_hope 22.43 / danger_zone 28.10 / boyfun 32.63.
