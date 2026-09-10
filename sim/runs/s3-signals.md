@@ -322,3 +322,135 @@ single most useful thing a 2026 score could tell the next session.
 
 Secondary, same terms: the ADP-gap signal changes 2026 RWRE by 0.0 +/- 0.7, and remains
 uninterpretable because it is circular.
+
+---
+
+## ADVERSARIAL REVIEW — THE CEILING CLAIM IS OVERTURNED
+
+One foreground agent. It overturned the session's headline, and I verified the kill shot myself
+before accepting it. **Everything in the Task 1 section above that reads as an information
+claim is withdrawn.** What survives is listed at the end.
+
+### the kill shot: the residual is anti-correlated with the projection BY ALGEBRA
+
+`residual = realised_rank - projected_rank` forces
+
+    corr(residual, projected_rank) = -sqrt((1 - rho) / 2)
+
+where rho is corr(realised, projected). Verified directly, twelve of twelve position-seasons
+matching to three decimals:
+
+    2021 QB rho 0.770  predicted -0.339  observed -0.339
+    2021 RB rho 0.768  predicted -0.341  observed -0.341
+    2022 TE rho 0.653  predicted -0.417  observed -0.417
+    2024 RB rho 0.822  predicted -0.298  observed -0.298
+    ... 12/12 MATCH
+
+**The residual carries a -0.30 to -0.42 correlation with projected rank that is pure algebra
+and zero football.** Any predictor that correlates with projected rank inherits a correlation
+with the residual for free. And every one of my "sign-stable" predictors correlates hard with
+projected rank -- snap share at -0.56 to -0.80.
+
+### so the "sign-stable 5" filter was recording its own definition
+
+Partial correlations, projected rank held constant. **All eight flip sign:**
+
+    predictor           pos   r(x,res)   partial   flip
+    prior_snap_share    RB      +0.209    -0.086   FLIPS
+    prior_snap_share    WR      +0.246    -0.061   FLIPS
+    prior_tgt_share     RB      +0.202    -0.027   FLIPS
+    prior_tgt_share     WR      +0.257    -0.088   FLIPS
+    prior_ay_share      WR      +0.269    -0.026   FLIPS
+    draft_round         WR      -0.163    +0.020   FLIPS
+
+The section above calls sign stability "the filter that matters". It was a filter on how hard a
+predictor tracks the board's own ordering.
+
+### and the board's own projected rank dominates every signal
+
+    position   projected-rank percentile ALONE   prior_snap_share alone
+    QB                              13.13%                       0.52%
+    RB                              10.50%                       4.36%
+    WR                              12.17%                       6.03%
+    TE                              14.81%                       3.71%
+
+**The single best "predictor" of the residual is the board restating itself**, at 10.5-14.8%,
+which is regression toward the mean and is not new information by any reading. Stripping that
+channel, the reviewer measured `prior_snap_share`'s incremental contribution at **-0.25% to
++2.12%**, with its largest component -- WR's headline 7.24% -- going to approximately zero.
+
+**"The ceiling is 3-7% for one honest predictor" is WITHDRAWN.** The honest number is
+essentially zero once the mechanical channel is removed.
+
+### the negative R2 was estimator variance, not a finding
+
+A permutation null -- the real design matrix with its real collinearity, y shuffled within
+(position, season) so it is noise by construction, identical recipe, 500 draws:
+
+    position   n_fit   REAL walk-forward   null median   percentile of real
+    QB            47            -154.97%      -127.52%              40th
+    RB            76             -36.83%       -19.85%              11th
+    TE            44            -103.77%       -64.52%              25th
+    WR            92              +1.58%       -17.03%              98th
+
+**Pure noise reproduces those numbers.** QB's -154.97% sits at the 40th percentile of the noise
+distribution and RB is worse than typical noise. Only WR is distinguishable.
+
+I wrote that thirteen parameters "memorises rather than describes", which is right, and then
+converted it into "the board is at its INFORMATION limit", which does not follow. It is a
+statement about estimator variance at n_fit=47 with 14 parameters. **That inference is
+withdrawn.**
+
+Two further contributors the review isolated: 100 of QB's 155 percentage points come from ONE
+near-duplicate column (`sd_rel` and `spread_rel` correlate at r=0.995, VIF 160) -- dropping it
+alone moves QB from -154.97% to -54.53%. And the y-standardisation I chose inflates the number
+by 33 points at QB and 52 at TE against the stricter variant.
+
+### three things that need restating rather than withdrawing
+
+**The fit window is misstated.** "Fit 2019-2022" is really 2021-2022: in WR 2019 four predictors
+are 100% missing and in 2020 `career_outlier` is, so complete-case filtering drops those seasons
+entirely. Actual n_fit is **47 (QB) and 44 (TE) against 14 parameters** -- 3.4:1 and 3.1:1, not
+the "roughly a hundred complete cases" the section above claims (that is the early+late total).
+
+**The in-sample column is a different model from the walk-forward column.** The 20.37 / 9.49 /
+16.01 / 21.94 figures are an all-seasons pooled fit; the actual 2021-22 in-sample values are
+47.53 / 25.65 / 20.27 / 23.03. Presenting them side by side implied one fit where there were
+two.
+
+**`prior_snap_share`'s join is lossy and biased toward the players it needed to be unbiased
+about.** Only 4,099 of 5,084 `pfr_player_id` values (80.6%) reach gsis, and coverage falls
+monotonically with projected rank -- RB Q1 88.6% down to Q4 65.1%. The excluded players sit at
+the low-projected tail, which is exactly the arm where the mechanical residual-projection
+relation is strongest.
+
+### what SURVIVES the review
+
+**`sim/residual.py::ols` is arithmetically exact.** Checked against a noiseless known answer
+(max error 8.9e-16) and against an independently written modified-Gram-Schmidt QR on noisy data
+(max beta difference 4.4e-16, identical R2). The 1e-12 pivot guard never fired on real data. The
+regression was never the problem.
+
+**`td_oe` is still refuted, and this is the session's durable finding.** The handoff's "strongest
+prior" ranks last or next-to-last under every pooling the reviewer tried, raw and
+projection-stripped alike (0.08% to 0.10%). That refutation does not depend on the broken
+channel.
+
+**Task 2's three iterations are untouched.** They score RWRE through `sim/rank.py` and never
+call `residual.ols`. All three were reverted on their own evidence, and the G6 ordering gate and
+the +0.364 noise floor are independent of everything above.
+
+**The four data-availability refutations stand**, as does the finding that FFA's projections file
+is a top-N export.
+
+### the honest summary, replacing the one above
+
+A rank-difference residual cannot measure "what the board is missing", because it is
+anti-correlated with the board by construction. **The correct diagnostic controls for the
+projection first** -- partial correlation, or regressing the residual on projected rank and
+analysing what is left. Done that way the remaining signal is roughly zero to two percent, which
+is a weaker and much less quotable claim than the one I published, and it is the one the data
+supports.
+
+The session's practical conclusion is unchanged and rests on Task 2 rather than Task 1: three
+signals, three reversions, none resolving on a per-player test. **The board is unchanged.**
