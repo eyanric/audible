@@ -1,0 +1,68 @@
+seasons [2019, 2020, 2021, 2022, 2024, 2025]   indexing symmetric (pre-registered in audible#85)
+
+==============================================================================
+G8 -- THE INCUMBENT BAR, and why the quoted one is not usable
+==============================================================================
+  quoted by the handoff : green_hope 20.33  danger_zone 25.32  boyfun 30.94
+  those are `board` indexing on 2024+2025 -- see s6-bar.out, they match to the digit
+  the pre-registered `symmetric` bar, all six seasons, is measured below
+
+------------------------------------------------------------------------------
+espn_green_hope
+  2019  incumbent  18.402   quantile  18.778   delta  +0.377   fitted q +0.5
+  2020  incumbent  23.406   quantile  23.728   delta  +0.322   fitted q +0.5
+  2021  incumbent  24.396   quantile  24.528   delta  +0.133   fitted q +0.25
+  2022  incumbent  22.892   quantile  23.202   delta  +0.310   fitted q +0.5
+  2024  incumbent  25.566   quantile  25.543   delta  -0.023   fitted q +0.5
+  2025  incumbent  19.891   quantile  20.157   delta  +0.265   fitted q +0.5
+  MEAN  incumbent  22.425   quantile  22.656   delta  +0.231
+        seasons improved 1/6   exact sign-flip p 0.031
+        fitted q per fold [0.5, 0.5, 0.25, 0.5, 0.5, 0.5]
+  per position (G7 -- never board-wide alone):
+    QB  incumbent   4.53   quantile   4.94   delta  +0.41
+    RB  incumbent   8.33   quantile   8.15   delta  -0.18  quantile better
+    TE  incumbent   5.56   quantile   5.46   delta  -0.09  quantile better
+    WR  incumbent  10.73   quantile  10.49   delta  -0.24  quantile better
+
+------------------------------------------------------------------------------
+espn_danger_zone
+  2019  incumbent  28.266   quantile  28.266   delta  +0.000   fitted q +0
+  2020  incumbent  28.267   quantile  28.267   delta  +0.000   fitted q +0
+  2021  incumbent  30.350   quantile  31.370   delta  +1.020   fitted q -0.5
+  2022  incumbent  26.890   quantile  28.637   delta  +1.747   fitted q -0.5
+  2024  incumbent  29.812   quantile  29.812   delta  +0.000   fitted q +0
+  2025  incumbent  25.032   quantile  25.032   delta  +0.000   fitted q +0
+  MEAN  incumbent  28.103   quantile  28.564   delta  +0.461
+        seasons improved 0/6   exact sign-flip p 0.000
+        fitted q per fold [0.0, 0.0, -0.5, -0.5, 0.0, 0.0]
+  per position (G7 -- never board-wide alone):
+    QB  incumbent   5.54   quantile   5.68   delta  +0.14
+    RB  incumbent   9.23   quantile   9.23   delta  -0.00  quantile better
+    TE  incumbent   6.49   quantile   6.47   delta  -0.02  quantile better
+    WR  incumbent  11.41   quantile  11.38   delta  -0.03  quantile better
+
+------------------------------------------------------------------------------
+sleeper_boyfun
+  2019  incumbent  33.636   quantile  33.297   delta  -0.339   fitted q -0.25
+  2020  incumbent  32.876   quantile  33.000   delta  +0.123   fitted q -0.5
+  2021  incumbent  30.830   quantile  31.121   delta  +0.291   fitted q -0.5
+  2022  incumbent  29.443   quantile  29.594   delta  +0.151   fitted q -0.5
+  2024  incumbent  37.880   quantile  37.748   delta  -0.132   fitted q -0.5
+  2025  incumbent  31.116   quantile  30.708   delta  -0.408   fitted q -0.5
+  MEAN  incumbent  32.630   quantile  32.578   delta  -0.052
+        seasons improved 3/6   exact sign-flip p 0.688
+        fitted q per fold [-0.25, -0.5, -0.5, -0.5, -0.5, -0.5]
+  per position (G7 -- never board-wide alone):
+    QB  incumbent   6.08   quantile   6.15   delta  +0.07
+    RB  incumbent   9.23   quantile   9.51   delta  +0.28
+    TE  incumbent   6.93   quantile   6.83   delta  -0.09  quantile better
+    WR  incumbent  14.96   quantile  14.92   delta  -0.04  quantile better
+
+==============================================================================
+VERDICT
+==============================================================================
+  espn_green_hope      incumbent  22.43 -> rebuilt  22.66   delta  +0.23   p 0.031   DOES NOT BEAT
+  espn_danger_zone     incumbent  28.10 -> rebuilt  28.56   delta  +0.46   p 0.000   DOES NOT BEAT
+  sleeper_boyfun       incumbent  32.63 -> rebuilt  32.58   delta  -0.05   p 0.688   DOES NOT BEAT
+
+  BEATS THE INCUMBENT: no (0 of 3 leagues)

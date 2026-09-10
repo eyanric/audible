@@ -594,3 +594,49 @@ phase-3 model gives it **stable importance across all six folds**.
 
 There is nothing to combine. Reported rather than skipped, because "we tried to combine and
 found no survivors" and "we did not try" are different claims and only one of them is true.
+
+
+---
+
+## PHASE 6 — the honest verdict: it does not beat the incumbent, in any league
+
+The best shape phase 3 produced (`quantile`) carried to all three leagues, scored under the
+pre-registered `symmetric` indexing, penalty fitted inside each fold.
+
+    league             incumbent   rebuilt    delta   sign-flip p   verdict
+    espn_green_hope        22.43     22.66    +0.23         0.031   DOES NOT BEAT
+    espn_danger_zone       28.10     28.56    +0.46         0.000   DOES NOT BEAT
+    sleeper_boyfun         32.63     32.58    -0.05         0.688   DOES NOT BEAT
+
+    BEATS THE INCUMBENT: no, 0 of 3 leagues
+
+The p is an **exact sign-flip test** over the six per-season deltas — all 2^6 sign assignments
+enumerated, no bootstrap and no floor of hashes, because the question here is "does this shape
+beat that shape" rather than "does this input beat nothing".
+
+**Two of the three are resolvably WORSE.** green_hope improves in 1 of 6 seasons (p 0.031),
+danger_zone in **0 of 6** (p 0.000). boyfun is a genuine tie: −0.05 with 3 of 6 seasons
+improved, p 0.688.
+
+### the per-position table is the same story in all three leagues
+
+    green_hope    QB +0.41    RB -0.18    TE -0.09    WR -0.24
+    danger_zone   QB +0.14    RB -0.00    TE -0.02    WR -0.03
+    boyfun        QB +0.07    RB +0.28    TE -0.09    WR -0.04
+
+**The rebuilt shape is better at wide receiver and tight end in all three leagues, and worse at
+quarterback in all three.** In green_hope it improves three positions of four and still loses
+board-wide by +0.23.
+
+That is the session's structural result, and it reproduces across leagues with different scoring
+and different roster shapes: **reading the board above its mean improves the within-position
+orderings and gives it all back at the cross-position interleave.** `sd_pts/points` differs by
+position, so a quantile shift widens each position's spread by a different amount, the FLEX
+allocation moves, `compute_vorp` reassigns a starter slot, and the replacement ranks shift. It is
+the `shrink` mechanism this session measured in phase 2, arriving as a cost rather than a
+curiosity.
+
+**The incumbent's per-position replacement subtraction is doing real work that four different
+shapes failed to replace.** That is worth saying plainly, because it is the opposite of what the
+standing goal assumed — the `points -> subtract replacement -> sort by VORP` shape was described
+as "chosen at the start and not a given", and on this evidence it is load-bearing.
