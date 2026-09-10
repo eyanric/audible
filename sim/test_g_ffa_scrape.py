@@ -1984,11 +1984,18 @@ def test_establish_refuses_a_session_with_no_token() -> None:
 
 def test_the_combined_read_back_includes_the_aggregation() -> None:
     """It omitted AVG_INPUT while its comment claimed "every input" -- and the aggregation
-    is the one whose corruption is the defect this whole tool exists to prevent."""
+    is the one whose corruption is the defect this whole tool exists to prevent.
+
+    THE JOB MUST TAKE NO SETTINGS TRIP. `set_input` does its own read-back, so a robust job
+    reads AVG_INPUT while setting it and this gate passed whether or not `_assert_scope`
+    looked at it at all -- vacuous, and the mutation sweep is what said so. A weighted job
+    straight after a real year change takes no trip, so the only thing that can read
+    AVG_INPUT is the combined check at the end.
+    """
     page = FakeShinyPage()
     driver = _driver_on(page)
     driver.establish()
-    driver.prepare("raw", 2019, 0, "robust")
+
     reads: list[str] = []
     original = driver.read_input
 
@@ -1997,7 +2004,8 @@ def test_the_combined_read_back_includes_the_aggregation() -> None:
         return original(name)
 
     driver.read_input = read  # type: ignore[method-assign]
-    driver.prepare("raw", 2020, 0, "robust")
+    driver.prepare("raw", 2020, 0, "weighted")  # 2026 -> 2020 resets to weighted; no trip
+    assert "click:tab_settings" not in page.calls, "the job took a trip; gate is vacuous"
     assert driver_mod.AVG_INPUT in reads, reads
 
 
@@ -2019,26 +2027,31 @@ def test_an_output_that_pauses_and_resumes_is_not_called_permanently_stuck(
         driver_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s)
     )
 
-    flip = {"n": 0}
+    # TWO outputs, alternating out of phase, so `busy` is NEVER empty -- otherwise wait_idle
+    # simply returns on the first pause and the resume never happens, which is why the first
+    # version of this gate was vacuous and the sweep caught it.
+    #
+    # Neither is ever busy for stuck_after (1.0s = 4 polls) continuously: each runs for
+    # three polls (0.75s) then rests for three. Cumulatively each passes 1.0s almost at
+    # once, so a driver measuring appearance rather than continuity reclassifies both.
+    polls = {"n": 0}
     original = page.evaluate
 
     def evaluate(script: str, arg: object = None) -> object:
         if script is driver_mod._BUSY_JS:
-            flip["n"] += 1
-            # busy, busy, idle, busy, busy, then idle for good: never 4s continuously.
-            pattern = [True, True, False, True, True, False]
-            on = pattern[min(flip["n"] - 1, len(pattern) - 1)]
-            return {
-                "busy": [*page.stuck_outputs, *(["proj_table"] if on else [])],
-                "pending": 0,
-            }
+            polls["n"] += 1
+            phase = ((polls["n"] - 1) // 3) % 2
+            return {"busy": ["output_a" if phase == 0 else "output_b"], "pending": 0}
         return original(script, arg)
 
     page.evaluate = evaluate  # type: ignore[method-assign]
+    driver.settles = replace(driver.settles, idle_timeout=3.0, stuck_after=1.0)
     driver.wait_idle()
-    assert "proj_table" not in driver._idle_baseline, (
+    assert "output_a" not in driver._idle_baseline, (
         "an output that paused and resumed was called permanently stuck"
     )
+    assert "output_b" not in driver._idle_baseline
+    assert polls["n"] > 8, f"only {polls['n']} polls; the loop did not run long enough"
 
 
 def test_the_modal_probe_never_dismisses() -> None:

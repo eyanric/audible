@@ -718,6 +718,13 @@ EXTERNAL_GATES: dict[str, str] = {
         "about the gate file's own fixture; injected by un-zeroing INSTANT",
     "test_this_module_never_builds_a_settles_with_production_defaults":
         "reads the gate file's own source; injected by adding a bare Settles(",
+    # Two more model controls. Both assert what FakeShinyPage does, not what the driver
+    # does: one that a real click against a modal raises the way the live one did, and one
+    # that the probe handler never dismisses. No edit to a module here can change either.
+    "test_a_modal_blocks_a_real_click_the_way_the_live_one_did":
+        "model control: the fake reproduces the live click interception",
+    "test_the_modal_probe_never_dismisses":
+        "model control: the fake's probe handler is read-only, like the JS it stands for",
 }
 
 
