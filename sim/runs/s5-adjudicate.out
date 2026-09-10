@@ -1,0 +1,282 @@
+floor: 24 draws over seasons (2019, 2020, 2021, 2022, 2024, 2025)
+
+==============================================================================
+G7 -- EXPECTED LOCUS, STATED BEFORE ANY NUMBER
+==============================================================================
+  snap_share         locus RB/WR/TE       was: REVERTED (audible#86)
+      snap share is an opportunity rate; it separates players WITHIN a position, and at quarterback it is nearly saturated so it should do least there
+  adp_gap            locus QB/RB/WR/TE    was: REVERTED (audible#86)
+      constructed per position by ranking projection against ADP, so every position is a locus; the circularity hazard is that ADP is partly derived from the same projections
+  draft_round        locus RB/WR/TE       was: REVERTED (audible#86)
+      draft capital is only news for a player with no prior season, so it is applied to rookies alone and is inert for everyone else by construction
+  ngs_separation     locus WR             was: UNRESOLVED, promising (audible#87 retraction)
+      receiver separation is a receiving measurement; WR is the locus and TE is the control
+  ngs_rush_eff       locus RB             was: REVERTED (audible#87)
+      rushing efficiency is charted for ball carriers only
+  ngs_time_to_throw  locus QB             was: REVERTED (audible#87)
+      time to throw is charted for passers only
+  contract           locus QB/RB/WR/TE    was: REVERTED (audible#87)
+      cap share is priced within a position by the market, so every position is a locus
+  availability       locus board          was: NEVER MEASURED (audible#87 measured floating-point residue)
+      a position-level constant cannot reorder a position, so the ONLY locus is the cross-position interleave and every per-position figure must be exactly +0.000
+
+==============================================================================
+G1 -- THE FLOOR, AS A DISTRIBUTION
+==============================================================================
+  board +0.342 [-0.516, +0.883] sd 0.387
+  QB    +0.218 [+0.000, +0.491] sd 0.192
+  RB    +0.101 [-0.045, +0.347] sd 0.142
+  WR    +0.054 [-0.685, +0.678] sd 0.462
+  TE    +0.161 [-0.507, +0.803] sd 0.420
+
+==============================================================================
+G3/G6 -- RE-ADJUDICATION, interval against interval
+==============================================================================
+
+------------------------------------------------------------------------------
+snap_share   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: REVERTED (audible#86)
+  locus  signal delta   board-wide delta   dilution
+  RB           +0.314             -0.539     -0.224 of effect lost to averaging
+  WR           +0.252             -0.539     -0.286 of effect lost to averaging
+  TE           +0.286             -0.539     -0.253 of effect lost to averaging
+
+  === RB ===
+    signal     +0.314 [+0.091, +0.575] sd 0.123
+    floor      +0.101 [-0.135, +0.581] sd 0.185
+    difference +0.213 [-0.283, +0.589] sd 0.210   -> not resolved
+    per season 2019:+0.00  2020:+0.49  2021:+0.14  2022:+0.85  2024:+0.00  2025:+0.41
+    fitted lambda {2019: 0.0, 2020: -0.05, 2021: -0.05, 2022: 0.1, 2024: 0.0, 2025: -0.05}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: +0.213 [+0.091, +0.575] sd 0.124 -> RESOLVED WORSE THAN FLOOR
+    G2 interval width: one draw 0.484 -> distribution 0.872  (1.80x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.113): signal - floor = +0.201
+
+  === WR ===
+    signal     +0.252 [-0.541, +1.101] sd 0.434
+    floor      +0.054 [-1.090, +1.113] sd 0.581
+    difference +0.198 [-1.057, +1.510] sd 0.659   -> not resolved
+    per season 2019:-0.79  2020:+1.67  2021:+1.44  2022:+0.60  2024:-0.82  2025:-0.58
+    fitted lambda {2019: 0.05, 2020: 0.2, 2021: 0.2, 2022: 0.05, 2024: 0.05, 2025: 0.05}
+    INJECTION 1 against salt[0] alone: +0.198 [-0.053, +1.877] sd 0.503 -> not resolved
+    G2 interval width: one draw 1.930 -> distribution 2.567  (1.33x wider)
+    INJECTION 1 against the audible#86/#87 draw (-0.620): signal - floor = +0.872
+
+  === TE ===
+    signal     +0.286 [-0.203, +0.811] sd 0.264
+    floor      +0.161 [-0.807, +1.175] sd 0.516
+    difference +0.125 [-0.779, +1.064] sd 0.498   -> not resolved
+    per season 2019:-0.62  2020:-0.06  2021:+0.18  2022:+0.94  2024:+1.32  2025:-0.04
+    fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: -0.1, 2024: 0.2, 2025: -0.1}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: +0.125 [-0.025, +1.402] sd 0.364 -> not resolved
+    G2 interval width: one draw 1.426 -> distribution 1.843  (1.29x wider)
+    INJECTION 1 against the audible#86/#87 draw (-1.083): signal - floor = +1.369
+
+------------------------------------------------------------------------------
+adp_gap   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: REVERTED (audible#86)
+  locus  signal delta   board-wide delta   dilution
+  QB           +0.216             -0.457     -0.241 of effect lost to averaging
+  RB           -0.112             -0.457     -0.345 of effect lost to averaging
+  WR           -0.181             -0.457     -0.276 of effect lost to averaging
+  TE           -0.253             -0.457     -0.204 of effect lost to averaging
+
+  === QB ===
+    signal     +0.216 [+0.000, +0.500] sd 0.131
+    floor      +0.218 [+0.000, +0.972] sd 0.295
+    difference -0.002 [-0.827, +0.497] sd 0.342   -> not resolved
+    per season 2019:+0.00  2020:+0.44  2021:+0.00  2022:+0.00  2024:+0.00  2025:+0.85
+    fitted lambda {2019: 0.0, 2020: -0.05, 2021: 0.0, 2022: 0.0, 2024: 0.0, 2025: -0.05}
+    INJECTION 1 against salt[0] alone: -0.002 [+0.000, +0.500] sd 0.132 -> not resolved
+    G2 interval width: one draw 0.500 -> distribution 1.323  (2.64x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.000): signal - floor = +0.216
+
+  === RB ===
+    signal     -0.112 [-0.353, +0.136] sd 0.128
+    floor      +0.101 [-0.135, +0.581] sd 0.185
+    difference -0.213 [-0.763, +0.169] sd 0.231   -> not resolved
+    per season 2019:+0.01  2020:-0.23  2021:-0.50  2022:+0.12  2024:-0.45  2025:+0.38
+    fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: 0.05, 2024: 0.05, 2025: 0.05}
+    INJECTION 1 against salt[0] alone: -0.213 [-0.357, +0.136] sd 0.129 -> not resolved
+    G2 interval width: one draw 0.493 -> distribution 0.933  (1.89x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.113): signal - floor = -0.225
+
+  === WR ===
+    signal     -0.181 [-1.226, +0.751] sd 0.497
+    floor      +0.054 [-1.090, +1.113] sd 0.581
+    difference -0.235 [-1.506, +1.208] sd 0.701   -> not resolved
+    per season 2019:-0.95  2020:+1.25  2021:+0.27  2022:-0.30  2024:-2.37  2025:+1.01
+    fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: 0.05, 2024: 0.05, 2025: 0.1}
+    INJECTION 1 against salt[0] alone: -0.235 [-0.740, +1.513] sd 0.578 -> not resolved
+    G2 interval width: one draw 2.252 -> distribution 2.714  (1.21x wider)
+    INJECTION 1 against the audible#86/#87 draw (-0.620): signal - floor = +0.439
+
+  === TE ===
+    signal     -0.253 [-0.679, +0.085] sd 0.196
+    floor      +0.161 [-0.807, +1.175] sd 0.516
+    difference -0.414 [-1.431, +0.547] sd 0.513   -> not resolved
+    per season 2019:-1.20  2020:-0.08  2021:-0.55  2022:+0.17  2024:+0.00  2025:+0.14
+    fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: 0.05, 2024: 0.05, 2025: 0.05}
+    INJECTION 1 against salt[0] alone: -0.414 [-0.279, +0.682] sd 0.254 -> not resolved
+    G2 interval width: one draw 0.961 -> distribution 1.979  (2.06x wider)
+    INJECTION 1 against the audible#86/#87 draw (-1.083): signal - floor = +0.830
+
+------------------------------------------------------------------------------
+draft_round   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: REVERTED (audible#86)
+  locus  signal delta   board-wide delta   dilution
+  RB           +0.109             -0.095     +0.014 of effect lost to averaging
+  WR           +0.032             -0.095     -0.063 of effect lost to averaging
+  TE           +0.147             -0.095     +0.052 of effect lost to averaging
+
+  === RB ===
+    signal     +0.109 [-0.090, +0.327] sd 0.108
+    floor      +0.101 [-0.135, +0.581] sd 0.185
+    difference +0.008 [-0.508, +0.333] sd 0.211   -> not resolved
+    per season 2019:-0.20  2020:+0.00  2021:+0.38  2022:+0.00  2024:-0.09  2025:+0.55
+    fitted lambda {2019: -0.05, 2020: 0.0, 2021: -0.05, 2022: -0.05, 2024: -0.05, 2025: 0.05}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: +0.008 [-0.095, +0.334] sd 0.108 -> not resolved
+    G2 interval width: one draw 0.429 -> distribution 0.841  (1.96x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.113): signal - floor = -0.004
+
+  === WR ===
+    signal     +0.032 [-0.487, +0.749] sd 0.333
+    floor      +0.054 [-1.090, +1.113] sd 0.581
+    difference -0.023 [-1.296, +1.377] sd 0.689   -> not resolved
+    per season 2019:+0.00  2020:-0.26  2021:-0.76  2022:-0.54  2024:+1.75  2025:+0.02
+    fitted lambda {2019: -0.2, 2020: -0.2, 2021: -0.2, 2022: -0.2, 2024: 0.2, 2025: -0.2}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: -0.023 [+0.090, +1.309] sd 0.315 -> RESOLVED WORSE THAN FLOOR
+    G2 interval width: one draw 1.220 -> distribution 2.672  (2.19x wider)
+    INJECTION 1 against the audible#86/#87 draw (-0.620): signal - floor = +0.652
+
+  === TE ===
+    signal     +0.147 [-0.372, +0.724] sd 0.282
+    floor      +0.161 [-0.807, +1.175] sd 0.516
+    difference -0.013 [-0.977, +0.966] sd 0.503   -> not resolved
+    per season 2019:-0.69  2020:+0.52  2021:+0.13  2022:+1.45  2024:-0.33  2025:-0.18
+    fitted lambda {2019: 0.1, 2020: -0.2, 2021: 0.1, 2022: 0.2, 2024: 0.1, 2025: -0.05}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: -0.013 [-0.021, +1.394] sd 0.360 -> not resolved
+    G2 interval width: one draw 1.415 -> distribution 1.943  (1.37x wider)
+    INJECTION 1 against the audible#86/#87 draw (-1.083): signal - floor = +1.230
+
+------------------------------------------------------------------------------
+ngs_separation   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: UNRESOLVED, promising (audible#87 retraction)
+  locus  signal delta   board-wide delta   dilution
+  WR           -0.874             +0.287     +0.587 of effect lost to averaging
+
+  === WR ===
+    signal     -0.874 [-1.957, +0.124] sd 0.521
+    floor      +0.054 [-1.090, +1.113] sd 0.581
+    difference -0.928 [-2.328, +0.481] sd 0.731   -> not resolved
+    per season 2019:-0.82  2020:+0.20  2021:-2.79  2022:-0.26  2024:+0.73  2025:-2.30
+    fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: 0.05, 2024: 0.05, 2025: 0.05}
+    INJECTION 1 against salt[0] alone: -0.928 [-1.302, +0.739] sd 0.523 -> not resolved
+    G2 interval width: one draw 2.041 -> distribution 2.808  (1.38x wider)
+    INJECTION 1 against the audible#86/#87 draw (-0.620): signal - floor = -0.254
+
+------------------------------------------------------------------------------
+ngs_rush_eff   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: REVERTED (audible#87)
+  locus  signal delta   board-wide delta   dilution
+  RB           +0.087             +0.027     +0.061 of effect lost to averaging
+
+  === RB ===
+    signal     +0.087 [+0.000, +0.262] sd 0.079
+    floor      +0.101 [-0.135, +0.581] sd 0.185
+    difference -0.014 [-0.490, +0.269] sd 0.193   -> not resolved
+    per season 2019:+0.00  2020:+0.00  2021:+0.00  2022:+0.52  2024:+0.00  2025:+0.00
+    fitted lambda {2019: 0.0, 2020: 0.0, 2021: 0.0, 2022: 0.05, 2024: 0.0, 2025: 0.0}
+    INJECTION 1 against salt[0] alone: -0.014 [+0.000, +0.262] sd 0.080 -> not resolved
+    G2 interval width: one draw 0.262 -> distribution 0.759  (2.90x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.113): signal - floor = -0.026
+
+------------------------------------------------------------------------------
+ngs_time_to_throw   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: REVERTED (audible#87)
+  locus  signal delta   board-wide delta   dilution
+  QB           +0.669             +0.579     +0.090 of effect lost to averaging
+
+  === QB ===
+    signal     +0.669 [+0.002, +1.706] sd 0.466
+    floor      +0.218 [+0.000, +0.972] sd 0.295
+    difference +0.451 [-0.194, +1.595] sd 0.444   -> not resolved
+    per season 2019:+3.19  2020:+0.67  2021:+0.22  2022:+0.00  2024:+0.15  2025:-0.21
+    fitted lambda {2019: -0.05, 2020: 0.05, 2021: 0.05, 2022: 0.0, 2024: 0.05, 2025: 0.05}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: +0.451 [+0.002, +1.693] sd 0.459 -> RESOLVED WORSE THAN FLOOR
+    G2 interval width: one draw 1.691 -> distribution 1.789  (1.06x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.000): signal - floor = +0.669
+
+------------------------------------------------------------------------------
+contract   scope=position   seasons (2019, 2020, 2021, 2022, 2024, 2025)
+  was: REVERTED (audible#87)
+  locus  signal delta   board-wide delta   dilution
+  QB           +0.000             +0.489     -0.489 of effect lost to averaging
+  RB           +0.177             +0.489     -0.311 of effect lost to averaging
+  WR           +0.469             +0.489     -0.020 of effect lost to averaging
+  TE           +0.787             +0.489     +0.298 of effect lost to averaging
+
+  === QB ===
+    signal     +0.000 [+0.000, +0.000] sd 0.000
+    floor      +0.218 [+0.000, +0.972] sd 0.295
+    difference -0.218 [-0.972, +0.000] sd 0.295   -> not resolved
+    per season 2019:+0.00  2020:+0.00  2021:+0.00  2022:+0.00  2024:+0.00  2025:+0.00
+    fitted lambda {2019: 0.0, 2020: 0.0, 2021: 0.0, 2022: 0.0, 2024: 0.0, 2025: 0.0}
+    INJECTION 1 against salt[0] alone: -0.218 [+0.000, +0.000] sd 0.000 -> not resolved
+    G2 interval width: one draw 0.000 -> distribution 0.972  (nanx wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.000): signal - floor = +0.000
+
+  === RB ===
+    signal     +0.177 [-0.061, +0.473] sd 0.139
+    floor      +0.101 [-0.135, +0.581] sd 0.185
+    difference +0.076 [-0.475, +0.479] sd 0.235   -> not resolved
+    per season 2019:+0.43  2020:+0.81  2021:-0.18  2022:-0.07  2024:+0.00  2025:+0.08
+    fitted lambda {2019: 0.05, 2020: 0.05, 2021: 0.05, 2022: 0.05, 2024: 0.0, 2025: 0.05}
+    INJECTION 1 against salt[0] alone: +0.076 [-0.065, +0.466] sd 0.137 -> not resolved
+    G2 interval width: one draw 0.531 -> distribution 0.954  (1.80x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.113): signal - floor = +0.065
+
+  === WR ===
+    signal     +0.469 [+0.113, +0.879] sd 0.204
+    floor      +0.054 [-1.090, +1.113] sd 0.581
+    difference +0.414 [-0.651, +1.585] sd 0.585   -> not resolved
+    per season 2019:+0.00  2020:+1.23  2021:+0.90  2022:+0.00  2024:+0.68  2025:+0.00
+    fitted lambda {2019: 0.0, 2020: 0.05, 2021: 0.05, 2022: 0.0, 2024: 0.05, 2025: 0.0}
+    INJECTION 1 against salt[0] alone: +0.414 [+0.538, +1.701] sd 0.303 -> RESOLVED WORSE THAN FLOOR
+    G2 interval width: one draw 1.162 -> distribution 2.236  (1.92x wider)
+    INJECTION 1 against the audible#86/#87 draw (-0.620): signal - floor = +1.088
+
+  === TE ===
+    signal     +0.787 [+0.244, +1.532] sd 0.338
+    floor      +0.161 [-0.807, +1.175] sd 0.516
+    difference +0.626 [-0.302, +1.633] sd 0.504   -> not resolved
+    per season 2019:+0.04  2020:+0.02  2021:+0.55  2022:+2.53  2024:+0.79  2025:+0.79
+    fitted lambda {2019: 0.1, 2020: 0.1, 2021: -0.1, 2022: -0.1, 2024: -0.1, 2025: 0.05}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: +0.626 [+0.310, +2.290] sd 0.501 -> RESOLVED WORSE THAN FLOOR
+    G2 interval width: one draw 1.981 -> distribution 1.935  (0.98x wider)
+    INJECTION 1 against the audible#86/#87 draw (-1.083): signal - floor = +1.870
+
+------------------------------------------------------------------------------
+availability   scope=board   seasons (2020, 2021, 2022, 2024, 2025)
+  was: NEVER MEASURED (audible#87 measured floating-point residue)
+  locus  signal delta   board-wide delta   dilution
+  board        +0.813             +0.813     +0.000 of effect lost to averaging
+
+  === board ===
+    signal     +0.813 [+0.139, +1.957] sd 0.504
+    floor      +0.368 [-0.866, +1.586] sd 0.559
+    difference +0.445 [-0.802, +1.988] sd 0.694   -> not resolved
+    per season 2020:+0.00  2021:+0.44  2022:+0.32  2024:+3.05  2025:+0.26
+    fitted lambda {2020: 0.0, 2021: -0.1, 2022: 0.05, 2024: 0.1, 2025: -0.1}  SIGN FLIPS ACROSS FOLDS
+    INJECTION 1 against salt[0] alone: +0.445 [-0.760, +1.027] sd 0.459 -> not resolved
+    G2 interval width: one draw 1.787 -> distribution 2.790  (1.56x wider)
+    INJECTION 1 against the audible#86/#87 draw (+0.014): signal - floor = +0.799
+
+==============================================================================
+INJECTION 1 -- dispositions that DIFFER between one draw and the distribution
+==============================================================================
+  snap_share@RB: one draw said 'RESOLVED WORSE THAN FLOOR', distribution says 'not resolved'
+  draft_round@WR: one draw said 'RESOLVED WORSE THAN FLOOR', distribution says 'not resolved'
+  ngs_time_to_throw@QB: one draw said 'RESOLVED WORSE THAN FLOOR', distribution says 'not resolved'
+  contract@WR: one draw said 'RESOLVED WORSE THAN FLOOR', distribution says 'not resolved'
+  contract@TE: one draw said 'RESOLVED WORSE THAN FLOOR', distribution says 'not resolved'
+  total: 5

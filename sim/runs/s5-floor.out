@@ -1,0 +1,54 @@
+seasons (2019, 2020, 2021, 2022, 2024, 2025)   salts 24
+wrote s5-floor.json
+
+=== G1. THE FLOOR IS A DISTRIBUTION ===
+  locus   mean      sd     2.5%      97.5%    min      max
+  board  +0.342   0.387   -0.516   +0.883   -0.702   +1.106
+  QB     +0.218   0.192   +0.000   +0.491   +0.000   +0.491
+  RB     +0.101   0.142   -0.045   +0.347   -0.105   +0.359
+  WR     +0.054   0.462   -0.685   +0.678   -0.712   +0.728
+  TE     +0.161   0.420   -0.507   +0.803   -0.545   +0.857
+
+=== the single draw audible#86 and #87 published, for comparison ===
+  board legacy  +0.364   rank 11/24 among the 24 draws
+  QB    legacy  +0.000   rank 1/24 among the 24 draws
+  RB    legacy  +0.113   rank 16/24 among the 24 draws
+  WR    legacy  -0.620   rank 4/24 among the 24 draws
+  TE    legacy  -1.083   rank 1/24 among the 24 draws
+
+=== G2. RESAMPLING THE SALT WIDENS THE INTERVAL ===
+  The broken mechanism held the salt fixed and resampled only the unit, so the
+  salt's variance could not enter. Same data, both ways:
+  locus   conditional width   unconditional width   widened by
+  board             0.000                 2.110         nanx
+  QB                0.000                 0.972         nanx
+  RB                0.000                 0.717         nanx
+  WR                0.000                 2.381         nanx
+  TE                0.000                 2.350         nanx
+
+=== per-salt board-wide floor, all 24 draws ===
+  s5-floor-00  +0.639
+  s5-floor-01  -0.378
+  s5-floor-02  +0.719
+  s5-floor-03  +1.106
+  s5-floor-04  +0.643
+  s5-floor-05  +0.477
+  s5-floor-06  +0.000
+  s5-floor-07  +0.288
+  s5-floor-08  +0.411
+  s5-floor-09  +0.000
+  s5-floor-10  +0.498
+  s5-floor-11  +0.467
+  s5-floor-12  +0.000
+  s5-floor-13  +0.148
+  s5-floor-14  -0.702
+  s5-floor-15  +0.000
+  s5-floor-16  +0.686
+  s5-floor-17  +0.550
+  s5-floor-18  +0.639
+  s5-floor-19  +0.543
+  s5-floor-20  +0.194
+  s5-floor-21  +0.306
+  s5-floor-22  +0.425
+  s5-floor-23  +0.557
+  mean +0.342  sd 0.387

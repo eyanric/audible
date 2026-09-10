@@ -1,0 +1,125 @@
+seasons (2019, 2020, 2021, 2022, 2024, 2025)
+
+==============================================================================
+INJECTION 2 -- the float-residue term. audible#87's `availability`, unchanged.
+==============================================================================
+  `availability` is a POSITION-LEVEL CONSTANT put through the WITHIN-POSITION path.
+  Every member of a position holds one value, so sd is zero and the cell is dead.
+
+  availability (scope=position): FAILS
+    applies in 0/6 seasons ()
+    cells applied/skipped: 0/24
+    smallest applied sd: nan   threshold rel 1.0e-09
+    players displaced by season: 2019:0  2020:0  2021:0  2022:0  2024:0  2025:0
+    REASON: applies in 0 season(s), needs 2
+    REASON: no cell clears the minimum standard deviation
+    REASON: moves an ordering in 0 season(s), needs 2
+      2019 QB    n=  0 distinct=  0 sd=nan skipped (n < 10)
+      2019 RB    n=  0 distinct=  0 sd=nan skipped (n < 10)
+      2019 WR    n=  0 distinct=  0 sd=nan skipped (n < 10)
+      2019 TE    n=  0 distinct=  0 sd=nan skipped (n < 10)
+      2020 QB    n= 68 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 8.296e-09, floating-point residue)
+      2020 RB    n=133 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.897e-09, floating-point residue)
+      2020 WR    n=188 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.809e-09, floating-point residue)
+      2020 TE    n=107 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 8.968e-09, floating-point residue)
+      2021 QB    n= 64 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 7.915e-09, floating-point residue)
+      2021 RB    n=131 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.627e-09, floating-point residue)
+      2021 WR    n=185 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.851e-09, floating-point residue)
+      2021 TE    n=103 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 8.882e-09, floating-point residue)
+      2022 QB    n= 66 distinct=  1 sd=8.950e-16 skipped (sd 8.950e-16 <= 7.974e-09, floating-point residue)
+      2022 RB    n=130 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.483e-09, floating-point residue)
+      2022 WR    n=185 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.797e-09, floating-point residue)
+      2022 TE    n=110 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 8.995e-09, floating-point residue)
+      2024 QB    n= 64 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 7.945e-09, floating-point residue)
+      2024 RB    n=121 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.681e-09, floating-point residue)
+      2024 WR    n=186 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 1.007e-08, floating-point residue)
+      2024 TE    n=110 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.210e-09, floating-point residue)
+      2025 QB    n= 66 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 8.038e-09, floating-point residue)
+      2025 RB    n=114 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.793e-09, floating-point residue)
+      2025 WR    n=178 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 1.011e-08, floating-point residue)
+      2025 TE    n= 96 distinct=  1 sd=0.000e+00 skipped (sd 0.000e+00 <= 9.280e-09, floating-point residue)
+
+==============================================================================
+INJECTION 3 -- a uniform scale on VORP. audible#85's `shrink`, reproduced.
+==============================================================================
+  Contracting points toward the position mean contracts each player and his own
+  replacement by the same factor, so every VORP scales by (1-s) and no pair can
+  cross. The gate's third condition is what rejects it.
+    2019  s=0.40  players displaced: 0   board identical: True
+    2020  s=0.40  players displaced: 377   board identical: False
+    2021  s=0.40  players displaced: 0   board identical: True
+    2022  s=0.40  players displaced: 0   board identical: True
+    2024  s=0.40  players displaced: 353   board identical: False
+    2025  s=0.40  players displaced: 0   board identical: True
+
+  shrink: moves an ordering in 0/6 seasons, needs 2
+  total displacements across every season and every s tested: 2190
+  shrink FAILS: False
+
+==============================================================================
+G4/G5 -- every term this session will measure, through the rebuilt gate
+==============================================================================
+
+  availability (scope=board): PASSES
+    applies in 5/5 seasons (2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 5/0
+    smallest applied sd: 5.795e-01   threshold rel 1.0e-09
+    players displaced by season: 2020:439  2021:377  2022:384  2024:440  2025:280
+
+  snap_share (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 24/0
+    smallest applied sd: 2.020e-01   threshold rel 1.0e-09
+    players displaced by season: 2019:440  2020:438  2021:453  2022:453  2024:457  2025:394
+
+  adp_gap (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 24/0
+    smallest applied sd: 3.218e+00   threshold rel 1.0e-09
+    players displaced by season: 2019:428  2020:399  2021:436  2022:429  2024:377  2025:370
+
+  draft_round (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 21/3
+    smallest applied sd: 1.098e+00   threshold rel 1.0e-09
+    players displaced by season: 2019:361  2020:360  2021:334  2022:333  2024:393  2025:333
+
+  ngs_separation (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 12/12
+    smallest applied sd: 3.981e-01   threshold rel 1.0e-09
+    players displaced by season: 2019:347  2020:365  2021:359  2022:356  2024:335  2025:302
+
+  ngs_rush_eff (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 6/18
+    smallest applied sd: 3.411e-01   threshold rel 1.0e-09
+    players displaced by season: 2019:128  2020:174  2021:328  2022:282  2024:410  2025:176
+
+  ngs_time_to_throw (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 6/18
+    smallest applied sd: 1.133e-01   threshold rel 1.0e-09
+    players displaced by season: 2019:391  2020:334  2021:394  2022:413  2024:365  2025:399
+
+  contract (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 24/0
+    smallest applied sd: 1.432e-02   threshold rel 1.0e-09
+    players displaced by season: 2019:446  2020:469  2021:451  2022:451  2024:455  2025:425
+
+  noise (scope=position): PASSES
+    applies in 6/6 seasons (2019, 2020, 2021, 2022, 2024, 2025)
+    cells applied/skipped: 24/0
+    smallest applied sd: 5.160e-01   threshold rel 1.0e-09
+    players displaced by season: 2019:457  2020:463  2021:456  2022:456  2024:466  2025:428
+
+==============================================================================
+INJECTION 5 -- the perfect board and the shuffled board
+==============================================================================
+    2019  perfect 0.000000   shuffled   53.038   n=128
+    2020  perfect 0.000000   shuffled   52.123   n=128
+    2021  perfect 0.000000   shuffled   42.137   n=128
+    2022  perfect 0.000000   shuffled   55.229   n=128
+    2024  perfect 0.000000   shuffled   53.487   n=128
+    2025  perfect 0.000000   shuffled   57.802   n=128
