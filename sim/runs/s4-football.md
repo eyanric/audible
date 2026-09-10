@@ -247,3 +247,35 @@ this session measured, and wider than the separation result that looked resolved
 3. **A negative floor is a diagnostic in its own right.** TE's -0.701 says the board's tight-end
    ordering is worse than its own noise, which is a finding about the board rather than about
    any signal, and nothing in this project had measured it before.
+
+---
+
+## G8 — THE 2026 PREDICTION, committed before any 2026 data exists
+
+2024-2025 is a burned holdout, read by `audible#84` and `audible#85`, and everything above is
+labelled selection-contaminated. **2026 is the only clean test.** Scored once, in January 2027,
+on green_hope under symmetric indexing.
+
+**PRIMARY PREDICTION: receiver separation at lambda = +0.05 changes 2026 WR-locus RWRE by
+0.0 +/- 0.8, and will NOT resolve against a noise floor measured at wide receiver.**
+
+Direction: slightly negative (a small improvement) is more likely than positive -- four of six
+seasons improved and every leave-one-out fold chose a positive weight. Size: bounded by the
++/- 0.8 because that is roughly the width of the WR-locus floor's own interval, and this
+session's central finding is that a signal cannot be distinguished from a floor it does not
+exceed.
+
+**What would falsify it:** a change beyond 0.8 RWRE in either direction, or any interval that
+excludes zero when compared against a WR-locus noise floor computed the same way. Either would
+mean separation is a real signal that six seasons were too few to resolve -- which is the single
+most useful thing a 2026 score could say, because it is the only signal this project has ever
+produced that cleared its untreated baseline.
+
+**SECONDARY: the tight-end noise floor stays negative in 2026.** TE measured -0.701
+[-1.301, -0.138] here -- a hash improving the board, resolvably. If that reproduces on an unseen
+season it is a statement about the board's tight-end ordering rather than about any signal, and
+it points at where the next real work is.
+
+**Recorded as inert rather than predicted:** availability, rushing efficiency, time to throw and
+contract value all had their fitted weight driven to zero or reversed by their own folds. No
+prediction is made for them because there is nothing to predict.
