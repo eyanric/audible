@@ -73,6 +73,13 @@ def signal_values(name: str, season: int) -> dict[str, float]:
                 # POSITIVE means the market likes him more than the projection does.
                 out[p] = float(proj[p] - adp[p])
         return out
+    if name in NGS_FILES:
+        fk, col, _pos = NGS_FILES[name]
+        return ngs_prior(fk, col, season)
+    if name == "availability":
+        rates = position_availability(season)
+        loaded = arms.load(SOURCE, season, LEAGUE)
+        return {p: rates[q] for p, q in loaded.position.items() if q in rates}
     if name == "age":
         meta = residual.ffa_meta(season)
         return {p: m["age"] for p, m in meta.items() if m.get("age") == m.get("age")}
@@ -171,3 +178,67 @@ def loso(name: str, grid: tuple[float, ...], **kw) -> dict[int, tuple[float, flo
                 best, best_lam = tot, lam
         out[held] = (score(held, 0.0, name, **kw), score(held, best_lam, name, **kw), best_lam)
     return out
+
+
+# --- S4: football data, not projections -----------------------------------------------------
+
+NGS_FILES = {
+    "ngs_separation": ("nextgen_rec_s4", "avg_separation", ("WR", "TE")),
+    "ngs_cushion": ("nextgen_rec_s4", "avg_cushion", ("WR", "TE")),
+    "ngs_rush_eff": ("nextgen_rush_s4", "efficiency", ("RB",)),
+    "ngs_time_to_los": ("nextgen_rush_s4", "avg_time_to_los", ("RB",)),
+    "ngs_time_to_throw": ("nextgen_pass_s4", "avg_time_to_throw", ("QB",)),
+}
+
+
+@lru_cache(maxsize=32)
+def ngs_prior(file_key: str, column: str, season: int) -> dict[str, float]:
+    """Season-aggregate Next Gen Stats from season-1. `week == 0` is the season row."""
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / f"{file_key}.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"NGS pin missing: {path}")
+    f = pl.read_parquet(path)
+    sub = f.filter(
+        (pl.col("season").cast(pl.Utf8) == str(season - 1))
+        & (pl.col("week") == 0)
+        & (pl.col("season_type") == "REG")
+    )
+    if sub.height == 0:
+        sub = f.filter(
+            (pl.col("season").cast(pl.Utf8) == str(season - 1)) & (pl.col("week") == 0)
+        )
+    return {
+        str(pid): float(v)
+        for pid, v in sub.select(["player_gsis_id", column]).drop_nulls().iter_rows()
+    }
+
+
+@lru_cache(maxsize=16)
+def position_availability(season: int) -> dict[str, float]:
+    """Mean per-position games played, from seasons STRICTLY BEFORE season-1's outcome.
+
+    POSITION-LEVEL BY REQUIREMENT. `audible#71` measured RB 2.58 games missed against WR 3.29
+    at ADP <= 100 in 2025 -- the opposite of the folklore -- so the rates are measured, never
+    assumed, and no player-level injury term is built.
+
+    NOTE THE STRUCTURAL CONSEQUENCE, which decides where this can be tested: a value constant
+    within a position cannot reorder that position. It moves ONLY the cross-position interleave.
+    So its per-position RWRE is inert by construction and its locus is the whole board -- the
+    exact opposite of the Next Gen signals, which are within-position by nature.
+    """
+    import polars as pl
+
+    tot: dict[str, list[float]] = {}
+    for s in range(2018, season):
+        p = rank.CACHE / "nflverse" / f"player_stats_{s}.parquet"
+        if not p.exists():
+            continue
+        f = pl.read_parquet(p).filter(pl.col("season_type") == "REG")
+        agg = f.group_by(["player_id", "position"]).agg(pl.len().alias("g"))
+        for _pid, pos, g in agg.iter_rows():
+            canon = rank.room.canon_position(str(pos or ""))
+            if canon in rank.SCOREABLE:
+                tot.setdefault(canon, []).append(float(g))
+    return {pos: sum(v) / len(v) for pos, v in tot.items() if v}
