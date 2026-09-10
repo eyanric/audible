@@ -713,6 +713,12 @@ EXTERNAL_GATES: dict[str, str] = {
         "model control: the fake reproduces the live click interception",
     "test_the_modal_probe_never_dismisses":
         "model control: the fake's probe handler is read-only, like the JS it stands for",
+    # The two credential gates. Like the CSV ones, they are about the git index and
+    # .gitignore, not about this package -- no edit to a module here can make either fail.
+    "test_the_browser_profile_directory_is_ignored_by_git":
+        "about .gitignore; injected by removing the data/sim-cache rule",
+    "test_no_live_session_identifier_is_committed":
+        "about tracked file contents; injected by writing a captured token into one",
 }
 
 
