@@ -478,6 +478,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 print(f"  killed by {len(failures):>2}  {mutation.name}")
 
+    killed &= every_gate  # an external gate caught in the blast is not coverage of scope
     unkilled = sorted(every_gate - killed)
     equivalents = [m.name for m in selected if m.equivalent]
     print(f"\nmutations: {len(selected)}, equivalent-by-design: {len(equivalents)}, "
