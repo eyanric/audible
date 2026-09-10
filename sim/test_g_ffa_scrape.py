@@ -26,9 +26,10 @@ from pathlib import Path
 
 import pytest
 
+from .tools.ffa_scrape import driver as driver_mod
 from .tools.ffa_scrape import jobs as jobs_mod
 from .tools.ffa_scrape import manifest as manifest_mod
-from .tools.ffa_scrape import verify
+from .tools.ffa_scrape import runner, verify
 from .tools.ffa_scrape.jobs import Job, plan
 from .tools.ffa_scrape.manifest import ManifestEntry, append_entry, load_manifest, sha256_of
 from .tools.ffa_scrape.naming import NamingError, filename, parse_filename
@@ -625,3 +626,453 @@ def test_the_sha256_is_of_the_payload_bytes() -> None:
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     )
     assert sha256_of(raw_csv()) != sha256_of(raw_csv(avg_type="robust"))
+
+
+# ---------------------------------------------------------------------------------------
+# The runner. Everything above tests a check in isolation; these test that the RUNNER
+# actually obeys them -- that a rejected payload does not reach disk, that the manifest is
+# appended only after a success, and that a lost session is recovered from rather than
+# recorded as a failure.
+# ---------------------------------------------------------------------------------------
+
+
+class FakeDriver:
+    """A scripted stand-in for `ShinyDriver`. Same three methods the runner uses.
+
+    `script` maps a filename to what happens on each successive attempt at it: a string is
+    served as the payload, an exception class is raised.
+    """
+
+    def __init__(self, script: dict[str, list[object]]) -> None:
+        self.script = {name: list(steps) for name, steps in script.items()}
+        self.settles = driver_mod.Settles()
+        self.prepared: list[tuple[str, int, int, str]] = []
+        self.establishes = 0
+        self._pending: object | None = None
+
+    def prepare(self, kind: str, year: int, week: int, avg: str) -> None:
+        self.prepared.append((kind, year, week, avg))
+        name = filename(kind, year, week, avg)
+        steps = self.script.get(name)
+        if not steps:
+            raise AssertionError(f"FakeDriver has no script left for {name}")
+        step = steps.pop(0)
+        if isinstance(step, type) and issubclass(step, Exception):
+            raise step("scripted")
+        self._pending = step
+
+    def fetch_payload(self) -> driver_mod.FetchResult:
+        return driver_mod.FetchResult(
+            ok=True, status=200, content_type="text/csv", text=str(self._pending)
+        )
+
+    def establish(self) -> None:
+        self.establishes += 1
+
+
+def _run(
+    script: dict[str, list[object]], jobs: list[Job], tmp_path: Path
+) -> tuple[FakeDriver, runner.RunResult]:
+    fake = FakeDriver(script)
+    result = runner.run_jobs(
+        fake,  # type: ignore[arg-type]
+        jobs,
+        data_dir=tmp_path,
+        manifest_path=tmp_path / manifest_mod.MANIFEST_NAME,
+        now=lambda: "2026-09-10T00:00:00+00:00",
+        log=lambda _msg: None,
+    )
+    return fake, result
+
+
+def test_a_mislabelled_payload_is_never_written_and_never_recorded(tmp_path: Path) -> None:
+    """FAILURE INJECTION 1, through the runner rather than the verifier. The exact defect:
+    the app serves weighted data for an average job, twice, and the corpus stays clean."""
+    job = Job(kind="raw", year=2019, week=0, avg="average")
+    weighted = raw_csv(avg_type="weighted")
+    _, result = _run({job.filename: [weighted, weighted]}, [job], tmp_path)
+
+    assert result.completed == []
+    assert [j.filename for j, _ in result.failed] == [job.filename]
+    assert not (tmp_path / job.filename).exists(), "a mislabelled file reached disk"
+    assert load_manifest(tmp_path / manifest_mod.MANIFEST_NAME) == {}
+    reasons = result.failed[0][1]
+    assert any(r.startswith("avg-type-mismatch") for r in reasons), reasons
+
+
+def test_the_retry_is_what_saves_a_job_that_lost_a_race(tmp_path: Path) -> None:
+    """First attempt comes back weighted; the longer second attempt comes back right."""
+    job = Job(kind="raw", year=2019, week=0, avg="robust")
+    _, result = _run(
+        {job.filename: [raw_csv(avg_type="weighted"), raw_csv(avg_type="robust")]},
+        [job],
+        tmp_path,
+    )
+    assert result.completed == [job.filename]
+    assert result.failed == []
+    entry = load_manifest(tmp_path / manifest_mod.MANIFEST_NAME)[job.filename]
+    assert entry.measured_avg_type == "robust"
+    assert (tmp_path / job.filename).exists()
+
+
+def test_a_lost_session_is_re_established_and_the_job_still_lands(tmp_path: Path) -> None:
+    """G4 at the unit level. A reload resets the app; the runner rebuilds and carries on."""
+    job = Job(kind="raw", year=2020, week=0, avg="weighted")
+    fake, result = _run(
+        {job.filename: [driver_mod.SessionLost, raw_csv(avg_type="weighted")]},
+        [job],
+        tmp_path,
+    )
+    assert fake.establishes == 1
+    assert result.recoveries == 1
+    assert result.completed == [job.filename]
+    assert result.failed == []
+
+
+def test_a_run_that_keeps_losing_its_session_stops_rather_than_hammering(
+    tmp_path: Path,
+) -> None:
+    """Politeness, enforced. This is a personal subscription on a server we do not own."""
+    jobs = jobs_mod.STAGES["season-raw"][:6]
+    script = {job.filename: [driver_mod.SessionLost] * 4 for job in jobs}
+    with pytest.raises(driver_mod.SessionLost):
+        _run(script, jobs, tmp_path)
+
+
+def test_every_job_re_sets_the_aggregation_after_the_year(tmp_path: Path) -> None:
+    """Behaviour 1 has no fast path. The prepare call carries the aggregation EVERY time,
+    because "it is already set" is precisely the assumption that mislabelled 36 files."""
+    jobs = [
+        Job(kind="raw", year=2019, week=0, avg="average"),
+        Job(kind="raw", year=2019, week=0, avg="robust"),
+        Job(kind="raw", year=2020, week=0, avg="average"),
+    ]
+    script = {job.filename: [raw_csv(avg_type=job.avg)] for job in jobs}
+    fake, result = _run(script, jobs, tmp_path)
+    assert len(result.completed) == 3
+    assert fake.prepared == [(j.kind, j.year, j.week, j.avg) for j in jobs]
+
+
+def test_a_run_records_each_success_before_it_starts_the_next_job(tmp_path: Path) -> None:
+    """A kill after job N leaves N manifest lines, not zero. This is what resume rests on."""
+    jobs = jobs_mod.STAGES["season-raw"][:4]
+    script = {job.filename: [raw_csv(avg_type=job.avg)] for job in jobs}
+    seen: list[int] = []
+    manifest_path = tmp_path / manifest_mod.MANIFEST_NAME
+
+    runner.run_jobs(
+        FakeDriver(script),  # type: ignore[arg-type]
+        jobs,
+        data_dir=tmp_path,
+        manifest_path=manifest_path,
+        now=lambda: "2026-09-10T00:00:00+00:00",
+        log=lambda _msg: None,
+        on_progress=lambda _i, _t, _j: seen.append(len(load_manifest(manifest_path))),
+    )
+    assert seen == [0, 1, 2, 3], seen
+
+
+def test_an_html_login_page_is_rejected_rather_than_parsed(tmp_path: Path) -> None:
+    """A logged-out session serves HTML with a 200. The CSV reader would find one column
+    and no positions, but naming it for what it is makes the log readable."""
+    job = Job(kind="raw", year=2019, week=0, avg="weighted")
+    page = "<!DOCTYPE html>\n<html><body>Sign in</body></html>"
+    _, result = _run({job.filename: [page, page]}, [job], tmp_path)
+    assert result.completed == []
+    assert any(r.startswith("html-payload") for r in result.failed[0][1])
+    assert not (tmp_path / job.filename).exists()
+
+
+def test_the_bytes_on_disk_are_the_bytes_that_were_hashed(tmp_path: Path) -> None:
+    """No newline translation. On Windows a text-mode write turns every LF into CRLF and the
+    file no longer hashes to what the manifest claims -- which would make every sha256 in the
+    manifest a lie on exactly one platform, and that platform is the one this runs on."""
+    payload = raw_csv()
+    size = runner.write_payload(tmp_path, "ffa_raw_2019_wk0_weighted.csv", payload)
+    written = (tmp_path / "ffa_raw_2019_wk0_weighted.csv").read_bytes()
+    assert written == payload.encode("utf-8")
+    assert size == len(written)
+    assert b"\r\n" not in written
+    assert sha256_of(written.decode("utf-8")) == sha256_of(payload)
+
+
+def test_no_part_file_survives_a_completed_write(tmp_path: Path) -> None:
+    runner.write_payload(tmp_path, "ffa_raw_2019_wk0_weighted.csv", raw_csv())
+    assert list(tmp_path.glob("*.part")) == []
+    assert (tmp_path / "ffa_raw_2019_wk0_weighted.csv").exists()
+
+
+# ---------------------------------------------------------------------------------------
+# The driver's ORDER. This is the mechanism of the original defect, and until now nothing
+# tested it -- `verify.py` catches a mislabelled file, but catching it every time is a run
+# that never finishes. The order is what makes the file right in the first place.
+#
+# `FakeShinyPage` models the app's three measured behaviours rather than the driver's
+# expectations of them:
+#   1. setting the year resets the aggregation to `weighted`
+#   2. an aggregation set on the Projections page does not take; it takes on a
+#      Settings -> Projections round trip
+#   3. `weighted` therefore needs no round trip, because a year change leaves it there
+# ---------------------------------------------------------------------------------------
+
+INSTANT = driver_mod.Settles(
+    action=0.0, after_year=0.0, after_week=0.0, after_avg=0.0,
+    after_tab_proj=0.0, after_kind=0.0, idle_timeout=0.01,
+)
+
+
+class FakeShinyPage:
+    """The app as measured, not as hoped. Serves a payload built from its EFFECTIVE state."""
+
+    def __init__(self, *, session: str = "s1") -> None:
+        self.session = session
+        self.tab = "tab_proj"
+        # What the widgets read.
+        self.inputs = {
+            driver_mod.YEAR_INPUT: "2026",
+            driver_mod.WEEK_INPUT: "0",
+            driver_mod.AVG_INPUT: "weighted",
+            driver_mod.KIND_INPUT: "proj",
+        }
+        # What the SERVER will actually serve. Behaviour 2: this only catches up with the
+        # widget on a Settings -> Projections round trip.
+        self.effective_avg = "weighted"
+        self.link_text = driver_mod.READY_TEXT
+        self.calls: list[str] = []
+        self.reload_before_fetch = False
+        # A reload that lands mid-sequence. `after` reverts the input just written -- the
+        # per-write read-back catches that. `before` lets the write land on a freshly reset
+        # page, so the input just written looks RIGHT and the earlier ones have reverted;
+        # only the combined read-back at the end of `prepare` sees it.
+        self.reset_after_set: str | None = None
+        self.reset_before_set: str | None = None
+
+    # -- playwright surface -------------------------------------------------------------
+
+    def goto(self, _url: str, **_kwargs: object) -> None:
+        self.calls.append("goto")
+        self.reset()
+
+    def wait_for_function(self, _expr: str, **_kwargs: object) -> None:
+        return None
+
+    def wait_for_selector(self, _selector: str, **_kwargs: object) -> None:
+        return None
+
+    def click(self, selector: str) -> None:
+        tab = selector.split('"')[1]
+        self.calls.append(f"click:{tab}")
+        if self.tab == "tab_settings" and tab == "tab_proj":
+            self.effective_avg = self.inputs[driver_mod.AVG_INPUT]  # behaviour 2
+        self.tab = tab
+
+    def evaluate(self, script: str, arg: object = None) -> object:
+        if script is driver_mod._IDLE_JS:
+            return True
+        if script is driver_mod._GET_JS:
+            key = str(arg)
+            if key not in self.inputs:
+                return {"found": False, "value": None}
+            return {"found": True, "value": self.inputs[key]}
+        if script is driver_mod._SET_JS:
+            key, value = arg  # type: ignore[misc]
+            self.calls.append(f"set:{key}={value}")
+            if key == self.reset_before_set:
+                self.reset_before_set = None
+                self.reset()
+                self.session = "s2"
+            if key == driver_mod.YEAR_INPUT and value != self.inputs[key]:
+                # BEHAVIOUR 1. The whole reason this tool exists.
+                self.inputs[driver_mod.AVG_INPUT] = "weighted"
+                self.effective_avg = "weighted"
+            self.inputs[key] = value
+            if key == self.reset_after_set:
+                self.reset_after_set = None
+                self.reset()
+                self.session = "s2"
+            return True
+        if script is driver_mod._HREF_JS:
+            return {
+                "found": True,
+                "href": f"/newApp/_w_1/session/{self.session}/download/x?w=1",
+                "text": self.link_text,
+            }
+        if script is driver_mod._FETCH_JS:
+            if self.reload_before_fetch:
+                self.reset()
+                self.session = "s2"
+            return {
+                "ok": True,
+                "status": 200,
+                "type": "text/csv",
+                "text": self.serve(),
+            }
+        raise AssertionError(f"FakeShinyPage does not model this script:\n{script[:80]}")
+
+    # -- the app ------------------------------------------------------------------------
+
+    def reset(self) -> None:
+        """What a shinyapps.io reload leaves behind: 2026, week 0, file type proj."""
+        self.calls.append("reset")
+        self.inputs = {
+            driver_mod.YEAR_INPUT: "2026",
+            driver_mod.WEEK_INPUT: "0",
+            driver_mod.AVG_INPUT: "weighted",
+            driver_mod.KIND_INPUT: "proj",
+        }
+        self.effective_avg = "weighted"
+        self.tab = "tab_proj"
+
+    def serve(self) -> str:
+        if self.inputs[driver_mod.KIND_INPUT] == "proj":
+            return proj_csv()
+        return raw_csv(avg_type=self.effective_avg)
+
+
+def _driver_on(page: FakeShinyPage) -> driver_mod.ShinyDriver:
+    return driver_mod.ShinyDriver(page, INSTANT, log=lambda _m: None)
+
+
+def test_the_driver_fetches_the_aggregation_it_was_asked_for(tmp_path: Path) -> None:
+    """Against an app that resets the aggregation on every year change, all three land."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    for avg in ("weighted", "average", "robust"):
+        driver.prepare("raw", 2019, 0, avg)
+        payload = driver.fetch_payload()
+        assert verify_payload(payload.text, kind="raw", week=0, avg=avg) == [], avg
+
+
+def test_setting_the_aggregation_before_the_year_would_lose_it() -> None:
+    """The CONTROL for the order, and the defect reproduced against the model.
+
+    This is what a reasonable person writes first, and it is what shipped 36 mislabelled
+    files. If this ever stops failing, `FakeShinyPage` has stopped modelling the app and
+    the gate above proves nothing."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+
+    driver.click_tab("tab_settings")
+    driver.set_input(driver_mod.AVG_INPUT, "average", 0.0)
+    driver.click_tab("tab_proj")
+    driver.set_input(driver_mod.YEAR_INPUT, "2019", 0.0)  # <- resets it
+    driver.set_input(driver_mod.KIND_INPUT, "raw", 0.0)
+
+    payload = driver.fetch_payload()
+    reasons = verify_payload(payload.text, kind="raw", week=0, avg="average")
+    assert any(r.startswith("avg-type-mismatch") for r in reasons), reasons
+    assert inspect_csv(payload.text).sole_avg_type == "weighted"
+
+
+def test_an_aggregation_set_without_the_round_trip_does_not_take() -> None:
+    """Behaviour 2, isolated. Setting it on the Projections page changes the widget and
+    not the server, which is the trap: the page reads `average` and serves `weighted`."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.click_tab("tab_proj")
+    driver.set_input(driver_mod.YEAR_INPUT, "2019", 0.0)
+    driver.set_input(driver_mod.AVG_INPUT, "robust", 0.0)
+    driver.set_input(driver_mod.KIND_INPUT, "raw", 0.0)
+
+    assert driver.read_input(driver_mod.AVG_INPUT) == "robust"  # the widget agrees
+    assert page.effective_avg == "weighted"  # the server does not
+    payload = driver.fetch_payload()
+    assert inspect_csv(payload.text).sole_avg_type == "weighted"
+
+
+def test_a_weighted_job_makes_no_settings_trip() -> None:
+    """Behaviour 3, and the reason the stage order front-loads weighted: the trip is most
+    of the cost, and a year change has already left the aggregation where we want it."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    page.calls.clear()
+    driver.prepare("raw", 2019, 0, "weighted")
+    assert "click:tab_settings" not in page.calls, page.calls
+
+    page.calls.clear()
+    driver.prepare("raw", 2019, 0, "average")
+    assert "click:tab_settings" in page.calls, page.calls
+
+
+def test_the_year_is_always_set_before_the_aggregation() -> None:
+    """Order, asserted directly rather than only through its consequence."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    page.calls.clear()
+    driver.prepare("raw", 2022, 3, "robust")
+    year_at = page.calls.index(f"set:{driver_mod.YEAR_INPUT}=2022")
+    avg_at = page.calls.index(f"set:{driver_mod.AVG_INPUT}=robust")
+    kind_at = page.calls.index(f"set:{driver_mod.KIND_INPUT}=raw")
+    assert year_at < avg_at < kind_at, page.calls
+
+
+def test_a_reload_that_reverts_the_input_just_written_is_caught_at_that_write() -> None:
+    """G4 at the driver level, first shape: the per-write read-back sees the revert."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    page.reset_after_set = driver_mod.WEEK_INPUT
+    with pytest.raises(driver_mod.SessionLost, match="reads '0' after being set to '5'"):
+        driver.prepare("raw", 2019, 5, "weighted")
+
+
+def test_a_reload_that_leaves_the_last_input_looking_right_is_caught_at_the_end() -> None:
+    """The second shape, and the reason `prepare` re-reads EVERY input at the end.
+
+    The reload lands just before the file type is written, so the file type is applied to a
+    fresh page and reads back correctly -- while the year and week it was supposed to
+    accompany have silently reverted to 2026 and 0. A per-write check alone would fetch a
+    2026 season file and name it 2019.
+    """
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    page.reset_before_set = driver_mod.KIND_INPUT
+    with pytest.raises(driver_mod.SessionLost, match="drifted before the fetch"):
+        driver.prepare("raw", 2019, 5, "weighted")
+
+
+def test_a_replaced_session_is_detected_even_when_the_inputs_look_right() -> None:
+    """A new worker with the same inputs is still a different session, and the href it
+    serves belongs to that one. The token is what says so."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    page.session = "s2"
+    with pytest.raises(driver_mod.SessionLost):
+        driver.assert_same_session()
+
+
+def test_a_locked_download_control_refuses_to_run_rather_than_fetching_html() -> None:
+    page = FakeShinyPage()
+    page.link_text = driver_mod.LOCKED_TEXT
+    driver = _driver_on(page)
+    with pytest.raises(driver_mod.NotLoggedIn):
+        driver.establish()
+
+
+def test_a_login_that_lapses_mid_run_stops_the_run() -> None:
+    """Not a per-file failure. Every remaining fetch would come back as the login page, and
+    600 failures in a row is not a report anybody reads."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "weighted")
+    page.link_text = driver_mod.LOCKED_TEXT
+    with pytest.raises(driver_mod.NotLoggedIn):
+        driver.fetch_payload()
+
+
+def test_a_fresh_load_reads_2026_week_0_proj() -> None:
+    """The premise the session-loss check rests on: this is what a reload leaves behind."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    assert driver.read_input(driver_mod.YEAR_INPUT) == "2026"
+    assert driver.read_input(driver_mod.WEEK_INPUT) == "0"
+    assert driver.read_input(driver_mod.KIND_INPUT) == "proj"

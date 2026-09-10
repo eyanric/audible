@@ -357,22 +357,159 @@ MUTATIONS: tuple[Mutation, ...] = (
         'return self.avg != "weighted"',
         "return False",
     ),
+    # --- runner.py: does the runner actually OBEY the checks? ---------------------------
+    Mutation(
+        "a-rejected-payload-is-written-anyway",
+        "runner.py",
+        "return (result.text if not reasons else None), reasons",
+        "return result.text, reasons",
+    ),
+    Mutation(
+        "there-is-no-retry",
+        "runner.py",
+        "for scale in (1.0, RETRY_SCALE):",
+        "for scale in (1.0,):",
+    ),
+    Mutation(
+        "a-lost-session-is-not-re-established",
+        "runner.py",
+        "                driver.establish()",
+        "                pass",
+    ),
+    Mutation(
+        "the-recovery-cap-is-removed",
+        "runner.py",
+        "if consecutive_recoveries > MAX_CONSECUTIVE_RECOVERIES:\n                    raise",
+        "if False:\n                    raise",
+    ),
+    Mutation(
+        "the-manifest-is-never-appended",
+        "runner.py",
+        "        append_entry(\n            manifest_path,",
+        "        _ = (\n            manifest_path,",
+    ),
+    Mutation(
+        "the-payload-is-written-in-text-mode",
+        "runner.py",
+        "part.write_bytes(payload)",
+        "part.write_text(text)",
+    ),
+    Mutation(
+        "the-part-file-is-left-behind",
+        "runner.py",
+        "os.replace(part, data_dir / name)",
+        "(data_dir / name).write_bytes(payload)",
+    ),
+    Mutation(
+        "an-html-login-page-is-not-recognised",
+        "runner.py",
+        'return head.startswith("<!doctype html") or head.startswith("<html")',
+        "return False",
+    ),
+    Mutation(
+        "the-runner-asks-for-weighted-whatever-the-job-says",
+        "runner.py",
+        "driver.prepare(job.kind, job.year, job.week, job.avg)",
+        'driver.prepare(job.kind, job.year, job.week, "weighted")',
+    ),
+    # --- driver.py: the ORDER, which is the mechanism of the original defect -------------
+    Mutation(
+        "the-aggregation-is-set-before-the-year",
+        "driver.py",
+        "        self.click_tab(TAB_PROJ)\n"
+        "        self.set_input(YEAR_INPUT, str(year), self.settles.after_year)\n"
+        "        self.set_input(WEEK_INPUT, str(week), self.settles.after_week)\n"
+        "\n"
+        '        if avg != "weighted":\n'
+        "            self.click_tab(TAB_SETTINGS)\n"
+        "            self.set_input(AVG_INPUT, avg, self.settles.after_avg)\n"
+        "            self.click_tab(TAB_PROJ)\n"
+        "            self._pause(self.settles.after_tab_proj)\n"
+        "            self.wait_idle()\n",
+        '        if avg != "weighted":\n'
+        "            self.click_tab(TAB_SETTINGS)\n"
+        "            self.set_input(AVG_INPUT, avg, self.settles.after_avg)\n"
+        "            self.click_tab(TAB_PROJ)\n"
+        "            self._pause(self.settles.after_tab_proj)\n"
+        "            self.wait_idle()\n"
+        "\n"
+        "        self.click_tab(TAB_PROJ)\n"
+        "        self.set_input(YEAR_INPUT, str(year), self.settles.after_year)\n"
+        "        self.set_input(WEEK_INPUT, str(week), self.settles.after_week)\n",
+    ),
+    Mutation(
+        "the-aggregation-is-set-without-the-settings-trip",
+        "driver.py",
+        "            self.click_tab(TAB_SETTINGS)\n"
+        "            self.set_input(AVG_INPUT, avg, self.settles.after_avg)\n"
+        "            self.click_tab(TAB_PROJ)\n",
+        "            self.set_input(AVG_INPUT, avg, self.settles.after_avg)\n",
+    ),
+    Mutation(
+        "weighted-pays-for-a-settings-trip-it-does-not-need",
+        "driver.py",
+        '        if avg != "weighted":',
+        "        if True:",
+    ),
+    Mutation(
+        "the-per-write-read-back-is-dropped",
+        "driver.py",
+        "if seen != value:",
+        "if False:",
+    ),
+    Mutation(
+        "the-final-combined-read-back-is-dropped",
+        "driver.py",
+        "if drifted:",
+        "if False:",
+    ),
+    Mutation(
+        "the-session-token-is-not-compared",
+        "driver.py",
+        "if self._session_token is not None and token != self._session_token:",
+        "if False:",
+    ),
+    Mutation(
+        "a-locked-control-does-not-stop-the-start",
+        "driver.py",
+        "if expect_login and text == LOCKED_TEXT:",
+        "if False:",
+    ),
+    Mutation(
+        "a-locked-control-does-not-stop-a-fetch",
+        "driver.py",
+        "        if text == LOCKED_TEXT:\n"
+        '            raise NotLoggedIn(f"the download control reads {text!r} mid-run")',
+        "        if False:\n"
+        '            raise NotLoggedIn(f"the download control reads {text!r} mid-run")',
+    ),
 )
 
 # Gates about the REPOSITORY rather than about this package: no edit to a module here can
 # make them red, so leaving them in the coverage denominator would be dishonest in the other
 # direction -- a permanent UNKILLED that means nothing. They are exercised by failure
 # injection instead (add a CSV, `git add -f`, watch it go red), which is recorded in the PR.
-EXTERNAL_GATES: frozenset[str] = frozenset(
-    {
-        "test_no_csv_is_tracked_anywhere_in_the_repository",
-        "test_the_corpus_directory_is_ignored_by_git",
-        "test_the_manifest_and_readme_are_the_only_things_meant_to_be_committed",
-        # Reconciles the synthetic fixtures against a real export. On a machine without the
-        # gitignored corpus it skips, so it cannot be part of a coverage claim either.
-        "test_the_synthetic_raw_fixture_matches_a_real_export",
-    }
-)
+EXTERNAL_GATES: dict[str, str] = {
+    "test_no_csv_is_tracked_anywhere_in_the_repository":
+        "about the git index; injected by `git add -f` on a CSV",
+    "test_the_corpus_directory_is_ignored_by_git":
+        "about .gitignore; injected by the same",
+    "test_the_manifest_and_readme_are_the_only_things_meant_to_be_committed":
+        "about the git index; injected by the same",
+    "test_the_synthetic_raw_fixture_matches_a_real_export":
+        "reconciles the fixtures against a real export; skips where the corpus is absent",
+    # These three assert that FakeShinyPage reproduces the app's MEASURED behaviour. They
+    # are the model's controls, not the driver's -- no edit to driver.py can change what the
+    # model does, and if one of them ever passes wrongly the whole driver suite is measuring
+    # a fiction. `probe` re-measures the same three against the live app before every run,
+    # which is where that claim is actually settled.
+    "test_setting_the_aggregation_before_the_year_would_lose_it":
+        "model control for behaviour 1; re-measured live by `probe`",
+    "test_an_aggregation_set_without_the_round_trip_does_not_take":
+        "model control for behaviour 2; re-measured live by `probe`",
+    "test_a_fresh_load_reads_2026_week_0_proj":
+        "model control for the reload defaults; re-measured live by `probe`",
+}
 
 
 def _bare(test_id: str) -> str:
@@ -439,9 +576,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if baseline_code != 0:
         print(f"baseline is not green ({baseline_failures}); fix that before mutating")
         return 2
-    every_gate = _all_gate_ids() - EXTERNAL_GATES
-    print(f"baseline: green, {len(every_gate)} gates in scope "
-          f"({len(EXTERNAL_GATES)} external, injected instead)\n")
+    collected = _all_gate_ids()
+    stale = sorted(set(EXTERNAL_GATES) - collected)
+    if stale:
+        print(f"EXTERNAL_GATES names gates that no longer exist: {stale}")
+        return 2
+    every_gate = collected - set(EXTERNAL_GATES)
+    print(f"baseline: green, {len(every_gate)} gates in scope")
+    for name, reason in sorted(EXTERNAL_GATES.items()):
+        print(f"  out of scope: {name} -- {reason}")
+    print()
 
     killed: set[str] = set()
     survivors: list[str] = []

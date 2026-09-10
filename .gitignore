@@ -34,8 +34,8 @@ sim/data/ffa/*.csv
 # sim/test_g_ffa_scrape.py: PUBLIC repository, paid-subscription data. Only the README and
 # manifest.jsonl beside it are committed, and the manifest carries a sha256 per file so a
 # run can assert it read the bytes the artifact claims without the bytes being in git.
-sim/data/ffa_corpus/*.csv
-sim/data/ffa_corpus/*.csv.part
+sim/data/ffa_corpus/**/*.csv
+sim/data/ffa_corpus/**/*.csv.part
 
 # Personal draft exports (reconstructible from ESPN + the synced state file)
 draft-*-results.md
