@@ -1,0 +1,60 @@
+==============================================================================
+A. why does a position-level constant move a per-position score?
+==============================================================================
+  the numbers under investigation, from the same LOSO as every other term:
+    board mean +0.812672   2020:+0.0000  2021:+0.4351  2022:+0.3185  2024:+3.0489  2025:+0.2608
+    QB    mean -0.035556   2020:-0.1778  2021:+0.0000  2022:+0.0000  2024:+0.0000  2025:+0.0000
+    RB    mean +0.159311   2020:+0.3363  2021:+0.0000  2022:+0.1201  2024:+0.3402  2025:+0.0000
+    WR    mean -0.027952   2020:-0.1398  2021:+0.0000  2022:+0.0000  2024:+0.0000  2025:+0.0000
+    TE    mean +0.000385   2020:+0.0000  2021:+0.0019  2022:+0.0000  2024:+0.0000  2025:+0.0000
+  prediction was every per-position figure is EXACTLY +0.000000 -- holds: False
+
+  prediction was: constant within a position -> constant multiplier -> the
+  within-position ORDER cannot change -> per-position RWRE is inert.
+  2020:
+      QB order_same=True  pool 9->11
+      RB order_same=True  pool 54->58
+      WR order_same=True  pool 44->37
+      TE order_same=True  pool 21->22
+  2021:
+      QB order_same=True  pool 9->9
+      RB order_same=True  pool 54->54
+      WR order_same=True  pool 43->43
+      TE order_same=True  pool 22->22
+  2022:
+      QB order_same=True  pool 10->10
+      RB order_same=True  pool 53->53
+      WR order_same=True  pool 42->42
+      TE order_same=True  pool 23->23
+  2024:
+      QB order_same=True  pool 10->12
+      RB order_same=True  pool 52->43
+      WR order_same=True  pool 47->53
+      TE order_same=True  pool 19->20
+  2025:
+      QB order_same=True  pool 10->10
+      RB order_same=True  pool 57->57
+      WR order_same=True  pool 39->39
+      TE order_same=True  pool 22->22
+
+  COUNTERFACTUAL: per-position scored over a POSITION-LOCAL top-32.
+    2020: QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2021: QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2022: QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2024: QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+    2025: QB +0.0000  RB +0.0000  WR +0.0000  TE +0.0000
+  Every figure exactly +0.0000 means the PREDICTION was right and the metric is
+  wrong: `score_board.per_position` slices the GLOBAL top-128, so the interleave
+  moves which players each position contributes and the score moves with it.
+
+==============================================================================
+B. ngs_separation at WR -- which seasons carry it?
+==============================================================================
+  per season: 2019:-0.82  2020:+0.20  2021:-2.79  2022:-0.26  2024:+0.73  2025:-2.30
+  all six seasons: -0.874
+  the two most favourable seasons are 2021 (-2.79) and 2025 (-2.30)
+  dropping [2021]: signal -0.491   difference -0.581 [-2.102, +0.943] sd 0.760 -> not resolved
+  dropping [2025]: signal -0.588   difference -0.677 [-2.142, +0.854] sd 0.781 -> not resolved
+  dropping [2021, 2025]: signal -0.038   difference -0.186 [-1.733, +1.317] sd 0.748 -> not resolved
+
+  sum of the negative seasons -6.17; -5.09 of it is those two (83%)

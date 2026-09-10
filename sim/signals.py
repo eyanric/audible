@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from dataclasses import dataclass
 from functools import lru_cache
 
 from . import arms, rank, residual
@@ -91,11 +92,90 @@ def signal_values(name: str, season: int) -> dict[str, float]:
     raise ValueError(f"unknown signal {name!r}")
 
 
+# S5. A term is standardised over the CELLS its information varies across.
+#
+# `position` -- the default -- z-scores within each position, which is right for a term that
+# separates players inside a position (separation, rush efficiency, snap share).
+#
+# `board` z-scores across the whole scoreable pool, and it is the ONLY correct scope for a term
+# that is CONSTANT WITHIN A POSITION. `audible#87` ran `availability` -- a position-level
+# rate -- through the within-position path, where every member of a position holds the same
+# value, `sd` is zero, and the cell is skipped. Nineteen of twenty cells were a literal no-op
+# and the twentieth applied 8.95e-16 of floating-point residue. The term was never measured.
+SIGNAL_SCOPE: dict[str, str] = {"availability": "board"}
+
+# A standard deviation this far below the cell mean is floating-point residue, not spread.
+# `audible#87`'s 2022 quarterback cell held one distinct value and still reported
+# sd = 8.95e-16 against mu = 7.97 -- a relative sd of 1.1e-16 -- because the shared value and
+# its own mean differ in the last bit. That residue scaled a 66-man block and became the whole
+# of a published result. Machine epsilon is 2.2e-16; this sits seven orders of magnitude above.
+MIN_SD_REL = 1e-9
+
+
+@dataclass(frozen=True, slots=True)
+class Cell:
+    """One standardisation cell: what `adjust` did here, and why."""
+
+    label: str
+    n: int
+    distinct: int
+    mu: float
+    sd: float
+    applied: bool
+    reason: str
+
+
+def cells(
+    points: dict[str, float], position: dict[str, str], season: int, name: str,
+    *, rookies_only: bool = False, scope: str | None = None,
+    values: dict[str, float] | None = None,
+) -> list[Cell]:
+    """The cells `adjust` would standardise over, applied or skipped, with the deciding `sd`.
+
+    THE GATE AND THE TRANSFORM SHARE THIS FUNCTION BY CONSTRUCTION. `audible#87`'s G5 asked
+    "can this term change an ordering" through one code path and `adjust` decided whether to
+    act through another, so a term that never applied still passed the gate. They cannot
+    diverge again without this function changing under both.
+    """
+    vals = signal_values(name, season) if values is None else values
+    eligible = set(points)
+    if rookies_only:
+        prior = residual.prior_facts(season)
+        eligible = {p for p in points if p not in prior}
+    scope = scope or SIGNAL_SCOPE.get(name, "position")
+    if scope == "board":
+        groups = [("board", [p for p in eligible
+                             if position.get(p) in rank.SCOREABLE and p in vals])]
+    elif scope == "position":
+        groups = [(pos, [p for p in eligible if position.get(p) == pos and p in vals])
+                  for pos in rank.SCOREABLE]
+    else:
+        raise ValueError(f"unknown scope {scope!r}; expected 'position' or 'board'")
+
+    out: list[Cell] = []
+    for label, have in groups:
+        if len(have) < 10:
+            out.append(Cell(label, len(have), len({vals[p] for p in have}) if have else 0,
+                            float("nan"), float("nan"), False, "n < 10"))
+            continue
+        xs = [vals[p] for p in have]
+        mu = sum(xs) / len(xs)
+        sd = math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1))
+        floor = MIN_SD_REL * max(1.0, abs(mu))
+        if sd <= floor:
+            out.append(Cell(label, len(have), len(set(xs)), mu, sd, False,
+                            f"sd {sd:.3e} <= {floor:.3e}, floating-point residue"))
+            continue
+        out.append(Cell(label, len(have), len(set(xs)), mu, sd, True, "applied"))
+    return out
+
+
 def adjust(
     points: dict[str, float], position: dict[str, str], season: int,
     lam: float, name: str, *, rookies_only: bool = False,
+    scope: str | None = None, values: dict[str, float] | None = None,
 ) -> dict[str, float]:
-    """`points * (1 + lam * z)`, z the within-position z-score of the signal.
+    """`points * (1 + lam * z)`, z the signal's z-score within its standardisation cell.
 
     ABSENCE IS NOT ZERO. A player with no value for the signal gets NO adjustment at all --
     the same rule the rest of the harness uses. Coding absence as a zero z-score would park him
@@ -103,26 +183,30 @@ def adjust(
 
     *rookies_only* restricts the adjustment to players with no prior-season row, which is what
     a draft-capital term must do: G7 asserts it is inert for everyone else.
+
+    *scope* selects the standardisation cell -- see `SIGNAL_SCOPE`. *values* injects the
+    signal directly, which is how the floor's salts are drawn without registering each one.
     """
     if lam == 0.0:
         return dict(points)
-    vals = signal_values(name, season)
-    out = dict(points)
+    vals = signal_values(name, season) if values is None else values
     eligible = set(points)
     if rookies_only:
         prior = residual.prior_facts(season)
         eligible = {p for p in points if p not in prior}
-    for pos in rank.SCOREABLE:
-        have = [p for p in eligible if position.get(p) == pos and p in vals]
-        if len(have) < 10:
+    scope = scope or SIGNAL_SCOPE.get(name, "position")
+    out = dict(points)
+    for cell in cells(points, position, season, name, rookies_only=rookies_only,
+                      scope=scope, values=vals):
+        if not cell.applied:
             continue
-        xs = [vals[p] for p in have]
-        mu = sum(xs) / len(xs)
-        sd = math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1))
-        if sd <= 0:
-            continue
+        if cell.label == "board":
+            have = [p for p in eligible
+                    if position.get(p) in rank.SCOREABLE and p in vals]
+        else:
+            have = [p for p in eligible if position.get(p) == cell.label and p in vals]
         for p in have:
-            out[p] = points[p] * (1.0 + lam * ((vals[p] - mu) / sd))
+            out[p] = points[p] * (1.0 + lam * ((vals[p] - cell.mu) / cell.sd))
     return out
 
 
