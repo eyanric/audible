@@ -846,6 +846,17 @@ class FakeShinyPage:
         # only the combined read-back at the end of `prepare` sees it.
         self.reset_after_set: str | None = None
         self.reset_before_set: str | None = None
+        # The five that never resolve, by their real ids.
+        self.stuck_outputs: list[str] = [
+            "settings_page-settings_tiering_ui",
+            "optimizer_page-optimizer-optimizer_display_ui",
+            "accuracy_page-acc_ui",
+            "account_page-user_subscription_box-cportal",
+            "controlbar-help_links",
+        ]
+        # Outputs genuinely recalculating right now, which SHOULD hold a wait_idle.
+        self.working: list[str] = []
+        self.pending = 0
 
     # -- playwright surface -------------------------------------------------------------
 
@@ -867,8 +878,11 @@ class FakeShinyPage:
         self.tab = tab
 
     def evaluate(self, script: str, arg: object = None) -> object:
-        if script is driver_mod._IDLE_JS:
-            return True
+        if script is driver_mod._BUSY_JS:
+            # MEASURED on the live app: five outputs on tabs this run never opens stay
+            # `.recalculating` forever. The model carries them, so a driver that waits for
+            # "nothing is recalculating" hangs here exactly as it hung in production.
+            return {"busy": [*self.stuck_outputs, *self.working], "pending": self.pending}
         if script is driver_mod._GET_JS:
             key = str(arg)
             if key not in self.inputs:
@@ -892,9 +906,14 @@ class FakeShinyPage:
                 self.session = "s2"
             return True
         if script is driver_mod._HREF_JS:
+            # MEASURED: relative, no worker prefix. The absolute form the driver was first
+            # written against does not occur.
             return {
                 "found": True,
-                "href": f"/newApp/_w_1/session/{self.session}/download/x?w=1",
+                "href": (
+                    f"session/{self.session}/download/"
+                    "projections_page-proj-download_projections-download?w=32ee825b"
+                ),
                 "text": self.link_text,
             }
         if script is driver_mod._FETCH_JS:
@@ -1076,3 +1095,85 @@ def test_a_fresh_load_reads_2026_week_0_proj() -> None:
     assert driver.read_input(driver_mod.YEAR_INPUT) == "2026"
     assert driver.read_input(driver_mod.WEEK_INPUT) == "0"
     assert driver.read_input(driver_mod.KIND_INPUT) == "proj"
+
+
+# ---------------------------------------------------------------------------------------
+# Three premises the live app refuted, each now a gate. All three were in the handoff or in
+# the first version of this driver, all three were wrong, and each would have broken the run
+# in a way no CSV check could have caught.
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_session_token_is_read_from_the_relative_href_the_app_actually_serves() -> None:
+    """REFUTED PREMISE. The href is `session/<id>/download/...?w=...` -- relative, no worker
+    prefix. Splitting on "/session/" found nothing and returned None for a live session,
+    which would have made `assert_same_session` raise on every job in the run."""
+    page = FakeShinyPage(session="f8ef99aeb854208d8b1abc8914a0276b")
+    driver = _driver_on(page)
+    href, _ = driver.download_control()
+    assert href.startswith("session/"), href
+    assert not href.startswith("/newApp/"), href
+    assert driver.session_token() == "f8ef99aeb854208d8b1abc8914a0276b"
+
+
+def test_the_absolute_href_form_still_reads_if_the_app_goes_back_to_it() -> None:
+    """The fix is a regex over both forms, not a swap from one guess to the other."""
+    assert driver_mod._SESSION_RE.search(
+        "/newApp/_w_9/session/abc123/download/x?w=9"
+    ).group(1) == "abc123"
+    assert driver_mod._SESSION_RE.search("download/x?w=1") is None
+
+
+def test_outputs_that_never_resolve_do_not_hold_the_driver(monkeypatch) -> None:
+    """REFUTED PREMISE, and the expensive one.
+
+    Five outputs on tabs this run never opens carry `.recalculating` forever, so
+    "nothing is recalculating" is a predicate that can never be true on this app. The first
+    version of this driver waited its full timeout on EVERY call -- measured at 45s against
+    the live app, which over 600 files is about seven hours of doing nothing.
+    """
+    page = FakeShinyPage()
+    driver = driver_mod.ShinyDriver(page, driver_mod.Settles(idle_timeout=5.0),
+                                    log=lambda _m: None)
+    driver.establish()
+    assert len(driver._idle_baseline) == 5
+
+    slept: list[float] = []
+    monkeypatch.setattr(driver_mod.time, "sleep", lambda s: slept.append(s))
+    driver.wait_idle()
+    assert sum(slept) == 0.0, "a permanently stuck output held the driver"
+
+
+def test_an_output_that_is_genuinely_working_does_hold_the_driver(monkeypatch) -> None:
+    """The CONTROL. A baseline that swallowed everything would be the same as no check."""
+    page = FakeShinyPage()
+    driver = driver_mod.ShinyDriver(page, driver_mod.Settles(idle_timeout=1.0),
+                                    log=lambda _m: None)
+    driver.establish()
+    page.working = ["projections_page-proj-projection_table"]
+
+    slept: list[float] = []
+    monkeypatch.setattr(driver_mod.time, "sleep", lambda s: slept.append(s))
+    driver.wait_idle()
+    assert sum(slept) > 0.0, "a working output did not hold the driver at all"
+    assert driver.busy_beyond_baseline() == {"projections_page-proj-projection_table"}
+
+
+def test_a_pending_message_queue_counts_as_busy() -> None:
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    assert driver.busy_beyond_baseline() == set()
+    page.pending = 3
+    assert driver.busy_beyond_baseline() == {"$pendingMessages=3"}
+
+
+def test_the_idle_baseline_is_retaken_on_every_establish() -> None:
+    """A re-established session is a different page, and its stuck set may differ."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    assert len(driver._idle_baseline) == 5
+    page.stuck_outputs = ["accuracy_page-acc_ui"]
+    driver.establish()
+    assert driver._idle_baseline == frozenset({"accuracy_page-acc_ui"})

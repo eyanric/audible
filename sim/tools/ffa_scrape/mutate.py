@@ -476,6 +476,30 @@ MUTATIONS: tuple[Mutation, ...] = (
         "if False:",
     ),
     Mutation(
+        "the-idle-baseline-is-never-taken",
+        "driver.py",
+        '        self._idle_baseline = frozenset(self.page.evaluate(_BUSY_JS)["busy"])',
+        "        self._idle_baseline = frozenset()",
+    ),
+    Mutation(
+        "the-idle-baseline-swallows-everything",
+        "driver.py",
+        'busy = set(state["busy"]) - self._idle_baseline',
+        "busy = set()",
+    ),
+    Mutation(
+        "a-pending-message-queue-is-not-busy",
+        "driver.py",
+        '        if state["pending"]:',
+        "        if False:",
+    ),
+    Mutation(
+        "the-session-regex-only-reads-the-absolute-href",
+        "driver.py",
+        '_SESSION_RE = re.compile(r"(?:^|/)session/([^/?#]+)/")',
+        '_SESSION_RE = re.compile(r"/session/([^/?#]+)/")',
+    ),
+    Mutation(
         "a-locked-control-does-not-stop-a-fetch",
         "driver.py",
         "        if text == LOCKED_TEXT:\n"

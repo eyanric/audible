@@ -202,11 +202,14 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
         print("\n-- dropdown bounds --")
         options = page.evaluate(
+            # `el.options` holds ONLY the currently selected value -- selectize moves the
+            # rest into its own store, so reading the DOM select reports a one-item list for
+            # every dropdown on the page.
             """
             (id) => {
               const el = document.getElementById(id);
-              if (!el) return null;
-              return Array.from(el.options || []).map(o => o.value);
+              if (!el || !el.selectize) return null;
+              return Object.keys(el.selectize.options);
             }
             """,
             WEEK_INPUT,
@@ -214,11 +217,14 @@ def cmd_probe(args: argparse.Namespace) -> int:
         record("week-options-for-2019", str(options))
         driver.set_input(YEAR_INPUT, "2026", driver.settles.after_year)
         options_2026 = page.evaluate(
+            # `el.options` holds ONLY the currently selected value -- selectize moves the
+            # rest into its own store, so reading the DOM select reports a one-item list for
+            # every dropdown on the page.
             """
             (id) => {
               const el = document.getElementById(id);
-              if (!el) return null;
-              return Array.from(el.options || []).map(o => o.value);
+              if (!el || !el.selectize) return null;
+              return Object.keys(el.selectize.options);
             }
             """,
             WEEK_INPUT,

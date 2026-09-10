@@ -1,13 +1,19 @@
 """The only module that touches a browser.
 
-WHY A BROWSER AT ALL. The download link's href is session-bound:
+WHY A BROWSER AT ALL. The download link's href is session-bound. MEASURED on a live logged-in
+session, it is RELATIVE and carries no worker prefix:
 
-    /newApp/_w_<worker>/session/<sessionId>/download/
-        projections_page-proj-download_projections-download?w=<worker>
+    session/f8ef99aeb854208d8b1abc8914a0276b/download/
+        projections_page-proj-download_projections-download?w=32ee825bd77448a6a38c279b8174d2a1
 
-There is no parameterised URL. The year, week, aggregation and file type are inputs to a live
-Shiny session, and the file comes back from that session's own endpoint. A plain HTTP loop
-cannot express it.
+not the absolute `/newApp/_w_<worker>/session/<id>/...` form this module was first written
+against. That matters: the first `session_token` split on "/session/", found nothing in a
+perfectly good href, and returned None -- which would have made `assert_same_session` raise on
+every job in the run.
+
+There is no parameterised URL either way. The year, week, aggregation and file type are inputs
+to a live Shiny session, and the file comes back from that session's own endpoint. A plain
+HTTP loop cannot express it.
 
 THE FIVE BEHAVIOURS THIS DRIVER IS SHAPED AROUND, each measured rather than documented by the
 app, and each re-measured by `probe.py` before a run is trusted:
@@ -37,6 +43,7 @@ browser never to write a file at all.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -61,6 +68,10 @@ DOWNLOAD_LINK = "a#projections_page-proj-download_projections-download"
 # as HTML rather than CSV.
 READY_TEXT = "Download"
 LOCKED_TEXT = "Subscribe to download"
+
+# Matches the relative form the app actually serves and an absolute one, so a
+# change back to `/newApp/_w_<worker>/session/<id>/` does not silently read None.
+_SESSION_RE = re.compile(r"(?:^|/)session/([^/?#]+)/")
 
 
 class SessionLost(RuntimeError):
@@ -91,7 +102,7 @@ class Settles:
     after_avg: float = 2.0
     after_tab_proj: float = 12.0  # measured working
     after_kind: float = 7.0  # measured working
-    idle_timeout: float = 45.0
+    idle_timeout: float = 20.0
 
     def scaled(self, factor: float) -> Settles:
         return replace(
@@ -127,11 +138,27 @@ _SET_JS = """
 }
 """
 
-# `.recalculating` is on every output Shiny is currently redrawing, and `shiny-busy` is on
-# <html> while any request is in flight. Both clear before a settle is meaningful.
-_IDLE_JS = """
-() => document.querySelectorAll('.recalculating').length === 0
-      && !document.documentElement.classList.contains('shiny-busy')
+# MEASURED, and not what was assumed. Five outputs on tabs this run never opens
+# (`settings_page-settings_tiering_ui`, `optimizer_page-optimizer-optimizer_display_ui`,
+# `accuracy_page-acc_ui`, `account_page-user_subscription_box-cportal`,
+# `controlbar-help_links`) carry `.recalculating` FOREVER -- Shiny never resolves an output
+# that is never rendered. A predicate of "no element is recalculating" can therefore never
+# be true on this app, and the first version of this driver burned its full 45s timeout on
+# every single wait. Over 600 files that is seven hours of doing nothing.
+#
+# `document.documentElement.classList.contains('shiny-busy')` is likewise never true here,
+# and `data-shiny-busy` is absent, so that half of the predicate was inert as well.
+#
+# So idle is BASELINE-RELATIVE: whatever was stuck when the session was established stays
+# stuck and is not evidence of work. Anything recalculating BEYOND that baseline is.
+_BUSY_JS = """
+() => {
+  const busy = Array.from(document.querySelectorAll('.recalculating'))
+                    .map(e => e.id).filter(Boolean);
+  const app = (typeof Shiny !== 'undefined') ? Shiny.shinyapp : null;
+  const pending = (app && app.$pendingMessages) ? app.$pendingMessages.length : 0;
+  return {busy: busy, pending: pending};
+}
 """
 
 _HREF_JS = """
@@ -174,26 +201,39 @@ class ShinyDriver:
         self.settles = settles or Settles()
         self.log = log
         self._session_token: str | None = None
+        self._idle_baseline: frozenset[str] = frozenset()
 
     # -- primitives ---------------------------------------------------------------------
 
     def _pause(self, seconds: float) -> None:
         time.sleep(seconds)
 
-    def wait_idle(self) -> None:
-        """Wait until Shiny has stopped recalculating. NOT a substitute for the settles.
+    def busy_beyond_baseline(self) -> set[str]:
+        """Output ids recalculating that were NOT already stuck when we established."""
+        state = self.page.evaluate(_BUSY_JS)
+        busy = set(state["busy"]) - self._idle_baseline
+        if state["pending"]:
+            busy.add(f"$pendingMessages={state['pending']}")
+        return busy
 
-        Idle means no request is in flight; it does not mean the server has finished
-        propagating an aggregation change through to the download handler. Behaviour 2 is
-        precisely a case where the page is idle and the answer is still stale.
+    def wait_idle(self) -> None:
+        """Wait until Shiny has stopped doing work it started for US.
+
+        NOT a substitute for the settles. Idle means no request is in flight; it does not
+        mean the server has finished propagating an aggregation change through to the
+        download handler. Behaviour 2 is precisely a case where the page is idle and the
+        answer is still stale.
         """
         deadline = time.time() + self.settles.idle_timeout
         while time.time() < deadline:
             try:
-                if self.page.evaluate(_IDLE_JS):
-                    return
+                busy = self.busy_beyond_baseline()
             except Exception as exc:  # noqa: BLE001 -- a navigation mid-poll is not fatal
                 self.log(f"    idle poll interrupted: {exc}")
+                time.sleep(0.25)
+                continue
+            if not busy:
+                return
             time.sleep(0.25)
         self.log(f"    still busy after {self.settles.idle_timeout}s; continuing")
 
@@ -229,17 +269,35 @@ class ShinyDriver:
         return result["href"], result["text"]
 
     def session_token(self) -> str | None:
-        """The session id out of the download href. A change means the session was replaced."""
+        """The session id out of the download href. A change means the session was replaced.
+
+        MEASURED: the href is RELATIVE and has no worker prefix --
+
+            session/f8ef99aeb854208d8b1abc8914a0276b/download/
+                projections_page-proj-download_projections-download?w=32ee825b...
+
+        not the absolute `/newApp/_w_<worker>/session/<id>/...` this was first written for.
+        Splitting on "/session/" found nothing and returned None for a perfectly good
+        session, which would have made `assert_same_session` raise on every job.
+        """
         href, _ = self.download_control()
-        if not href or "/session/" not in href:
+        if not href:
             return None
-        return href.split("/session/", 1)[1].split("/", 1)[0]
+        match = _SESSION_RE.search(href)
+        return match.group(1) if match else None
 
     def establish(self, *, expect_login: bool = True) -> None:
         """Navigate, wait for the app, and confirm the download control is unlocked."""
         self.page.goto(APP_URL, wait_until="domcontentloaded", timeout=120_000)
         self.page.wait_for_function("() => typeof Shiny !== 'undefined'", timeout=120_000)
         self.page.wait_for_selector(DOWNLOAD_LINK, timeout=120_000)
+        # Take the idle baseline BEFORE the first wait_idle, or the first wait would sit out
+        # its whole timeout against the permanently-stuck hidden outputs. Re-taken on every
+        # establish, because a re-established session is a different page.
+        self._idle_baseline = frozenset()
+        self._pause(self.settles.action)
+        self._idle_baseline = frozenset(self.page.evaluate(_BUSY_JS)["busy"])
+        self.log(f"  idle baseline: {len(self._idle_baseline)} outputs never resolve")
         self.wait_idle()
         self._pause(self.settles.action)
         href, text = self.download_control()
