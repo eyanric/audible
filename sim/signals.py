@@ -161,9 +161,20 @@ def cells(
         xs = [vals[p] for p in have]
         mu = sum(xs) / len(xs)
         sd = math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1))
+        distinct = len(set(xs))
+        # A CELL WITH ONE DISTINCT VALUE HAS NO SPREAD, and that is a fact about the data
+        # rather than a threshold anyone chose. `audible#88` used a tuned `MIN_SD_REL` and
+        # then measured that of 217 cells the 20 it skipped ALL held exactly one distinct
+        # value -- so the constant never separated anything the count does not separate, and
+        # a session whose thesis is "do not tune the referee" should not carry a tuned
+        # constant it does not need. `MIN_SD_REL` is kept only as a second guard.
+        if distinct <= 1:
+            out.append(Cell(label, len(have), distinct, mu, sd, False,
+                            f"one distinct value; sd {sd:.3e} is floating-point residue"))
+            continue
         floor = MIN_SD_REL * max(1.0, abs(mu))
         if sd <= floor:
-            out.append(Cell(label, len(have), len(set(xs)), mu, sd, False,
+            out.append(Cell(label, len(have), distinct, mu, sd, False,
                             f"sd {sd:.3e} <= {floor:.3e}, floating-point residue"))
             continue
         out.append(Cell(label, len(have), len(set(xs)), mu, sd, True, "applied"))

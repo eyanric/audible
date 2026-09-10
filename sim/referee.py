@@ -98,6 +98,9 @@ def score_at(
         order, rv, teams=int(rank.league(signals.LEAGUE).num_teams),
         pool_size=rank.pool_size_for(signals.LEAGUE), position=loaded.position,
         indexing=signals.INDEXING,
+        # S6 G1. Position-local pools, so a term that moves only the interleave cannot
+        # register a per-position effect.
+        position_pool=rank.position_pool_sizes(signals.LEAGUE),
     )
     return s.rwre, s.per_position
 
