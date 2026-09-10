@@ -476,6 +476,14 @@ MUTATIONS: tuple[Mutation, ...] = (
         "if False:",
     ),
     Mutation(
+        "readiness-is-presence-not-population",
+        "driver.py",
+        "        self.page.wait_for_function(\n"
+        "            _READY_JS, timeout=self.settles.ready_timeout * 1000\n"
+        "        )",
+        "        pass",
+    ),
+    Mutation(
         "the-idle-baseline-is-never-taken",
         "driver.py",
         '        self._idle_baseline = frozenset(self.page.evaluate(_BUSY_JS)["busy"])',

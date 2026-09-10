@@ -102,7 +102,13 @@ class Settles:
     after_avg: float = 2.0
     after_tab_proj: float = 12.0  # measured working
     after_kind: float = 7.0  # measured working
+    # After the app reports itself populated, before the idle baseline is taken. A baseline
+    # captured any earlier carries outputs that are still genuinely working.
+    after_load: float = 6.0
     idle_timeout: float = 20.0
+    # The app is slow to populate its widgets on a cold worker; this is the wait for the
+    # year dropdown to hold a real value, not for the DOM to exist.
+    ready_timeout: float = 180.0
 
     def scaled(self, factor: float) -> Settles:
         return replace(
@@ -113,6 +119,7 @@ class Settles:
             after_avg=self.after_avg * factor,
             after_tab_proj=self.after_tab_proj * factor,
             after_kind=self.after_kind * factor,
+            after_load=self.after_load * factor,
         )
 
 
@@ -159,6 +166,18 @@ _BUSY_JS = """
   const pending = (app && app.$pendingMessages) ? app.$pendingMessages.length : 0;
   return {busy: busy, pending: pending};
 }
+"""
+
+# Populated, not merely present. The year dropdown holding a four-character value and the
+# download control holding any text at all are what say the app has finished loading.
+_READY_JS = f"""
+() => {{
+  const year = document.getElementById('{YEAR_INPUT}');
+  const link = document.querySelector('{DOWNLOAD_LINK}');
+  return !!(year && year.selectize
+            && String(year.selectize.getValue() || '').length === 4
+            && link && (link.textContent || '').trim().length > 0);
+}}
 """
 
 _HREF_JS = """
@@ -291,11 +310,23 @@ class ShinyDriver:
         self.page.goto(APP_URL, wait_until="domcontentloaded", timeout=120_000)
         self.page.wait_for_function("() => typeof Shiny !== 'undefined'", timeout=120_000)
         self.page.wait_for_selector(DOWNLOAD_LINK, timeout=120_000)
-        # Take the idle baseline BEFORE the first wait_idle, or the first wait would sit out
-        # its whole timeout against the permanently-stuck hidden outputs. Re-taken on every
-        # establish, because a re-established session is a different page.
+
+        # MEASURED: the link element appears long before the app is usable. A headless
+        # session that read straight through here saw year='', week='' and a download
+        # control whose text was the empty string -- the widgets exist and Shiny has not
+        # populated them yet. Waiting on POPULATED state rather than on presence is the
+        # difference between a probe that measures the app and one that measures its
+        # loading screen.
+        self.page.wait_for_function(
+            _READY_JS, timeout=self.settles.ready_timeout * 1000
+        )
+
+        # Take the idle baseline only once the app is populated, and AFTER a settle -- a
+        # baseline captured mid-load carries outputs that are still genuinely working, and
+        # would then swallow real work for the rest of the session. Nine were captured that
+        # way against the live app; the settled figure is five.
         self._idle_baseline = frozenset()
-        self._pause(self.settles.action)
+        self._pause(self.settles.after_load)
         self._idle_baseline = frozenset(self.page.evaluate(_BUSY_JS)["busy"])
         self.log(f"  idle baseline: {len(self._idle_baseline)} outputs never resolve")
         self.wait_idle()

@@ -857,6 +857,9 @@ class FakeShinyPage:
         # Outputs genuinely recalculating right now, which SHOULD hold a wait_idle.
         self.working: list[str] = []
         self.pending = 0
+        # False models a cold worker: the widgets exist and Shiny has not
+        # filled them in yet.
+        self.populated = True
 
     # -- playwright surface -------------------------------------------------------------
 
@@ -864,8 +867,13 @@ class FakeShinyPage:
         self.calls.append("goto")
         self.reset()
 
-    def wait_for_function(self, _expr: str, **_kwargs: object) -> None:
-        return None
+    def wait_for_function(self, expr: str, **_kwargs: object) -> None:
+        # The readiness wait is a real gate, not a formality: it is what separates a
+        # populated app from its loading screen. The model refuses it while the year
+        # dropdown is empty, so a driver that stopped waiting would read '' here exactly as
+        # the live headless session did.
+        if driver_mod.YEAR_INPUT in expr and not self.inputs[driver_mod.YEAR_INPUT]:
+            raise TimeoutError("year dropdown never populated")
 
     def wait_for_selector(self, _selector: str, **_kwargs: object) -> None:
         return None
@@ -934,8 +942,8 @@ class FakeShinyPage:
         """What a shinyapps.io reload leaves behind: 2026, week 0, file type proj."""
         self.calls.append("reset")
         self.inputs = {
-            driver_mod.YEAR_INPUT: "2026",
-            driver_mod.WEEK_INPUT: "0",
+            driver_mod.YEAR_INPUT: "2026" if self.populated else "",
+            driver_mod.WEEK_INPUT: "0" if self.populated else "",
             driver_mod.AVG_INPUT: "weighted",
             driver_mod.KIND_INPUT: "proj",
         }
@@ -1177,3 +1185,15 @@ def test_the_idle_baseline_is_retaken_on_every_establish() -> None:
     page.stuck_outputs = ["accuracy_page-acc_ui"]
     driver.establish()
     assert driver._idle_baseline == frozenset({"accuracy_page-acc_ui"})
+
+
+def test_the_driver_waits_for_a_populated_app_not_a_present_one() -> None:
+    """REFUTED PREMISE, third of three. `wait_for_selector` on the download link returns
+    long before Shiny has populated the widgets: a live headless session read year='',
+    week='' and a download control whose text was the empty string, then went on to set
+    inputs and fetch against it. Presence is not readiness."""
+    page = FakeShinyPage()
+    page.populated = False  # a cold worker, as the live headless session found
+    driver = _driver_on(page)
+    with pytest.raises(TimeoutError):
+        driver.establish()
