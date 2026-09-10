@@ -71,12 +71,21 @@ def build_jobs(
     """The cross product, minus what the app cannot serve, in a deterministic order.
 
     Weighted first within a year so a partial run leaves the cheap corpus complete.
+
+    AGGREGATION OUTSIDE WEEK, because switching aggregation is the expensive move and
+    switching week is nearly free. A Settings->Projections round trip costs roughly a
+    further 20s; a week change costs a 2s settle. With week outside aggregation, the
+    374-job `weekly-alt` stage alternates average/robust on every single job and pays 374
+    round trips. With aggregation outside week it pays 2 per season -- 22 in total.
+
+    This changes the ORDER of `weekly-alt` only. Every other stage holds a single week or a
+    single aggregation, so the loop nesting cannot reorder it.
     """
     ordered_avgs = sorted(avgs, key=lambda a: (a != "weighted", AVG_TYPES.index(a)))
     jobs: list[Job] = []
     for year in years:
-        for week in weeks:
-            for avg in ordered_avgs:
+        for avg in ordered_avgs:
+            for week in weeks:
                 for kind in kinds:
                     job = Job(kind=kind, year=year, week=week, avg=avg)
                     try:

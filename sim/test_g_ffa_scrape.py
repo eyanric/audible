@@ -2282,3 +2282,61 @@ def test_the_recoverable_check_is_not_an_except_clause_trick() -> None:
     assert not hasattr(runner, "Recoverable"), (
         "the inert metaclass class is back; except clauses do not consult __instancecheck__"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# ORDERING IS COST. A Settings->Projections round trip is the expensive move; a week change
+# is a 2s settle. Aggregation therefore sits OUTSIDE week in the loop nesting.
+# ---------------------------------------------------------------------------------------
+
+
+def _settings_trips(jobs: list[Job]) -> int:
+    """How many jobs must pay a Settings round trip, given the driver's own rule.
+
+    A real year change resets the aggregation to weighted server-side, so a weighted job
+    following one is free. Everything else that changes aggregation pays.
+    """
+    trips = 0
+    previous: Job | None = None
+    for job in jobs:
+        if previous is not None and (job.avg != previous.avg or job.year != previous.year):
+            free = job.year != previous.year and job.avg == "weighted"
+            if not free:
+                trips += 1
+        previous = job
+    return trips
+
+
+def test_the_alternating_stage_pays_two_settings_trips_a_season_not_thirty_four() -> None:
+    """With week outside aggregation, `weekly-alt` alternates average/robust on EVERY job
+    and pays 374 round trips -- about an extra hour and a half against someone else's
+    server for no data at all."""
+    trips = _settings_trips(jobs_mod.STAGES["weekly-alt"])
+    seasons = len(jobs_mod.WEEKLY_YEARS)
+    assert trips <= 2 * seasons + 1, f"{trips} trips for {seasons} seasons"
+    assert trips < 100, f"{trips} trips -- aggregation is being switched per week"
+
+
+def test_aggregation_runs_outside_week() -> None:
+    """The mechanism, so the nesting cannot be swapped back without a red gate."""
+    alt = jobs_mod.STAGES["weekly-alt"]
+    first_season = [job for job in alt if job.year == jobs_mod.WEEKLY_YEARS[0]]
+    weeks_of_first_avg = [job.week for job in first_season if job.avg == first_season[0].avg]
+    assert weeks_of_first_avg == list(jobs_mod.REGULAR_WEEKS), (
+        "an aggregation does not run all its weeks consecutively"
+    )
+
+
+def test_the_reordering_changed_no_other_stage() -> None:
+    """Every other stage holds a single week or a single aggregation, so the nesting cannot
+    reorder it. If one of these ever changes, a resume against an existing manifest would
+    still be correct -- order does not affect `plan` -- but the cost model would have moved
+    without anyone saying so."""
+    assert [job.avg for job in jobs_mod.STAGES["season-raw"][:3]] == [
+        "weighted", "average", "robust"
+    ]
+    assert [job.week for job in jobs_mod.STAGES["weekly-weighted"][:3]] == [1, 2, 3]
+    assert len(jobs_mod.STAGES["weekly-weighted"]) == 187
+    assert len(jobs_mod.STAGES["season-raw"]) == 27
+    assert len(jobs_mod.STAGES["season-proj"]) == 27
+    assert len(jobs_mod.STAGES["weekly-alt"]) == 374
