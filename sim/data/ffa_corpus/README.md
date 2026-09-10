@@ -84,19 +84,90 @@ otherwise.
    **`proj` files have no such column and cannot be verified this way** — the manifest records
    their `measured_avg_type` as `null` rather than echoing the request back, and the corpus
    prefers `raw`.
-5. **The Position dropdown filters the CHART only.** Downloads always carry all nine
-   positions, which is what makes the completeness check meaningful.
+5. **The Position dropdown filters the CHART only.** A download carries every position the
+   app has *for that scope* — which is not always nine.
+
+## Two corollaries the handoff did not have, both measured live
+
+**A year change only resets the aggregation when the year actually changes.** Writing 2019
+over 2019 is not a change and resets nothing. Measured: one job after a `robust` one in the
+same season, the app served `robust` for a `weighted` request —
+
+```
+weekly-2019-wk5: asked for 'weighted', file holds ['robust']
+```
+
+The verifier rejected it rather than letting it land mislabelled, which is what the verifier
+is for. But a run where a third of the jobs fail is not a run, so the driver tracks the
+**effective** aggregation — what the server will serve, which is not what the widget reads —
+and takes the Settings trip whenever that is not already what the job wants. Seventeen weekly
+jobs in one season cost at most one trip between them. A fresh or re-established session
+knows nothing and pays for a trip rather than assuming a reload left things on `weighted`.
+
+**IDP is a property of the week, not of the season.** There is no clean boundary year — an
+early reading of the first two seasons suggested 2015 → 2016 and that was wrong. Measured:
+
+```
+2015 wk1-17   no IDP, every week
+2016 wk1-12   IDP        2016 wk13-17  no IDP
+2017 wk1-6,8  IDP        2017 wk7      no IDP
+```
+
+And the IDP-less weeks come in **two different shapes**, which matters more than the flag:
+
+```
+2015 wk10   1099 rows  6 pos   WR 414  RB 257  TE 212   deep offense, no IDP
+2016 wk12   1236 rows  9 pos   WR 266  RB 204           full
+2016 wk13    587 rows  6 pos   WR 203  RB 140           IDP gone AND offense halved
+2017 wk07    549 rows  6 pos   WR 176  RB 138           same
+2017 wk08    951 rows  9 pos   WR 224  RB 184           full again the next week
+```
+
+2015 is a season whose contributing sources did no IDP but went deep on offence. 2016 wk13-17
+and 2017 wk7 lose IDP *and* roughly half their offensive depth — a source dropped out for
+those weeks. Neither is a defective download: zero ragged rows, complete CSV documents,
+stable hashes.
+
+So **the six offensive and special-teams positions are required everywhere** — that is the
+check that catches a filtered or truncated download — and IDP is recorded instead,
+all-or-nothing: two of the three is a broken file rather than a narrow one. `COVERAGE.md`
+names every IDP-less file **and every thin week**, because a weekly analysis that averages
+over wk7 2017 without knowing it holds 549 players rather than 1139 is drawing on a different
+population and will not say so.
 
 **Sessions drop.** shinyapps.io reloads on idle or on resource caps, resetting the year to
-2026, the week to 0 and the file type to `proj`. That is the expected path over a run of
-hundreds of files, not an exceptional one, so every input is read back after it is written
-*and* all of them are re-read together before the fetch — a reload that lands just before the
-last write leaves that input looking right and the earlier ones reverted.
+2026, the week to 0 and the file type to `proj` — confirmed live. That is the expected path
+over a run of hundreds of files, not an exceptional one, so every input is read back after it
+is written *and* all of them are re-read together before the fetch — a reload that lands just
+before the last write leaves that input looking right and the earlier ones reverted.
 
 The settle timings are **empirical, not documented**, and may be load-dependent. `probe`
 re-measures behaviours 1–4 and the reload defaults against the live app; the offline gates
 that assert the same three facts are marked out of scope in `mutate.py` for exactly that
 reason — no edit to the driver can make a model wrong, only a measurement can.
+
+## Three more things the app does that no documentation says
+
+- **The download href is relative** — `session/<id>/download/…?w=…`, with no `/newApp/_w_<n>/`
+  prefix. Reading the session token by splitting on `/session/` finds nothing and returns
+  `None` for a perfectly healthy session.
+- **Five outputs never stop recalculating.** `settings_page-settings_tiering_ui`,
+  `optimizer_page-optimizer-optimizer_display_ui`, `accuracy_page-acc_ui`,
+  `account_page-user_subscription_box-cportal` and `controlbar-help_links` carry
+  `.recalculating` forever, because Shiny never resolves an output on a tab that is never
+  rendered. "Nothing is recalculating" is a predicate that cannot be true here, and waiting
+  for it costs the full timeout on every call. `.shiny-busy` is never set either. So the
+  driver keeps a **stuck set**: seeded at establish time, and grown whenever an output stays
+  continuously busy past `stuck_after` — the first Settings trip reveals more of them.
+- **The widgets populate long after the DOM exists.** `wait_for_selector` on the download
+  link returns while the year dropdown is still empty; a headless session read `year=''`,
+  `week=''` and an empty control text and would have fetched against it. The driver waits on
+  *populated* state, and takes the idle baseline only after that — captured mid-load it was
+  nine outputs rather than five, and would have swallowed real work all session.
+
+Also: `el.options` on a selectize widget holds **only the selected value**. The other options
+live in `el.selectize.options`. Reading the DOM select reports a one-item list for every
+dropdown on the page.
 
 ## Filenames
 

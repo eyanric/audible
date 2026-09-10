@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -650,7 +651,7 @@ class FakeDriver:
 
     def __init__(self, script: dict[str, list[object]]) -> None:
         self.script = {name: list(steps) for name, steps in script.items()}
-        self.settles = driver_mod.Settles()
+        self.settles = INSTANT
         self.prepared: list[tuple[str, int, int, str]] = []
         self.forced: list[bool] = []
         self.establishes = 0
@@ -824,9 +825,19 @@ def test_no_part_file_survives_a_completed_write(tmp_path: Path) -> None:
 #   3. `weighted` therefore needs no round trip, because a year change leaves it there
 # ---------------------------------------------------------------------------------------
 
-INSTANT = driver_mod.Settles(
-    action=0.0, after_year=0.0, after_week=0.0, after_avg=0.0,
-    after_tab_proj=0.0, after_kind=0.0, idle_timeout=0.01,
+# Built from the dataclass fields rather than written out, so a settle added later cannot
+# quietly keep its production default here. The hand-written version missed `after_load`
+# (6.0s, paid on every `establish()`) and every driver gate slept through it -- twelve
+# seconds for the two that establish twice. The suite still passed, so nothing said so; it
+# surfaced only because the mutation sweep, which runs the suite once per mutation, slowed
+# to eleven minutes a mutation.
+INSTANT = replace(
+    driver_mod.Settles(**{f.name: 0.0 for f in fields(driver_mod.Settles)}),
+    # Not pauses: a timeout of zero would make `wait_idle` a no-op and a readiness timeout
+    # of zero would fail every establish.
+    idle_timeout=0.05,
+    stuck_after=0.01,
+    ready_timeout=5.0,
 )
 
 
@@ -1150,8 +1161,9 @@ def test_outputs_that_never_resolve_do_not_hold_the_driver(monkeypatch) -> None:
     the live app, which over 600 files is about seven hours of doing nothing.
     """
     page = FakeShinyPage()
-    driver = driver_mod.ShinyDriver(page, driver_mod.Settles(idle_timeout=5.0),
-                                    log=lambda _m: None)
+    driver = driver_mod.ShinyDriver(
+        page, replace(INSTANT, idle_timeout=5.0), log=lambda _m: None
+    )
     driver.establish()
     assert len(driver._idle_baseline) == 5
 
@@ -1164,8 +1176,11 @@ def test_outputs_that_never_resolve_do_not_hold_the_driver(monkeypatch) -> None:
 def test_an_output_that_is_genuinely_working_does_hold_the_driver(monkeypatch) -> None:
     """The CONTROL. A baseline that swallowed everything would be the same as no check."""
     page = FakeShinyPage()
-    driver = driver_mod.ShinyDriver(page, driver_mod.Settles(idle_timeout=1.0),
-                                    log=lambda _m: None)
+    # stuck_after must stay LARGE here: INSTANT sets it to 0.01, which would reclassify the
+    # working output as stuck on the first poll and make this control vacuous.
+    driver = driver_mod.ShinyDriver(
+        page, replace(INSTANT, idle_timeout=1.0, stuck_after=10.0), log=lambda _m: None
+    )
     driver.establish()
     page.working = ["projections_page-proj-projection_table"]
 
@@ -1219,7 +1234,7 @@ def test_an_output_that_never_resolves_joins_the_stuck_set_and_stops_costing(
     So the stuck set GROWS. The first wait pays `stuck_after`; every later one pays nothing.
     """
     page = FakeShinyPage()
-    settles = driver_mod.Settles(idle_timeout=30.0, stuck_after=4.0)
+    settles = replace(INSTANT, idle_timeout=30.0, stuck_after=4.0)
     driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
     driver.establish()
 
@@ -1243,7 +1258,7 @@ def test_an_output_that_never_resolves_joins_the_stuck_set_and_stops_costing(
 def test_an_output_that_finishes_in_time_never_joins_the_stuck_set(monkeypatch) -> None:
     """CONTROL. A stuck set that grew on everything would be the same as no check at all."""
     page = FakeShinyPage()
-    settles = driver_mod.Settles(idle_timeout=30.0, stuck_after=4.0)
+    settles = replace(INSTANT, idle_timeout=30.0, stuck_after=4.0)
     driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
     driver.establish()
 
@@ -1266,7 +1281,7 @@ def test_a_pending_message_queue_never_joins_the_stuck_set(monkeypatch) -> None:
     """It is a count, not an output id -- adding `$pendingMessages=3` to the stuck set would
     mean a queue of exactly 3 was ignored forever and any other length was not."""
     page = FakeShinyPage()
-    settles = driver_mod.Settles(idle_timeout=12.0, stuck_after=2.0)
+    settles = replace(INSTANT, idle_timeout=12.0, stuck_after=2.0)
     driver = driver_mod.ShinyDriver(page, settles, log=lambda _m: None)
     driver.establish()
 
@@ -1433,3 +1448,52 @@ def test_a_season_file_with_all_nine_is_still_the_normal_case() -> None:
     report = inspect_csv(raw_csv())
     assert set(report.positions) == NINE_POSITIONS
     assert verify_payload(raw_csv(), kind="raw", week=0, avg="weighted") == []
+
+
+def test_no_offline_gate_sleeps_through_a_production_settle() -> None:
+    """The gates are offline; a gate that WAITS is measuring nothing but the clock.
+
+    `INSTANT` missed `after_load` when it was written out by hand, so every driver gate
+    paid its 6.0s inside `establish()` and the two that establish twice took twelve
+    seconds each. The suite stayed green throughout -- slowness is not a failure -- and it
+    surfaced only because the mutation sweep runs the suite once per mutation and went to
+    eleven minutes a mutation.
+
+    Building `INSTANT` from the dataclass fields is what fixes it. This gate is what says
+    a hand-written one would not be accepted back.
+    """
+    pauses = [
+        f.name
+        for f in fields(driver_mod.Settles)
+        if f.name == "action" or f.name.startswith("after_")
+    ]
+    assert pauses, "no pause fields found; this gate has stopped checking anything"
+    assert "after_load" in pauses, "the field that caused this is no longer covered"
+    for name in pauses:
+        assert getattr(INSTANT, name) == 0.0, f"INSTANT.{name} is a real sleep"
+
+
+def test_the_instant_settles_still_let_the_driver_work() -> None:
+    """CONTROL: zeroing everything must not make the gates vacuous."""
+    page = FakeShinyPage()
+    driver = _driver_on(page)
+    driver.establish()
+    driver.prepare("raw", 2019, 0, "average")
+    assert inspect_csv(driver.fetch_payload().text).sole_avg_type == "average"
+
+
+def test_this_module_never_builds_a_settles_with_production_defaults() -> None:
+    """The mechanism, not just the outcome.
+
+    Zeroing `INSTANT` fixed the driver gates; five stuck-set gates still built their own
+    `Settles(idle_timeout=..., stuck_after=...)` and inherited `after_load=6.0` from the
+    production defaults, so they went on sleeping. Every construction in this file must
+    derive from `INSTANT`, and the only bare one allowed is the line that builds it.
+    """
+    source = Path(__file__).read_text(encoding="utf-8")
+    bare = [
+        line.strip()
+        for line in source.splitlines()
+        if "driver_mod.Settles(" in line and "f.name: 0.0 for f in fields" not in line
+    ]
+    assert bare == [], f"these build a Settles with production defaults: {bare}"
