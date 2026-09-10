@@ -279,3 +279,184 @@ it points at where the next real work is.
 **Recorded as inert rather than predicted:** availability, rushing efficiency, time to throw and
 contract value all had their fitted weight driven to zero or reversed by their own folds. No
 prediction is made for them because there is nothing to predict.
+
+
+---
+
+# RETRACTION — the adversarial review overturned this session's headline
+
+Everything above this line is the session as it was written. Four of its claims do not survive
+G14, including the one it led with. They are corrected here rather than edited in place, because
+the sequence is the finding.
+
+## R1. "THE FLOOR IS POSITIONAL" — REFUTED. It is the DRAW that varies, not the position.
+
+The claim was that the noise floor is a property of the position (QB +0.000, RB +0.412,
+WR -0.296, TE -0.701, a spread of 1.11 RWRE "wider than any signal measured"). It was measured
+from **one sha256 salt**, and the paired bootstrap around it resamples players *conditional on
+that salt* -- so it answers "did THIS perturbation move THIS board", not "does a random
+perturbation help here". The salt's own variance was never in the interval.
+
+Measured, same recipe, twelve independent information-free hashes:
+
+    seed   board      QB       RB       WR       TE
+      0   +0.000   +0.396   -0.243   +0.000   +0.680
+      1   +0.506   +0.354   +0.000   +1.151   +0.300
+      2   +0.229   +0.000   +0.254   +0.241   +0.011
+      3   +0.359   +0.497   +0.180   -0.392   +0.362
+      4   +0.503   +0.000   +0.000   +0.328   +0.168
+      5   -0.443   +0.270   -0.136   -0.946   +0.312
+      6   +0.714   +0.596   +0.000   +0.102   +0.141
+      7   +0.556   +0.000   +0.019   +0.015   +0.155
+      8   +0.000   +0.635   -0.262   +0.508   +0.396
+      9   +0.000   +0.328   +0.204   +0.488   +0.436
+     10   +0.113   +0.409   +0.154   -0.348   +0.370
+     11   +0.000   +0.246   +0.000   +0.713   +0.692
+
+    spread ACROSS POSITIONS of the seed-averaged floor:  0.321
+    worst spread WITHIN one position across seeds:       2.097  (WR)
+
+**The quantity that "varies by more than any signal measured" is the hash draw, not the
+position.** Averaged over draws the four positions sit at QB +0.311, RB +0.014, WR +0.155,
+TE +0.335 -- a spread of 0.32, not 1.11. The review reached the same conclusion independently on
+20 seeds (TE mean +0.180, sd 0.404, spread 1.44).
+
+An earlier 8-seed board-wide run in this same session had already said it and it was not heeded:
+mean +0.117, sd 0.213, range +0.000..+0.492. `audible#86`'s "+2.317, the floor" and this
+session's "+0.364, the floor" are both single draws from a distribution with sd ~0.2-0.3.
+
+## R2. "NOISE HELPS AT TIGHT END" — REFUTED. One extreme draw, and not the formulation.
+
+TE read -0.701 [-1.301, -0.138], interval excluding zero, and the session called it "a statement
+about the slice" and built G8's secondary prediction on it. It is a statement about one salt.
+
+To rule out the *construction* rather than the draw, ten further hashes were run in two families
+-- six with a salt suffix, and four using the **exact pre-registered input string** with a
+different 32-bit window of the same digest:
+
+    B  same string, bits[ 8:16]   TE +0.199
+    B  same string, bits[16:24]   TE +0.485
+    B  same string, bits[24:32]   TE +0.707
+    B  same string, bits[32:40]   TE +0.088     mean +0.370
+
+Across all 22 draws measured here TE is positive in 21; the pre-registered draw is -1.083.
+Pooled with the review's 20, that is **42 independent information-free hashes**, and the
+published one is the extreme of the set. Noise does not help at tight end. It mildly hurts there,
+as it mildly hurts nearly everywhere.
+
+## R3. The published per-position table is NOT REPRODUCIBLE, and that is a process failure.
+
+Re-deriving the pre-registered seed under one stated recipe (lambda fitted by LOSO on the
+position's own per-position RWRE):
+
+                     published      re-derived here     review's recipe
+    board-wide         +0.364           +0.364              +0.364
+    QB                 +0.000           +0.000              +0.000
+    RB                 +0.412           +0.113              +0.113
+    WR                 -0.296           -0.620              -0.207
+    TE                 -0.701           -1.083              -0.726
+
+Only board-wide and QB reproduce. Two independent reconstructions disagree with the published
+RB and WR, and with each other on WR/TE -- because **two different statistics were reported under
+one label**: a LOSO mean of per-season deltas, and a paired weighted mean over players. They
+differ materially (noise at TE: -1.083 vs -0.726) and the prose read them as one story.
+
+The generating script does not exist. It was run inline and never written to a file, so a
+committed number has no artifact behind it. **Every number in a findings file must come from a
+script that is on disk before the number is written down.**
+
+## R4. `availability` is not "inert by construction" -- the code skipped it. This is `shrink` again.
+
+The session predicted that a position-level constant cannot reorder within a position, measured
++0.000 at all four positions, and called the prediction "confirmed to the digit". The prediction
+is sound. It is not what was measured.
+
+`adjust` z-scores within position. When every member of a position holds the same value the
+standard deviation is zero and `if sd <= 0: continue` skips the position entirely:
+
+    2020  QB RB WR TE   sd = 0.000e+00  ->  SKIPPED     0 of 496 point values changed
+    2021  QB RB WR TE   sd = 0.000e+00  ->  SKIPPED     0 of 483 changed
+    2022  RB WR TE      sd = 0.000e+00  ->  SKIPPED
+          QB            sd = 8.950e-16  ->  APPLIED    66 of 491 changed
+    2024  QB RB WR TE   sd = 0.000e+00  ->  SKIPPED     0 of 481 changed
+    2025  QB RB WR TE   sd = 0.000e+00  ->  SKIPPED     0 of 454 changed
+
+In 19 of 20 (season, position) cells the term is a literal no-op. The one live cell is 2022
+quarterback, where `mu` and the shared value differ in the last bit -- value
+`7.9743589743589745`, mean `7.974358974358974` -- giving `sd = 8.95e-16`, `z = +0.992395`, and
+the whole 66-man QB block scaled by `(1 + lambda*0.9924)`. That is IEEE-754 rounding, and the
+sign is decided by rounding direction.
+
+The board-wide +0.071 is that fold and nothing else: per-fold 2020 +0.000, 2021 +0.000,
+**2022 +0.353**, 2024 +0.000, 2025 +0.000.
+
+**And G5 -- the gate that exists specifically to catch `audible#85`'s inert `shrink` knob --
+passed `availability` on 214 displaced players, every one of them from that rounding residue.**
+G5 asks "can this term change an ordering", and a float artifact answers yes. The gate needs to
+ask whether the term changes an ordering *for the reason claimed*, in more than one season.
+
+`availability` was never measured. REVERTED stands, by accident.
+
+## R5. `ngs_separation` at WR -- the REVERT is withdrawn. Restated as UNRESOLVED.
+
+The revert compared separation (-0.683) against the WR floor from **one draw** (-0.296). Against
+a floor averaged over draws (+0.035 [-0.162, +0.252]) the review measures:
+
+    separation - expected floor   -0.552 [-1.013, -0.047]  paired over players   RESOLVED
+                                  -0.552 [-0.979, -0.133]  clustered by player   RESOLVED
+                                  -0.552 [-1.199, +0.062]  clustered by season   not resolved
+
+It was reverted by one unlucky draw. But it is not resolved either: the unit of the LOSO is the
+season, there are six of them, and the season-clustered interval crosses zero -- consistent with
+this session's own finding that dropping 2021, or 2021 and 2025, breaks it.
+
+**DISPOSITION: UNRESOLVED, promising.** It clears its untreated baseline, it clears an averaged
+floor under player-level uncertainty, it is WR-specific as the mechanism requires, and six
+seasons are too few to settle it. That is still the strongest result this project has produced.
+
+## What survives
+
+- **Task 1 stands.** Six sources probed, three usable, two not player-keyed, one refused on cost.
+- **The G9 refutation stands** -- but on the checksums, not on the instrument. See R6 below.
+- **Injection 4's arithmetic stands**: `ngs_time_to_throw` reads +0.669 at QB and +0.038
+  board-wide at the same lambdas, a 17.5x attenuation. It is thinner than presented -- the QB
+  effect is largely one fold (2019 +3.185 at a sign-flipped lambda), and the board-wide
+  per-season deltas change sign, so part of the "dilution" is cross-season cancellation rather
+  than cross-position averaging.
+- **The locus argument stands, for a different reason than the one given.** A positional signal
+  must be compared against a floor measured at the same locus -- not because the floor is
+  positional, but because the floor's *variance* grows as the slice shrinks (sd ~0.11 at RB,
+  n=324; sd ~0.56 at WR, n=237). A single-draw floor at n~240 is not a control.
+
+## R6. G9's instrument was unsound; the conclusion is carried by the checksums.
+
+The plugin forced `PLAYERS_TTL_S = 0`, hooked `JsonCache.set`, and blocked the network. The TTL
+patch is sound (verified live: shipped TTL -> no fetch; patched -> fetch attempted). But the
+`set` hook is **unreachable by construction** -- `set` runs only after a successful `_get`, which
+the same plugin makes raise, so an empty culprit list was guaranteed whatever the tests did. The
+network hook is also narrow (only `_get`, only URLs containing `players/nfl`), and when the
+plugin is pointed at `sim/` its `live_root` resolves to `data/sim-cache`, because
+`sim/__init__.py` rebinds `DEFAULT_CACHE_DIR` before `pytest_configure` -- in that invocation it
+cannot fire at all.
+
+**G9's conclusion is unchanged and is correct** -- no test writes the live catalog -- but the
+evidence for it is the 63-file recursive sha256 listing being identical before and after, which
+is outcome evidence and does not depend on the instrument. What wrote the file during S3 remains
+**UNRESOLVED**.
+
+## G8 — the secondary prediction is WITHDRAWN
+
+"The tight-end noise floor stays negative in 2026" rested on R2 and is withdrawn. The primary
+prediction stands unchanged and was committed before any 2026 data exists.
+
+Replacing the secondary, and pre-registered here: **a floor drawn ten times on 2026 will have a
+per-position spread of its seed-averaged means below 0.5 RWRE, and a within-position spread
+across seeds above 1.0 RWRE at wide receiver.** That is the R1 finding stated as a falsifiable
+claim about an unseen season.
+
+## The one-line lesson for the next session
+
+A floor is a distribution, not a number. Draw it at least ten times, report its spread, and put
+the signal's interval next to the floor's interval -- never next to a single draw. Both
+`audible#86` and this session reported one draw as "the floor", and both times it decided a
+disposition.
