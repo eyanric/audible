@@ -1,0 +1,86 @@
+==============================================================================
+G1 -- the per-position pool is now derived from the league config alone
+==============================================================================
+  espn_green_hope      pool 128  QB 18  RB 43  TE 24  WR 43
+  espn_danger_zone     pool 160  QB 23  RB 53  TE 30  WR 53
+  sleeper_boyfun       pool 190  QB 26  RB 55  TE 33  WR 76
+
+==============================================================================
+G1 -- `availability` must now read EXACTLY +0.0000 at every position
+==============================================================================
+  It is a within-position CONSTANT, so it multiplies each position by one positive
+  scalar and provably cannot reorder anyone inside a position.
+    board mean +0.812672   2020:+0.0000  2021:+0.4351  2022:+0.3185  2024:+3.0489  2025:+0.2608
+    QB    mean +0.000000   2020:+0.0000  2021:+0.0000  2022:+0.0000  2024:+0.0000  2025:+0.0000
+    RB    mean +0.000000   2020:+0.0000  2021:+0.0000  2022:+0.0000  2024:+0.0000  2025:+0.0000
+    WR    mean +0.000000   2020:+0.0000  2021:+0.0000  2022:+0.0000  2024:+0.0000  2025:+0.0000
+    TE    mean +0.000000   2020:+0.0000  2021:+0.0000  2022:+0.0000  2024:+0.0000  2025:+0.0000
+  exactly +0.000000 at every position, every season: True
+  audible#87 read RB +0.159  QB -0.036  WR -0.028  TE +0.0004 under the old rule
+
+  and it cannot depend on N -- the same term at three different pool sizes:
+    half    sizes {'QB': 9, 'RB': 21, 'WR': 21, 'TE': 12}  worst per-position delta 0.00e+00
+    config  sizes {'QB': 18, 'RB': 43, 'WR': 43, 'TE': 24}  worst per-position delta 0.00e+00
+    double  sizes {'QB': 36, 'RB': 86, 'WR': 86, 'TE': 48}  worst per-position delta 0.00e+00
+
+==============================================================================
+G1 -- THE TEST THAT IS NOT CIRCULAR: does an RB-only term leak into QB/WR/TE?
+==============================================================================
+  `availability` reading +0.000000 is TRUE BY CONSTRUCTION under the new rule: it
+  scales each position by one positive scalar, so the position's own top-N is the
+  same list in the same order and the metric compares x with x. It is a
+  consistency check, not evidence. This is the evidence.
+  2019  NEW QB +0.000000  RB +0.893499  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +0.930466  WR -0.071040  TE -1.236142
+  2020  NEW QB +0.000000  RB +2.925954  WR +0.000000  TE +0.000000
+        OLD QB -0.177778  RB +3.278558  WR -1.055943  TE +0.392268
+  2021  NEW QB +0.000000  RB +1.408655  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +1.213035  WR +0.000000  TE +0.000000
+  2022  NEW QB +0.000000  RB +3.432389  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +4.451750  WR -0.541116  TE +0.043793
+  2024  NEW QB +0.000000  RB +2.459382  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +2.616684  WR +0.000000  TE +0.000000
+  2025  NEW QB +0.000000  RB +4.324676  WR +0.000000  TE +0.000000
+        OLD QB +0.000000  RB +4.250783  WR +0.000000  TE -0.023529
+
+  worst leak into an UNTOUCHED position -- NEW 0.00e+00, OLD 1.236
+  seasons where the OLD rule leaked: 4/6
+  NEW rule leaks nothing anywhere: True
+
+==============================================================================
+G2 -- `search.py` and `signals.py` must build the SAME board
+==============================================================================
+  2019: position disagreements  0   boards identical: True
+  2020: position disagreements  0   boards identical: True
+  2021: position disagreements  0   boards identical: True
+  2022: position disagreements  0   boards identical: True
+  2024: position disagreements  0   boards identical: True
+  2025: position disagreements  0   boards identical: True
+  ASSERTED: search.py == signals.py in all seasons: True
+
+==============================================================================
+INJECTION 1 -- perfect board 0.000000 exactly; shuffled is chance
+==============================================================================
+    2019  perfect 0.000000  shuffled  53.038   per-position perfect: QB 0.000000  RB 0.000000  TE 0.000000  WR 0.000000
+    2020  perfect 0.000000  shuffled  52.123   per-position perfect: QB 0.000000  RB 0.000000  TE 0.000000  WR 0.000000
+    2021  perfect 0.000000  shuffled  42.137   per-position perfect: QB 0.000000  RB 0.000000  TE 0.000000  WR 0.000000
+    2022  perfect 0.000000  shuffled  55.229   per-position perfect: QB 0.000000  RB 0.000000  TE 0.000000  WR 0.000000
+    2024  perfect 0.000000  shuffled  53.487   per-position perfect: QB 0.000000  RB 0.000000  TE 0.000000  WR 0.000000
+    2025  perfect 0.000000  shuffled  57.802   per-position perfect: QB 0.000000  RB 0.000000  TE 0.000000  WR 0.000000
+
+==============================================================================
+INJECTION 3 -- float-residue term FAILS G5; INJECTION 4 -- shrink FAILS G5
+==============================================================================
+
+  availability (audible#87 within-position path): FAILS
+    cells applied/skipped 0/24   applies in 0/6 seasons
+    within-position orderings moved: 0/6 seasons
+    REASON: applies in 0 season(s), needs 2
+    REASON: no cell clears the minimum standard deviation
+    REASON: moves an ordering in 0 season(s), needs 2
+    REASON: position-scope term moves a WITHIN-POSITION ordering in 0 season(s), needs 2 -- it carries no within-position information
+
+  shrink (uniform VORP scale): FAILS
+    cells applied/skipped 0/0   applies in 0/6 seasons
+    within-position orderings moved: 0/6 seasons
+    REASON: position-scope term moves a WITHIN-POSITION ordering in 0 season(s), needs 2 -- it carries no within-position information

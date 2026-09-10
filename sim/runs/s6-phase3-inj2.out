@@ -1,0 +1,22 @@
+features 21  design columns 46
+  noise columns present: ['noise', 'noise__present']
+  2019: RWRE  21.404   noise importance 0.0000%
+  2020: RWRE  25.358   noise importance 0.0000%
+  2021: RWRE  24.287   noise importance 0.0000%
+  2022: RWRE  25.238   noise importance 0.0000%
+  2024: RWRE  26.021   noise importance 0.0000%
+  2025: RWRE  25.136   noise importance 0.0000%
+
+  mean importances with the information-free input included:
+    pos_QB                        40.03%
+    projection                    35.12%
+    ffa_dropoff__present          11.36%
+    pos_RB                         3.70%
+    ngs_rush_eff__present          3.51%
+    uncertainty                    2.92%
+    adp_gap__present               2.18%
+    contract                       1.20%
+
+  INJECTION 2: total importance given to the sha256: 0.00%
+  boosted RWRE with noise  24.574  without noise 24.574  incumbent 22.425
+  passes (importance under 2%): True

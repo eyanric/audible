@@ -79,7 +79,14 @@ def _season_inputs(season: int, league_key: str) -> dict[str, Any]:
     for a in available:
         loaded = arms.load(a, season, league_key)
         points[a] = loaded.points
-        position.update(loaded.position)
+        # S6 G2. FIRST ARM WINS, NOT LAST. `position.update(...)` in arm order let sleeper
+        # overwrite espn, so 1-7 players a season bucketed differently here than in
+        # `sim/signals.py` -- which reads espn alone -- and a board built through this module
+        # was NOT the board built through that one. `available` is ordered espn, ffa, sleeper,
+        # so `setdefault` makes espn authoritative wherever it has the player and the other
+        # arms fill only what espn has never heard of.
+        for pid, pos in loaded.position.items():
+            position.setdefault(pid, pos)
 
     realised = rank.realised_per_game(season, league_key)
     rv = rank.realised_vorp(realised)

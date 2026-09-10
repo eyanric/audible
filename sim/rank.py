@@ -271,10 +271,14 @@ def score_board(
     pool_size: int,
     position: dict[str, str] | None = None,
     indexing: str = "board",
+    position_pool: dict[str, int] | None = None,
 ) -> RankScore:
     """Round-weighted rank error for *board* against *realised*, over the top `pool_size`.
 
     *board* is gsis ids in the board's own preference order, best first.
+
+    *position_pool* sets how many players each position contributes to its own score. It has to
+    be board-independent -- `position_pool_sizes` derives it from the league config alone.
     """
     pool = board[:pool_size]
     if not pool:
@@ -295,8 +299,33 @@ def score_board(
 
     per_pos: dict[str, float] = {}
     if position is not None:
+        # NO SILENT DEFAULT. A fallback here would be a THIRD per-position rule -- neither the
+        # global slice this replaced nor the config-derived one -- and a caller that forgot the
+        # argument would get it without any signal that the metric had changed under them.
+        # `audible#87` shipped exactly that class of defect: a gate and the transform it gated
+        # decided the same question through two code paths.
+        if position_pool is None:
+            raise ValueError(
+                "score_board(position=...) requires position_pool; "
+                "pass rank.position_pool_sizes(league_key)"
+            )
+        sizes = position_pool
         for pos in SCOREABLE:
-            members = [p for p in pool if position.get(p) == pos]
+            # THE POSITION'S OWN TOP-N, TAKEN FROM THE FULL BOARD -- not from the global pool.
+            #
+            # S6 G1. Slicing the global top-`pool_size` made this metric depend on the
+            # CROSS-POSITION INTERLEAVE: a term that never reorders anyone inside a position
+            # still changed which of its players fell inside the global pool, and the score
+            # moved. `availability` -- provably a within-position constant, so provably unable
+            # to reorder a position -- read RB +0.159, QB -0.036, WR -0.028 under the old rule
+            # and reads exactly +0.0000 everywhere under this one.
+            #
+            # `position_pool` must NEVER be derived from the board under test. See
+            # `position_pool_sizes`, which reads the league config and nothing else.
+            n_pos = sizes.get(pos)
+            if n_pos is None:
+                continue
+            members = [p for p in board if position.get(p) == pos][:n_pos]
             if len(members) < 5:
                 continue
             # Re-ranked WITHIN the position, so QB depth does not flatter a positional number.
@@ -313,6 +342,37 @@ def score_board(
         rwre=rwre, spearman=_spearman(board_rank, real_rank), top24_hit=hit,
         n=len(pool), per_position=per_pos, pool_size=pool_size,
     )
+
+
+@lru_cache(maxsize=8)
+def position_pool_sizes(league_key: str) -> dict[str, int]:
+    """How many players each position contributes to its own per-position score.
+
+    DERIVED FROM THE LEAGUE CONFIG AND NOTHING ELSE, which is the whole point. Any rule that
+    reads the board under test reintroduces S6 G1's defect: the per-position metric then moves
+    when the cross-position interleave moves, even for a term that provably cannot reorder
+    anyone inside a position.
+
+    Each starting slot contributes `num_teams` demand, split evenly across the scoreable
+    positions eligible for it, so a FLEX adds a third each to RB, WR and TE. The league's whole
+    draft is then apportioned in that ratio. For `espn_green_hope` -- 8 teams, 16 rounds,
+    slots QB/RB/RB/WR/WR/TE/FLEX/DEF/K -- that is QB 18, RB 43, WR 43, TE 24.
+
+    A position's own ordering does not depend on N, so a term that cannot reorder a position
+    reads exactly +0.000 at EVERY N. N only sets how deep the question is asked.
+    """
+    cfg = league(league_key)
+    teams = int(cfg.num_teams)
+    demand = dict.fromkeys(SCOREABLE, 0.0)
+    for slot in cfg.starting_slots:
+        eligible = [p for p in cfg.slot_eligibility[slot] if p in SCOREABLE]
+        for p in eligible:
+            demand[p] += teams / len(eligible)
+    total = sum(demand.values())
+    if total <= 0:
+        raise PreflightError(f"{league_key} has no scoreable starting slots")
+    pool = pool_size_for(league_key)
+    return {p: max(5, round(pool * d / total)) for p, d in demand.items() if d > 0}
 
 
 def pool_size_for(league_key: str) -> int:

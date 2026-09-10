@@ -1,0 +1,77 @@
+seasons [2019, 2020, 2021, 2022, 2024, 2025]   indexing symmetric (pre-registered in audible#85)
+
+==============================================================================
+G8 -- THE INCUMBENT BAR, and why the quoted one is not usable
+==============================================================================
+  quoted by the handoff : green_hope 20.33  danger_zone 25.32  boyfun 30.94
+  those are `board` indexing on 2024+2025 -- see s6-bar.out, they match to the digit
+  the pre-registered `symmetric` bar, all six seasons, is measured below
+
+------------------------------------------------------------------------------
+espn_green_hope
+  2019  inc  18.402   quant  18.778 (+0.377)   learn  17.775 (-0.626)   boost  17.756 (-0.645)   q +0.5
+  2020  inc  23.406   quant  23.728 (+0.322)   learn  24.541 (+1.135)   boost  23.742 (+0.336)   q +0.5
+  2021  inc  24.396   quant  24.528 (+0.133)   learn  21.772 (-2.624)   boost  22.783 (-1.613)   q +0.25
+  2022  inc  22.892   quant  23.202 (+0.310)   learn  24.996 (+2.104)   boost  22.655 (-0.237)   q +0.5
+  2024  inc  25.566   quant  25.543 (-0.023)   learn  25.309 (-0.257)   boost  25.240 (-0.326)   q +0.5
+  2025  inc  19.891   quant  20.157 (+0.265)   learn  20.111 (+0.220)   boost  20.506 (+0.615)   q +0.5
+  MEAN  incumbent  22.425    fitted q per fold [0.5, 0.5, 0.25, 0.5, 0.5, 0.5]
+    quantile   22.656   delta  +0.231   improved 1/6   informative 6/6   exact sign p 0.062
+    learned    22.418   delta  -0.008   improved 3/6   informative 6/6   exact sign p 0.969
+    boosted    22.114   delta  -0.312   improved 4/6   informative 6/6   exact sign p 0.438
+  per position (G7 -- never board-wide alone):
+    QB  inc   4.53   quant   4.94 (+0.41)   learn   4.60 (+0.07)   boost   5.07 (+0.54)
+    RB  inc   8.33   quant   8.15 (-0.18)   learn   8.32 (-0.01)   boost   8.50 (+0.17)
+    TE  inc   5.56   quant   5.46 (-0.09)   learn   5.62 (+0.06)   boost   5.33 (-0.22)
+    WR  inc  10.73   quant  10.49 (-0.24)   learn  10.88 (+0.15)   boost  11.02 (+0.29)
+
+------------------------------------------------------------------------------
+espn_danger_zone
+  2019  inc  28.266   quant  28.266 (+0.000)   learn  30.762 (+2.496)   boost  29.036 (+0.771)   q +0
+  2020  inc  28.267   quant  28.267 (+0.000)   learn  28.745 (+0.478)   boost  29.458 (+1.191)   q +0
+  2021  inc  30.350   quant  31.370 (+1.020)   learn  28.365 (-1.986)   boost  30.654 (+0.304)   q -0.5
+  2022  inc  26.890   quant  28.637 (+1.747)   learn  26.777 (-0.112)   boost  29.167 (+2.278)   q -0.5
+  2024  inc  29.812   quant  29.812 (+0.000)   learn  30.818 (+1.006)   boost  33.414 (+3.602)   q +0
+  2025  inc  25.032   quant  25.032 (+0.000)   learn  28.049 (+3.017)   boost  28.548 (+3.515)   q +0
+  MEAN  incumbent  28.103    fitted q per fold [0.0, 0.0, -0.5, -0.5, 0.0, 0.0]
+    quantile   28.564   delta  +0.461   improved 0/6   informative 2/6   exact sign p 0.500
+    learned    28.919   delta  +0.817   improved 2/6   informative 6/6   exact sign p 0.312
+    boosted    30.046   delta  +1.943   improved 0/6   informative 6/6   exact sign p 0.031
+  per position (G7 -- never board-wide alone):
+    QB  inc   5.54   quant   5.68 (+0.14)   learn   5.63 (+0.09)   boost   5.73 (+0.19)
+    RB  inc   9.23   quant   9.23 (-0.00)   learn   8.99 (-0.24)   boost   8.76 (-0.47)
+    TE  inc   6.49   quant   6.47 (-0.02)   learn   6.62 (+0.12)   boost   6.24 (-0.25)
+    WR  inc  11.41   quant  11.38 (-0.03)   learn  12.35 (+0.94)   boost  13.05 (+1.64)
+
+------------------------------------------------------------------------------
+sleeper_boyfun
+  2019  inc  33.636   quant  33.297 (-0.339)   learn  32.732 (-0.904)   boost  34.946 (+1.310)   q -0.25
+  2020  inc  32.876   quant  33.000 (+0.123)   learn  32.574 (-0.302)   boost  33.498 (+0.622)   q -0.5
+  2021  inc  30.830   quant  31.121 (+0.291)   learn  31.839 (+1.009)   boost  32.925 (+2.095)   q -0.5
+  2022  inc  29.443   quant  29.594 (+0.151)   learn  30.159 (+0.717)   boost  33.836 (+4.393)   q -0.5
+  2024  inc  37.880   quant  37.748 (-0.132)   learn  38.802 (+0.923)   boost  41.696 (+3.816)   q -0.5
+  2025  inc  31.116   quant  30.708 (-0.408)   learn  33.984 (+2.868)   boost  33.440 (+2.325)   q -0.5
+  MEAN  incumbent  32.630    fitted q per fold [-0.25, -0.5, -0.5, -0.5, -0.5, -0.5]
+    quantile   32.578   delta  -0.052   improved 3/6   informative 6/6   exact sign p 0.688
+    learned    33.348   delta  +0.718   improved 2/6   informative 6/6   exact sign p 0.250
+    boosted    35.057   delta  +2.427   improved 0/6   informative 6/6   exact sign p 0.031
+  per position (G7 -- never board-wide alone):
+    QB  inc   6.08   quant   6.15 (+0.07)   learn   5.98 (-0.10)   boost   6.25 (+0.18)
+    RB  inc   9.23   quant   9.51 (+0.28)   learn   9.22 (-0.00)   boost   8.98 (-0.25)
+    TE  inc   6.93   quant   6.83 (-0.09)   learn   7.32 (+0.39)   boost   7.30 (+0.37)
+    WR  inc  14.96   quant  14.92 (-0.04)   learn  14.90 (-0.06)   boost  15.39 (+0.43)
+
+==============================================================================
+VERDICT
+==============================================================================
+  espn_green_hope      quantile  incumbent  22.43 ->  22.66   delta  +0.23   p 0.062   DOES NOT BEAT
+  espn_green_hope      learned   incumbent  22.43 ->  22.42   delta  -0.01   p 0.969   DOES NOT BEAT
+  espn_green_hope      boosted   incumbent  22.43 ->  22.11   delta  -0.31   p 0.438   DOES NOT BEAT
+  espn_danger_zone     quantile  incumbent  28.10 ->  28.56   delta  +0.46   p 0.500   DOES NOT BEAT
+  espn_danger_zone     learned   incumbent  28.10 ->  28.92   delta  +0.82   p 0.312   DOES NOT BEAT
+  espn_danger_zone     boosted   incumbent  28.10 ->  30.05   delta  +1.94   p 0.031   DOES NOT BEAT
+  sleeper_boyfun       quantile  incumbent  32.63 ->  32.58   delta  -0.05   p 0.688   DOES NOT BEAT
+  sleeper_boyfun       learned   incumbent  32.63 ->  33.35   delta  +0.72   p 0.250   DOES NOT BEAT
+  sleeper_boyfun       boosted   incumbent  32.63 ->  35.06   delta  +2.43   p 0.031   DOES NOT BEAT
+
+  BEATS THE INCUMBENT: no (0 of 9 league-shape pairs)

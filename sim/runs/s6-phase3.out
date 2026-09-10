@@ -1,0 +1,96 @@
+seasons [2019, 2020, 2021, 2022, 2024, 2025]   features 20 -> 47 design columns
+  design columns include a `__present` indicator per input: absence is declared,
+  never silently coded as the positional mean.
+
+------------------------------------------------------------------------------
+HELD OUT 2019   fitted on [2020, 2021, 2022, 2024, 2025]
+  incumbent    RWRE  18.402   QB   5.67  RB   8.48  TE   6.09  WR  12.60
+  learned      RWRE  17.775   QB   5.45  RB   8.05  TE   6.11  WR  11.69   eff params   37.7   lam 10
+  two-stage    RWRE  17.467   QB   6.03  RB   8.16  TE   6.20  WR  11.72   eff params   41.1   lam 1
+  quantile     RWRE  18.778   QB   6.50  RB   8.46  TE   6.04  WR  11.00   eff params    1.0   q +0.5
+  boosted      RWRE  17.756   QB   7.52  RB   8.16  TE   5.44  WR  10.77   600 stumps x 0.02
+
+------------------------------------------------------------------------------
+HELD OUT 2020   fitted on [2019, 2021, 2022, 2024, 2025]
+  incumbent    RWRE  23.406   QB   3.89  RB   7.84  TE   5.80  WR   9.22
+  learned      RWRE  24.541   QB   3.50  RB   7.75  TE   6.36  WR  12.02   eff params   38.2   lam 10
+  two-stage    RWRE  24.619   QB   3.43  RB   7.80  TE   6.71  WR  11.38   eff params   38.2   lam 10
+  quantile     RWRE  23.728   QB   4.27  RB   7.94  TE   5.52  WR   9.25   eff params    1.0   q +0.5
+  boosted      RWRE  23.742   QB   4.64  RB   8.11  TE   5.88  WR  10.88   600 stumps x 0.02
+
+------------------------------------------------------------------------------
+HELD OUT 2021   fitted on [2019, 2020, 2022, 2024, 2025]
+  incumbent    RWRE  24.396   QB   2.70  RB   7.97  TE   4.89  WR  11.71
+  learned      RWRE  21.772   QB   4.07  RB   8.28  TE   3.58  WR  10.22   eff params   38.3   lam 10
+  two-stage    RWRE  21.458   QB   4.41  RB   7.56  TE   3.59  WR  10.02   eff params   38.3   lam 10
+  quantile     RWRE  24.528   QB   2.92  RB   7.67  TE   5.14  WR  11.66   eff params    1.0   q +0.25
+  boosted      RWRE  22.783   QB   2.55  RB   7.93  TE   4.16  WR  11.10   600 stumps x 0.02
+
+------------------------------------------------------------------------------
+HELD OUT 2022   fitted on [2019, 2020, 2021, 2024, 2025]
+  incumbent    RWRE  22.892   QB   4.97  RB  10.49  TE   4.89  WR   8.74
+  learned      RWRE  24.996   QB   3.89  RB   9.85  TE   4.85  WR   8.22   eff params   38.3   lam 10
+  two-stage    RWRE  22.929   QB   3.75  RB   9.80  TE   4.64  WR   8.00   eff params   38.3   lam 10
+  quantile     RWRE  23.202   QB   5.07  RB   9.79  TE   4.85  WR   8.68   eff params    1.0   q +0.5
+  boosted      RWRE  22.655   QB   5.90  RB  10.82  TE   3.74  WR   9.28   600 stumps x 0.02
+
+------------------------------------------------------------------------------
+HELD OUT 2024   fitted on [2019, 2020, 2021, 2022, 2025]
+  incumbent    RWRE  25.566   QB   4.31  RB   8.36  TE   6.02  WR  11.47
+  learned      RWRE  25.309   QB   5.05  RB   8.81  TE   6.70  WR  11.55   eff params   38.4   lam 10
+  two-stage    RWRE  25.462   QB   4.93  RB   8.38  TE   6.74  WR  10.79   eff params   41.4   lam 1
+  quantile     RWRE  25.543   QB   5.17  RB   8.34  TE   5.31  WR  11.38   eff params    1.0   q +0.5
+  boosted      RWRE  25.240   QB   5.24  RB   9.11  TE   7.04  WR  12.76   600 stumps x 0.02
+
+------------------------------------------------------------------------------
+HELD OUT 2025   fitted on [2019, 2020, 2021, 2022, 2024]
+  incumbent    RWRE  19.891   QB   5.66  RB   6.83  TE   5.65  WR  10.62
+  learned      RWRE  20.111   QB   5.63  RB   7.16  TE   6.12  WR  11.57   eff params   38.4   lam 10
+  two-stage    RWRE  22.356   QB   6.32  RB   7.42  TE   6.17  WR  11.56   eff params   38.4   lam 10
+  quantile     RWRE  20.157   QB   5.71  RB   6.68  TE   5.93  WR  10.97   eff params    1.0   q +0.5
+  boosted      RWRE  20.506   QB   4.58  RB   6.89  TE   5.74  WR  11.33   600 stumps x 0.02
+
+==============================================================================
+PHASE 3 -- every shape, including the ones that lost
+==============================================================================
+  shape            RWRE   vs incumbent  eff params
+  incumbent      22.425                        1.0
+  learned        22.418         -0.008        38.2
+      fitted per fold: lam 10  lam 10  lam 10  lam 10  lam 10  lam 10
+  two-stage      22.382         -0.044        39.3
+      fitted per fold: lam 1  lam 10  lam 10  lam 10  lam 1  lam 10
+  quantile       22.656         +0.231         1.0
+      fitted per fold: q +0.5  q +0.5  q +0.25  q +0.5  q +0.5  q +0.5
+  boosted        22.114         -0.312        24.0
+      fitted per fold: 600 stumps x 0.02  600 stumps x 0.02  600 stumps x 0.02  600 stumps x 0.02  600 stumps x 0.02  600 stumps x 0.02
+
+  per season:
+    incumbent    2019: 18.40  2020: 23.41  2021: 24.40  2022: 22.89  2024: 25.57  2025: 19.89
+    learned      2019: 17.78  2020: 24.54  2021: 21.77  2022: 25.00  2024: 25.31  2025: 20.11
+    two-stage    2019: 17.47  2020: 24.62  2021: 21.46  2022: 22.93  2024: 25.46  2025: 22.36
+    quantile     2019: 18.78  2020: 23.73  2021: 24.53  2022: 23.20  2024: 25.54  2025: 20.16
+    boosted      2019: 17.76  2020: 23.74  2021: 22.78  2022: 22.65  2024: 25.24  2025: 20.51
+
+  per position, mean over folds (INJECTION 6 -- never board-wide alone):
+    incumbent    QB   4.53  RB   8.33  TE   5.56  WR  10.73
+    learned      QB   4.60  RB   8.32  TE   5.62  WR  10.88
+    two-stage    QB   4.81  RB   8.19  TE   5.68  WR  10.58
+    quantile     QB   4.94  RB   8.15  TE   5.46  WR  10.49
+    boosted      QB   5.07  RB   8.50  TE   5.33  WR  11.02
+
+  boosted feature importances, mean over folds (top 15):
+    pos_QB                        32.9%
+    projection                    23.2%
+    pos_QB_x_projection           15.3%
+    pos_RB_x_projection            8.4%
+    ffa_dropoff__present           6.0%
+    pos_RB                         4.1%
+    contract                       2.7%
+    ffa_dropoff                    2.0%
+    uncertainty                    1.9%
+    ff_opp_exp                     1.1%
+    adp_gap__present               0.8%
+    ngs_time_to_throw              0.5%
+    ffa_skew                       0.4%
+    pos_WR                         0.3%
+    ff_opp_eff                     0.1%

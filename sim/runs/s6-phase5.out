@@ -1,0 +1,270 @@
+floor draws 80   floor of the reference test 0.0247
+
+------------------------------------------------------------------------------
+snap_share  scope=position  seasons 6
+  RB    signal  +0.047   board-wide  -0.539   diff -0.051 [-0.555, +0.400] sd 0.234   p 0.988   not resolved
+  WR    signal  +0.052   board-wide  -0.539   diff -0.203 [-1.200, +0.939] sd 0.565   p 0.642   not resolved
+  TE    signal  +0.174   board-wide  -0.539   diff +0.050 [-0.618, +0.759] sd 0.341   p 0.988   not resolved
+
+------------------------------------------------------------------------------
+target_share  scope=position  seasons 5
+  RB    signal  -0.101   board-wide  +0.319   diff -0.229 [-0.843, +0.167] sd 0.258   p 0.099   not resolved
+  WR    signal  +0.172   board-wide  +0.319   diff -0.182 [-1.274, +0.659] sd 0.489   p 0.667   not resolved
+  TE    signal  +0.083   board-wide  +0.319   diff -0.076 [-0.874, +0.641] sd 0.387   p 0.765   not resolved
+
+------------------------------------------------------------------------------
+td_oe  scope=position  seasons 6
+  QB    signal  +0.383   board-wide  +0.000   diff +0.150 [-0.556, +0.842] sd 0.342   p 0.543   not resolved
+  RB    signal  +0.263   board-wide  +0.000   diff +0.166 [-0.308, +0.604] sd 0.223   p 0.247   not resolved
+  WR    signal  +0.279   board-wide  +0.000   diff +0.025 [-1.072, +1.130] sd 0.546   p 0.963   not resolved
+  TE    signal  +0.150   board-wide  +0.000   diff +0.025 [-0.834, +1.052] sd 0.478   p 0.963   not resolved
+
+------------------------------------------------------------------------------
+draft_round  scope=position  seasons 6
+  RB    signal  +0.208   board-wide  -0.095   diff +0.111 [-0.399, +0.533] sd 0.237   p 0.444   not resolved
+  WR    signal  +0.109   board-wide  -0.095   diff -0.145 [-1.236, +0.904] sd 0.532   p 0.716   not resolved
+  TE    signal  +0.238   board-wide  -0.095   diff +0.114 [-0.596, +0.834] sd 0.349   p 0.741   not resolved
+
+------------------------------------------------------------------------------
+adp_gap  scope=position  seasons 6
+  QB    signal  +0.391   board-wide  -0.457   diff +0.159 [-0.539, +0.826] sd 0.346   p 0.519   not resolved
+  RB    signal  -0.174   board-wide  -0.457   diff -0.272 [-0.799, +0.215] sd 0.265   p 0.099   not resolved
+  WR    signal  -0.207   board-wide  -0.457   diff -0.462 [-1.596, +0.713] sd 0.592   p 0.346   not resolved
+  TE    signal  -0.027   board-wide  -0.457   diff -0.151 [-0.995, +0.635] sd 0.398   p 0.593   not resolved
+
+------------------------------------------------------------------------------
+ngs_separation  scope=position  seasons 6
+  WR    signal  -0.558   board-wide  +0.287   diff -0.812 [-1.845, +0.325] sd 0.555   p 0.074   not resolved
+  TE    signal  -0.199   board-wide  +0.287   diff -0.323 [-1.205, +0.544] sd 0.425   p 0.222   not resolved
+
+------------------------------------------------------------------------------
+ngs_cushion  scope=position  seasons 6
+  WR    signal  +0.523   board-wide  +0.606   diff +0.269 [-0.690, +1.346] sd 0.523   p 0.543   not resolved
+  TE    signal  -0.245   board-wide  +0.606   diff -0.370 [-1.099, +0.382] sd 0.365   p 0.198   not resolved
+
+------------------------------------------------------------------------------
+ngs_rush_eff  scope=position  seasons 6
+  RB    signal  +0.156   board-wide  +0.027   diff +0.059 [-0.416, +0.531] sd 0.244   p 0.642   not resolved
+
+------------------------------------------------------------------------------
+ngs_time_to_los  scope=position  seasons 6
+  RB    signal  +0.000   board-wide  +0.404   diff -0.097 [-0.588, +0.318] sd 0.217   p 0.914   not resolved
+
+------------------------------------------------------------------------------
+ngs_time_to_throw  scope=position  seasons 6
+  QB    signal  +0.228   board-wide  +0.579   diff -0.005 [-0.790, +0.878] sd 0.427   p 0.889   not resolved
+
+------------------------------------------------------------------------------
+contract  scope=position  seasons 6
+  QB    signal  +0.476   board-wide  +0.489   diff +0.243 [-0.662, +1.220] sd 0.465   p 0.395   not resolved
+  RB    signal  +0.283   board-wide  +0.489   diff +0.186 [-0.420, +0.724] sd 0.286   p 0.222   not resolved
+  WR    signal  +0.227   board-wide  +0.489   diff -0.028 [-1.075, +1.013] sd 0.523   p 0.864   not resolved
+  TE    signal  +0.958   board-wide  +0.489   diff +0.834 [+0.028, +1.683] sd 0.411   p 0.049   RESOLVED WORSE
+
+------------------------------------------------------------------------------
+availability  scope=board  seasons 5
+  board signal  +0.813   board-wide  +0.813   diff +0.566 [-0.585, +1.995] sd 0.631   p 0.099   not resolved
+
+------------------------------------------------------------------------------
+age_at_export  scope=position  seasons 6
+  QB    signal  -0.350   board-wide  -0.366   diff -0.583 [-1.430, +0.256] sd 0.436   p 0.099   not resolved
+  RB    signal  -0.093   board-wide  -0.366   diff -0.190 [-0.762, +0.367] sd 0.292   p 0.123   not resolved
+  WR    signal  -0.510   board-wide  -0.366   diff -0.764 [-1.800, +0.284] sd 0.515   p 0.074   not resolved
+  TE    signal  -0.201   board-wide  -0.366   diff -0.326 [-0.978, +0.416] sd 0.354   p 0.222   not resolved
+
+------------------------------------------------------------------------------
+uncertainty  scope=position  seasons 6
+  QB    signal  +0.000   board-wide  -0.410   diff -0.233 [-0.992, +0.448] sd 0.338   p 0.568   not resolved
+  RB    signal  -0.129   board-wide  -0.410   diff -0.226 [-0.739, +0.185] sd 0.234   p 0.123   not resolved
+  WR    signal  +0.153   board-wide  -0.410   diff -0.102 [-1.085, +0.830] sd 0.474   p 0.765   not resolved
+  TE    signal  +0.364   board-wide  -0.410   diff +0.240 [-0.526, +1.056] sd 0.389   p 0.346   not resolved
+
+------------------------------------------------------------------------------
+ffa_skew  scope=position  seasons 6
+  QB    signal  +0.000   board-wide  +0.526   diff -0.233 [-0.992, +0.448] sd 0.338   p 0.568   not resolved
+  RB    signal  +0.049   board-wide  +0.526   diff -0.049 [-0.563, +0.460] sd 0.261   p 0.988   not resolved
+  WR    signal  +0.042   board-wide  +0.526   diff -0.213 [-1.191, +0.776] sd 0.481   p 0.642   not resolved
+  TE    signal  +0.203   board-wide  +0.526   diff +0.079 [-0.709, +0.868] sd 0.396   p 0.840   not resolved
+
+------------------------------------------------------------------------------
+ffa_dropoff  scope=position  seasons 6
+  QB    signal  +0.324   board-wide  +0.000   diff +0.091 [-0.707, +0.971] sd 0.409   p 0.716   not resolved
+  RB    signal  +0.166   board-wide  +0.000   diff +0.069 [-0.437, +0.501] sd 0.240   p 0.642   not resolved
+  WR    signal  +0.150   board-wide  +0.000   diff -0.104 [-1.128, +0.920] sd 0.510   p 0.765   not resolved
+  TE    signal  -0.284   board-wide  +0.000   diff -0.408 [-1.075, +0.320] sd 0.357   p 0.148   not resolved
+
+------------------------------------------------------------------------------
+ffa_experience  scope=position  seasons 6
+  QB    signal  +0.456   board-wide  +0.369   diff +0.223 [-0.553, +0.989] sd 0.384   p 0.420   not resolved
+  RB    signal  +0.080   board-wide  +0.369   diff -0.018 [-0.546, +0.428] sd 0.242   p 0.988   not resolved
+  WR    signal  +0.735   board-wide  +0.369   diff +0.481 [-0.491, +1.456] sd 0.478   p 0.222   not resolved
+  TE    signal  +0.772   board-wide  +0.369   diff +0.648 [-0.177, +1.552] sd 0.430   p 0.049   RESOLVED WORSE
+
+------------------------------------------------------------------------------
+depth_slot  scope=position  seasons 6
+  QB    signal  +0.238   board-wide  -0.500   diff +0.005 [-0.772, +0.754] sd 0.368   p 0.963   not resolved
+  RB    signal  +0.265   board-wide  -0.500   diff +0.167 [-0.313, +0.611] sd 0.228   p 0.222   not resolved
+  WR    signal  +0.243   board-wide  -0.500   diff -0.012 [-1.044, +0.963] sd 0.494   p 0.889   not resolved
+  TE    signal  -0.343   board-wide  -0.500   diff -0.467 [-1.136, +0.265] sd 0.355   p 0.148   not resolved
+
+------------------------------------------------------------------------------
+ff_opp_exp  scope=position  seasons 6
+  QB    signal  +0.150   board-wide  +0.213   diff -0.083 [-0.879, +0.622] sd 0.356   p 0.667   not resolved
+  RB    signal  +0.303   board-wide  +0.213   diff +0.205 [-0.378, +0.690] sd 0.270   p 0.222   not resolved
+  WR    signal  -0.306   board-wide  +0.213   diff -0.560 [-1.673, +0.566] sd 0.559   p 0.148   not resolved
+  TE    signal  +0.330   board-wide  +0.213   diff +0.205 [-0.437, +0.900] sd 0.335   p 0.469   not resolved
+
+------------------------------------------------------------------------------
+ff_opp_eff  scope=position  seasons 6
+  QB    signal  +0.330   board-wide  +0.000   diff +0.097 [-0.620, +0.821] sd 0.351   p 0.691   not resolved
+  RB    signal  +0.187   board-wide  +0.000   diff +0.090 [-0.403, +0.531] sd 0.225   p 0.519   not resolved
+  WR    signal  +0.365   board-wide  +0.000   diff +0.111 [-0.843, +1.132] sd 0.502   p 0.840   not resolved
+  TE    signal  +0.265   board-wide  +0.000   diff +0.140 [-0.522, +0.830] sd 0.336   p 0.691   not resolved
+
+==============================================================================
+EVERY LOCUS, SORTED BY REFERENCE-SET p
+==============================================================================
+  contract@TE                        signal  +0.958  p 0.049  RESOLVED WORSE  <== RESOLVED
+  ffa_experience@TE                  signal  +0.772  p 0.049  RESOLVED WORSE  <== RESOLVED
+  ngs_separation@WR                  signal  -0.558  p 0.074  not resolved
+  age_at_export@WR                   signal  -0.510  p 0.074  not resolved
+  target_share@RB                    signal  -0.101  p 0.099  not resolved
+  adp_gap@RB                         signal  -0.174  p 0.099  not resolved
+  availability@board                 signal  +0.813  p 0.099  not resolved
+  age_at_export@QB                   signal  -0.350  p 0.099  not resolved
+  age_at_export@RB                   signal  -0.093  p 0.123  not resolved
+  uncertainty@RB                     signal  -0.129  p 0.123  not resolved
+  ffa_dropoff@TE                     signal  -0.284  p 0.148  not resolved
+  depth_slot@TE                      signal  -0.343  p 0.148  not resolved
+  ff_opp_exp@WR                      signal  -0.306  p 0.148  not resolved
+  ngs_cushion@TE                     signal  -0.245  p 0.198  not resolved
+  ngs_separation@TE                  signal  -0.199  p 0.222  not resolved
+  contract@RB                        signal  +0.283  p 0.222  not resolved
+  age_at_export@TE                   signal  -0.201  p 0.222  not resolved
+  ffa_experience@WR                  signal  +0.735  p 0.222  not resolved
+  depth_slot@RB                      signal  +0.265  p 0.222  not resolved
+  ff_opp_exp@RB                      signal  +0.303  p 0.222  not resolved
+  td_oe@RB                           signal  +0.263  p 0.247  not resolved
+  adp_gap@WR                         signal  -0.207  p 0.346  not resolved
+  uncertainty@TE                     signal  +0.364  p 0.346  not resolved
+  contract@QB                        signal  +0.476  p 0.395  not resolved
+  ffa_experience@QB                  signal  +0.456  p 0.420  not resolved
+  draft_round@RB                     signal  +0.208  p 0.444  not resolved
+  ff_opp_exp@TE                      signal  +0.330  p 0.469  not resolved
+  adp_gap@QB                         signal  +0.391  p 0.519  not resolved
+  ff_opp_eff@RB                      signal  +0.187  p 0.519  not resolved
+  td_oe@QB                           signal  +0.383  p 0.543  not resolved
+  ngs_cushion@WR                     signal  +0.523  p 0.543  not resolved
+  uncertainty@QB                     signal  +0.000  p 0.568  not resolved
+  ffa_skew@QB                        signal  +0.000  p 0.568  not resolved
+  adp_gap@TE                         signal  -0.027  p 0.593  not resolved
+  snap_share@WR                      signal  +0.052  p 0.642  not resolved
+  ngs_rush_eff@RB                    signal  +0.156  p 0.642  not resolved
+  ffa_skew@WR                        signal  +0.042  p 0.642  not resolved
+  ffa_dropoff@RB                     signal  +0.166  p 0.642  not resolved
+  target_share@WR                    signal  +0.172  p 0.667  not resolved
+  ff_opp_exp@QB                      signal  +0.150  p 0.667  not resolved
+  ff_opp_eff@QB                      signal  +0.330  p 0.691  not resolved
+  ff_opp_eff@TE                      signal  +0.265  p 0.691  not resolved
+  draft_round@WR                     signal  +0.109  p 0.716  not resolved
+  ffa_dropoff@QB                     signal  +0.324  p 0.716  not resolved
+  draft_round@TE                     signal  +0.238  p 0.741  not resolved
+  target_share@TE                    signal  +0.083  p 0.765  not resolved
+  uncertainty@WR                     signal  +0.153  p 0.765  not resolved
+  ffa_dropoff@WR                     signal  +0.150  p 0.765  not resolved
+  ffa_skew@TE                        signal  +0.203  p 0.840  not resolved
+  ff_opp_eff@WR                      signal  +0.365  p 0.840  not resolved
+  contract@WR                        signal  +0.227  p 0.864  not resolved
+  ngs_time_to_throw@QB               signal  +0.228  p 0.889  not resolved
+  depth_slot@WR                      signal  +0.243  p 0.889  not resolved
+  ngs_time_to_los@RB                 signal  +0.000  p 0.914  not resolved
+  td_oe@WR                           signal  +0.279  p 0.963  not resolved
+  td_oe@TE                           signal  +0.150  p 0.963  not resolved
+  depth_slot@QB                      signal  +0.238  p 0.963  not resolved
+  snap_share@RB                      signal  +0.047  p 0.988  not resolved
+  snap_share@TE                      signal  +0.174  p 0.988  not resolved
+  ffa_skew@RB                        signal  +0.049  p 0.988  not resolved
+  ffa_experience@RB                  signal  +0.080  p 0.988  not resolved
+
+  resolved at a calibrated 5%: 2 of 61 loci
+    improvements: NONE
+    harms:        ['contract@TE', 'ffa_experience@TE']
+
+  MULTIPLE COMPARISONS. 61 loci were tested at a nominal 5%, so about
+  3.1 false resolutions are expected by chance alone. 2 were
+  observed, which is BELOW the chance expectation. Neither of the two survives a
+  Bonferroni threshold of 0.0008 -- and neither could, because the
+  floor of the reference test at K=80 is 0.0247. To resolve anything against
+  61 comparisons this harness would need K >= 2439.
+
+==============================================================================
+INJECTION 5 -- dispositions that differ under a SINGLE floor draw
+==============================================================================
+  snap_share@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  snap_share@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  target_share@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  target_share@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  draft_round@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  adp_gap@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  adp_gap@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ngs_separation@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ngs_separation@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ngs_cushion@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  contract@RB: one draw 'RESOLVED WORSE THAN FLOOR' vs distribution 'not resolved'
+  contract@TE: one draw 'not resolved' vs distribution 'RESOLVED WORSE THAN FLOOR'
+  age_at_export@QB: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  age_at_export@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  age_at_export@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  uncertainty@QB: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  uncertainty@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ffa_skew@QB: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ffa_skew@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ffa_dropoff@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ffa_dropoff@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  depth_slot@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ff_opp_exp@QB: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ff_opp_exp@RB: one draw 'RESOLVED WORSE THAN FLOOR' vs distribution 'not resolved'
+  ff_opp_exp@WR: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  ff_opp_eff@TE: one draw 'RESOLVED BEATS FLOOR' vs distribution 'not resolved'
+  total 26 of 61 loci (43%); audible#88 measured 5 of 18 = 28%
+
+==============================================================================
+INJECTION 6 -- the dilution, locus against board-wide
+==============================================================================
+  snap_share@WR                      locus  +0.052  board-wide  -0.539   SIGN FLIPS
+  snap_share@TE                      locus  +0.174  board-wide  -0.539   SIGN FLIPS
+  target_share@RB                    locus  -0.101  board-wide  +0.319   SIGN FLIPS
+  draft_round@RB                     locus  +0.208  board-wide  -0.095   SIGN FLIPS
+  draft_round@WR                     locus  +0.109  board-wide  -0.095   SIGN FLIPS
+  draft_round@TE                     locus  +0.238  board-wide  -0.095   SIGN FLIPS
+  adp_gap@QB                         locus  +0.391  board-wide  -0.457   SIGN FLIPS
+  ngs_separation@WR                  locus  -0.558  board-wide  +0.287   SIGN FLIPS
+  ngs_separation@TE                  locus  -0.199  board-wide  +0.287   SIGN FLIPS
+  ngs_cushion@TE                     locus  -0.245  board-wide  +0.606   SIGN FLIPS
+  uncertainty@WR                     locus  +0.153  board-wide  -0.410   SIGN FLIPS
+  uncertainty@TE                     locus  +0.364  board-wide  -0.410   SIGN FLIPS
+  depth_slot@QB                      locus  +0.238  board-wide  -0.500   SIGN FLIPS
+  depth_slot@RB                      locus  +0.265  board-wide  -0.500   SIGN FLIPS
+  depth_slot@WR                      locus  +0.243  board-wide  -0.500   SIGN FLIPS
+  ff_opp_exp@WR                      locus  -0.306  board-wide  +0.213   SIGN FLIPS
+  loci whose board-wide figure carries the opposite sign: 16
+
+==============================================================================
+THE COMBINATION
+==============================================================================
+  Inclusion rule: beats the calibrated floor ALONE, or a phase-3 model gives it
+  stable importance across all six folds.
+
+  NO INPUT BEATS THE FLOOR ALONE. The first criterion admits nothing.
+
+  Second criterion -- phase-3 boosted importances, mean over folds:
+    pos_QB 40.0%   projection 35.1%   ffa_dropoff__present 11.4%
+    pos_RB 3.7%    ngs_rush_eff__present 3.5%   uncertainty 2.9%
+    adp_gap__present 2.2%   contract 1.2%
+  Of the twenty football inputs, the largest share given to any ACTUAL VALUE
+  (rather than a position dummy, the projection, or a missingness indicator)
+  is `uncertainty` at 2.9%. The second criterion admits nothing either.
+
+  THE COMBINATION CANNOT BE FORMED. There is nothing to combine.
+  Reported anyway, so the next session does not have to re-run it: the best single input by p is contract@TE at p 0.049.
+  Phase 3's best SHAPE was `quantile` at 22.656 against the incumbent's 22.425 -- also a loss.

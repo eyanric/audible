@@ -83,7 +83,26 @@ def signal_values(name: str, season: int) -> dict[str, float]:
         return {p: rates[q] for p, q in loaded.position.items() if q in rates}
     if name == "contract":
         return contract_value(season)
-    if name == "age":
+    # --- S6 phase 2: everything the board already carries and the ordering discards ---------
+    if name in FFA_FIELDS:
+        field, sign = FFA_FIELDS[name]
+        meta = residual.ffa_meta(season)
+        return {p: sign * m[field] for p, m in meta.items()
+                if m.get(field) == m.get(field)}  # NaN filtered by self-inequality
+    if name == "depth_slot":
+        return depth_slot(season)
+    if name in FF_OPP_FIELDS:
+        column, per_appearance = FF_OPP_FIELDS[name]
+        return ff_opportunity_prior(column, season, per_appearance)
+    if name == "age_at_export":
+        # NOT VINTAGE, and this project called it vintage for three sessions. The FFA
+        # projections file stamps `age` at EXPORT time, not at the season it describes:
+        # measured year-over-year across nine season files, 1,395 of 1,397 transitions have
+        # delta exactly 0.0 while `experience` correctly increments by 1. Against
+        # `ff_playerids.birthdate` the offset is +7.50 in 2019, +5.85 in 2022, +0.95 in 2025.
+        # The offset is near-uniform WITHIN a season, so the within-position z-scored ordering
+        # is nearly unharmed -- but it is off by up to seven years in level, the birthday-month
+        # split perturbs the ordering by a year, and the name was a lie. `experience` IS vintage.
         meta = residual.ffa_meta(season)
         return {p: m["age"] for p, m in meta.items() if m.get("age") == m.get("age")}
     if name == "uncertainty":
@@ -161,9 +180,20 @@ def cells(
         xs = [vals[p] for p in have]
         mu = sum(xs) / len(xs)
         sd = math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1))
+        distinct = len(set(xs))
+        # A CELL WITH ONE DISTINCT VALUE HAS NO SPREAD, and that is a fact about the data
+        # rather than a threshold anyone chose. `audible#88` used a tuned `MIN_SD_REL` and
+        # then measured that of 217 cells the 20 it skipped ALL held exactly one distinct
+        # value -- so the constant never separated anything the count does not separate, and
+        # a session whose thesis is "do not tune the referee" should not carry a tuned
+        # constant it does not need. `MIN_SD_REL` is kept only as a second guard.
+        if distinct <= 1:
+            out.append(Cell(label, len(have), distinct, mu, sd, False,
+                            f"one distinct value; sd {sd:.3e} is floating-point residue"))
+            continue
         floor = MIN_SD_REL * max(1.0, abs(mu))
         if sd <= floor:
-            out.append(Cell(label, len(have), len(set(xs)), mu, sd, False,
+            out.append(Cell(label, len(have), distinct, mu, sd, False,
                             f"sd {sd:.3e} <= {floor:.3e}, floating-point residue"))
             continue
         out.append(Cell(label, len(have), len(set(xs)), mu, sd, True, "applied"))
@@ -357,3 +387,119 @@ def contract_value(season: int) -> dict[str, float]:
         if g not in best or int(yr) > best[g][0]:
             best[g] = (int(yr), float(pct))
     return {g: v for g, (_y, v) in best.items()}
+
+
+# --- S6 phase 2: the inputs the board already carries and the ordering has never read --------
+
+# FFA publishes these vintage in every season's projections file. `points` is the only column
+# any ordering in this project has ever read. Sign is +1 where more is better and -1 where less
+# is, so every signal here is "increasing means the player should rank higher".
+# WHAT WAS DROPPED, AFTER MEASURING IT RATHER THAN ASSUMING IT:
+#
+#   ffa_tier   Spearman 0.99 against FFA's own points within position -- it is `position_rank`
+#   ffa_aav    binned. 0.91. Phase 2 excluded `rank`/`position_rank` as "FFA's own transform of
+#              its own projection"; these two are the same thing and were kept by oversight.
+#   ffa_ceiling / ffa_floor   ceiling/points and floor/points are mechanically a monotone
+#              INVERSION of the projection (r = -0.59 and +0.58 against ESPN points). Both
+#              carried sign +1, i.e. both were labelled "more is better". At most one could be.
+#   ffa_spread / ffa_uncertainty   r = -0.98 and -0.80 against `uncertainty`. The same
+#              dispersion axis, listed three times, once as its own negation.
+#
+# `ffa_skew` replaces the ceiling/floor pair with the quantity they were reaching for: how
+# LOPSIDED the distribution is, rather than how wide. Upside over downside, so it is a ratio of
+# two spreads and does not inherit the projection's level.
+FFA_FIELDS: dict[str, tuple[str, float]] = {
+    "ffa_dropoff": ("dropoff", 1.0),       # points to the next player at the position
+    "ffa_experience": ("experience", 1.0),
+    "ffa_skew": ("skew", 1.0),             # (ceiling - points) / (points - floor)
+}
+
+# `ff_opportunity` models expected fantasy points from volume and situation, so the EXPECTED
+# column is an opportunity measure and the DIFF column is efficiency over expectation. Both are
+# read from season-1, never from the season being ranked.
+# TWO DIFFERENT CONSTRUCTS, NAMED SEPARATELY because dividing by the same denominator made
+# them one. `ff_opp_exp` is VOLUME: expected fantasy points per TEAM game, so a player who
+# missed half the season scores low, which is what "how much opportunity did he get" means.
+# `ff_opp_eff` is EFFICIENCY: points over expectation per game he actually appeared in.
+#
+# An earlier version divided BOTH by appearances, which made the volume measure reward missing
+# half a season -- the median player had 9 rows in 2024 and 101 of 604 had 17.
+FF_OPP_FIELDS: dict[str, tuple[str, bool]] = {
+    "ff_opp_exp": ("total_fantasy_points_exp", False),   # per team game
+    "ff_opp_eff": ("total_fantasy_points_diff", True),   # per appearance
+}
+TEAM_GAMES: dict[int, int] = {2018: 16, 2019: 16, 2020: 16}  # 17 from 2021
+
+
+@lru_cache(maxsize=16)
+def ff_opportunity_prior(
+    column: str, season: int, per_appearance: bool = False
+) -> dict[str, float]:
+    """`ff_opportunity` from season-1. Vintage by construction.
+
+    *per_appearance* divides by games the player actually appeared in (an efficiency rate);
+    otherwise by the season's TEAM games (a volume rate, which charges a player for missed time).
+    """
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / "ff_opportunity_s3.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"ff_opportunity pin missing: {path}")
+    # THE SEASON COLUMN IS A STRING IN THIS PIN. Comparing it to an int raises
+    # ComputeError, and an earlier version of this module reported 0% coverage instead of the
+    # error because the caller swallowed it. Cast both sides.
+    frame = (
+        pl.read_parquet(path)
+        .filter(pl.col("season").cast(pl.Utf8) == str(season - 1))
+        .select(["player_id", column])
+        .drop_nulls()
+    )
+    total: dict[str, float] = {}
+    games: dict[str, int] = {}
+    for pid, val in frame.iter_rows():
+        total[str(pid)] = total.get(str(pid), 0.0) + float(val)
+        games[str(pid)] = games.get(str(pid), 0) + 1
+    if per_appearance:
+        return {p: total[p] / games[p] for p in total if games[p] >= 4}
+    denom = float(TEAM_GAMES.get(season - 1, 17))
+    return {p: total[p] / denom for p in total if games[p] >= 4}
+
+
+@lru_cache(maxsize=16)
+def depth_slot(season: int) -> dict[str, float]:
+    """Prior-season mean OFFENSIVE depth-chart slot, NEGATED so increasing means higher.
+
+    OFFENCE ONLY, AND IT MATTERS. The pin carries Offense, Defense and Special Teams depth
+    entries; averaging them made a WR3 who returns kicks read as a WR2, because his
+    Special-Teams "1" rows pulled the mean up. Measured: 32% of covered board players got a
+    different value under the unfiltered mean, the largest movers by more than a full slot, and
+    Spearman between the two versions is 0.95 rather than 1.00.
+
+    `depth_team` is the string "1", "2", "3". `pos_rank` IS populated -- in the 554k newer-format
+    rows, which carry a NULL season and are therefore invisible to a `season == N` filter. An
+    earlier version of this docstring said `pos_rank` is null in the pin and that the pin stops
+    at 2024; both were wrong. The pin holds 2025 and the 2026 offseason in that second schema,
+    so a 2026 board is blocked by a schema mismatch rather than by absent data.
+    """
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / "depth_charts_s3.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"depth chart pin missing: {path}")
+    frame = pl.read_parquet(path)
+    keep = (pl.col("season") == season - 1) & pl.col("gsis_id").is_not_null()
+    if "formation" in frame.columns:
+        keep = keep & (pl.col("formation") == "Offense")
+    if "game_type" in frame.columns:
+        keep = keep & (pl.col("game_type") == "REG")
+    frame = frame.filter(keep).select(["gsis_id", "depth_team"]).drop_nulls()
+    total: dict[str, float] = {}
+    n: dict[str, int] = {}
+    for pid, slot in frame.iter_rows():
+        try:
+            v = float(slot)
+        except (TypeError, ValueError):
+            continue
+        total[str(pid)] = total.get(str(pid), 0.0) + v
+        n[str(pid)] = n.get(str(pid), 0) + 1
+    return {p: -(total[p] / n[p]) for p in total if n[p] >= 4}

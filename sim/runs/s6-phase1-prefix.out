@@ -1,0 +1,21 @@
+  2019: arms ['espn', 'ffa']  OLD disagreed with espn on 1, NEW on 0
+      00-0033338: espn RB -> old resolution TE
+  2020: arms ['espn', 'ffa']  OLD disagreed with espn on 1, NEW on 0
+      00-0033338: espn RB -> old resolution TE
+  2021: arms ['espn', 'ffa', 'sleeper']  OLD disagreed with espn on 7, NEW on 0
+      00-0036918: espn TE -> old resolution WR
+      00-0036825: espn QB -> old resolution TE
+      00-0035259: espn RB -> old resolution TE
+  2022: arms ['espn', 'ffa', 'sleeper']  OLD disagreed with espn on 3, NEW on 0
+      00-0037304: espn TE -> old resolution RB
+      00-0037745: espn WR -> old resolution RB
+      00-0036654: espn WR -> old resolution RB
+  2024: arms ['espn', 'ffa', 'sleeper']  OLD disagreed with espn on 3, NEW on 0
+      00-0037304: espn TE -> old resolution RB
+      00-0038741: espn TE -> old resolution WR
+      00-0037450: espn WR -> old resolution RB
+  2025: arms ['espn', 'ffa', 'sleeper']  OLD disagreed with espn on 1, NEW on 0
+      00-0040649: espn RB -> old resolution TE
+
+  total pre-fix disagreements across six seasons: 16
+  the handoff said 1-7 a season; the defect was real

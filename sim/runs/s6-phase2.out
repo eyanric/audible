@@ -1,0 +1,154 @@
+seasons (2019, 2020, 2021, 2022, 2024, 2025)   pool source espn   league espn_green_hope
+
+==============================================================================
+COVERAGE -- what fraction of ESPN's scoreable pool each input reaches
+==============================================================================
+  FFA's projections file is a TOP-N EXPORT (72 RB / 72 WR / 37 QB / 36 TE in 2022),
+  so every FFA-derived input is capped well below the board's size.
+  snap_share           81%   2019:79%  2020:80%  2021:82%  2022:81%  2024:81%  2025:82%
+      prior-season offensive snap share
+  target_share         67%   2019:0%  2020:79%  2021:82%  2022:80%  2024:80%  2025:81%
+      prior-season target share
+  td_oe                79%   2019:77%  2020:78%  2021:81%  2022:79%  2024:79%  2025:81%
+      prior-season touchdowns over expected
+  draft_round          78%   2019:76%  2020:75%  2021:74%  2022:77%  2024:80%  2025:83%
+      draft capital, rookies only
+  adp_gap              42%   2019:42%  2020:41%  2021:42%  2022:40%  2024:44%  2025:46%
+      market rank minus projection rank
+  ngs_separation       24%   2019:24%  2020:23%  2021:25%  2022:23%  2024:22%  2025:27%
+      NGS average separation, receivers
+  ngs_cushion          24%   2019:24%  2020:23%  2021:25%  2022:23%  2024:22%  2025:27%
+      NGS average cushion, receivers
+  ngs_rush_eff          9%   2019:9%  2020:9%  2021:10%  2022:10%  2024:10%  2025:10%
+      NGS rushing efficiency, backs
+  ngs_time_to_los       9%   2019:9%  2020:9%  2021:10%  2022:10%  2024:10%  2025:10%
+      NGS time to line of scrimmage, backs
+  ngs_time_to_throw     7%   2019:7%  2020:7%  2021:7%  2022:7%  2024:8%  2025:8%
+      NGS time to throw, passers
+  contract             84%   2019:83%  2020:83%  2021:86%  2022:84%  2024:84%  2025:84%
+      cap share of the most recent prior contract
+  availability         83%   2019:0%  2020:100%  2021:100%  2022:100%  2024:100%  2025:100%
+      position-level games-played rate
+  age_at_export        42%   2019:40%  2020:40%  2021:41%  2022:41%  2024:43%  2025:46%
+      FFA age -- STAMPED AT EXPORT, not vintage
+  uncertainty          43%   2019:42%  2020:43%  2021:43%  2022:42%  2024:44%  2025:46%
+      FFA sd_pts relative to points
+  ffa_dropoff          43%   2019:42%  2020:43%  2021:43%  2022:42%  2024:44%  2025:46%
+      FFA points to the next player at the position
+  ffa_experience       39%   2019:37%  2020:38%  2021:40%  2022:38%  2024:39%  2025:40%
+      FFA years of experience
+  depth_slot           79%   2019:78%  2020:79%  2021:80%  2022:78%  2024:78%  2025:80%
+      prior-season mean depth-chart slot, negated
+  ff_opp_exp           71%   2019:70%  2020:69%  2021:71%  2022:71%  2024:71%  2025:74%
+      prior-season expected fantasy points per TEAM game
+  ff_opp_eff           71%   2019:70%  2020:69%  2021:71%  2022:71%  2024:71%  2025:74%
+      prior-season points over expected, per appearance
+  ffa_skew             43%   2019:42%  2020:43%  2021:43%  2022:42%  2024:44%  2025:46%
+      FFA (ceiling-points)/(points-floor): upside over downside
+  noise               100%   2019:100%  2020:100%  2021:100%  2022:100%  2024:100%  2025:100%
+      THE FLOOR: a sha256, information-free by construction
+
+==============================================================================
+G5 -- does each candidate move an ordering, FOR THE REASON CLAIMED?
+==============================================================================
+
+  snap_share (scope=position): PASSES   coverage 81%
+    seasons 6  cells applied/skipped 24/0  min sd 2.020e-01
+    within-position orderings moved in 6/6 seasons
+
+  target_share (scope=position): PASSES   coverage 67%
+    seasons 5  cells applied/skipped 20/0  min sd 6.724e-04
+    within-position orderings moved in 5/5 seasons
+
+  td_oe (scope=position): PASSES   coverage 79%
+    seasons 6  cells applied/skipped 24/0  min sd 1.063e+00
+    within-position orderings moved in 6/6 seasons
+
+  draft_round (scope=position): PASSES   coverage 78%
+    seasons 6  cells applied/skipped 21/3  min sd 1.098e+00
+    within-position orderings moved in 6/6 seasons
+
+  adp_gap (scope=position): PASSES   coverage 42%
+    seasons 6  cells applied/skipped 24/0  min sd 3.218e+00
+    within-position orderings moved in 6/6 seasons
+
+  ngs_separation (scope=position): PASSES   coverage 24%
+    seasons 6  cells applied/skipped 12/12  min sd 3.981e-01
+    within-position orderings moved in 6/6 seasons
+
+  ngs_cushion (scope=position): PASSES   coverage 24%
+    seasons 6  cells applied/skipped 12/12  min sd 4.342e-01
+    within-position orderings moved in 6/6 seasons
+
+  ngs_rush_eff (scope=position): PASSES   coverage 9%
+    seasons 6  cells applied/skipped 6/18  min sd 3.411e-01
+    within-position orderings moved in 6/6 seasons
+
+  ngs_time_to_los (scope=position): PASSES   coverage 9%
+    seasons 6  cells applied/skipped 6/18  min sd 1.185e-01
+    within-position orderings moved in 6/6 seasons
+
+  ngs_time_to_throw (scope=position): PASSES   coverage 7%
+    seasons 6  cells applied/skipped 6/18  min sd 1.133e-01
+    within-position orderings moved in 6/6 seasons
+
+  contract (scope=position): PASSES   coverage 84%
+    seasons 6  cells applied/skipped 24/0  min sd 1.432e-02
+    within-position orderings moved in 6/6 seasons
+
+  availability (scope=board): PASSES   coverage 83%
+    seasons 5  cells applied/skipped 5/0  min sd 5.795e-01
+    within-position orderings moved in 0/5 seasons
+
+  age_at_export (scope=position): PASSES   coverage 42%
+    seasons 6  cells applied/skipped 24/0  min sd 3.325e+00
+    within-position orderings moved in 6/6 seasons
+
+  uncertainty (scope=position): PASSES   coverage 43%
+    seasons 6  cells applied/skipped 24/0  min sd 5.335e-02
+    within-position orderings moved in 6/6 seasons
+
+  ffa_dropoff (scope=position): PASSES   coverage 43%
+    seasons 6  cells applied/skipped 24/0  min sd 1.763e+00
+    within-position orderings moved in 6/6 seasons
+
+  ffa_experience (scope=position): PASSES   coverage 39%
+    seasons 6  cells applied/skipped 24/0  min sd 2.137e+00
+    within-position orderings moved in 6/6 seasons
+
+  depth_slot (scope=position): PASSES   coverage 79%
+    seasons 6  cells applied/skipped 24/0  min sd 5.602e-01
+    within-position orderings moved in 6/6 seasons
+
+  ff_opp_exp (scope=position): PASSES   coverage 71%
+    seasons 6  cells applied/skipped 24/0  min sd 3.679e+00
+    within-position orderings moved in 6/6 seasons
+
+  ff_opp_eff (scope=position): PASSES   coverage 71%
+    seasons 6  cells applied/skipped 24/0  min sd 9.136e-01
+    within-position orderings moved in 6/6 seasons
+
+  ffa_skew (scope=position): PASSES   coverage 43%
+    seasons 6  cells applied/skipped 24/0  min sd 2.964e-01
+    within-position orderings moved in 6/6 seasons
+
+  noise (scope=position): PASSES   coverage 100%
+    seasons 6  cells applied/skipped 24/0  min sd 5.160e-01
+    within-position orderings moved in 6/6 seasons
+
+==============================================================================
+SUMMARY
+==============================================================================
+  candidates 21   pass G5 21   fail G5 0
+
+  excluded before testing, with the reason (5):
+    injuries / practice participation
+        HARD STOP. audible#71 measured RB 2.58 games missed against WR 3.29 at ADP <= 100 -- the opposite of the folklore -- and this session is forbidden a player-level injury term.
+    participation (route running)
+        Play-level with no season column and no gsis key; route participation is the known nflverse gap and is delivered post-season only.
+    ftn_charting
+        Pinned 2022-2025. As a PRIOR-season term that is seasons 2023-2026, and ESPN has no 2023 board -- so two usable seasons. Too few for a six-fold LOSO.
+    officials
+        Not player-keyed. Nothing to join to a board.
+    ffa points_vor / floor_vor / ceiling_vor / rank / position_rank
+        These are FFA's OWN replacement transform of its own projection. Feeding them to a ranking model tests FFA's transform, not an input.

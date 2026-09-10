@@ -36,7 +36,8 @@ def detail(season, lam):
     order = [p for p in rank.vorp_order(pts, loaded.position, LK) if p in rv]
     s = rank.score_board(order, rv, teams=int(rank.league(LK).num_teams),
                          pool_size=rank.pool_size_for(LK), position=loaded.position,
-                         indexing=signals.INDEXING)
+                         indexing=signals.INDEXING,
+                         position_pool=rank.position_pool_sizes(LK))
     return s.rwre, s.per_position
 
 
