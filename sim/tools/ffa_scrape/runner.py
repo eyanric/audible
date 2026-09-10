@@ -1,9 +1,14 @@
 """Drive the jobs: prepare, fetch, verify, write, record. In that order, every time.
 
 WRITE ONLY WHAT VERIFIED. The payload is verified in memory and reaches disk only if it has
-no reasons against it. A file that fails is never written, so a corpus directory can never
-contain a file the manifest does not vouch for -- which is what makes `plan`'s
-manifest-and-disk rule sound.
+no reasons against it, so a file that FAILED is never written at all.
+
+The file lands before its manifest line, which means a kill in the microseconds between
+them leaves a file with no entry -- NOT "a corpus can never contain a file the manifest
+does not vouch for", which is what this docstring used to claim. That window is the safe
+direction to fail: `plan` re-fetches a file the manifest does not name, and `status`
+reports it as UNVOUCHED. The reverse order would leave an entry vouching for bytes that
+are not there.
 
 RETRY ONCE, LONGER, THEN GIVE UP LOUDLY. The most likely cause of an aggregation mismatch is
 a settle that was too short under load, so the retry scales every wait. The second most
@@ -29,6 +34,30 @@ FAILURE_LOG = "failures.jsonl"
 # A run that keeps losing its session is not making progress, it is hammering someone else's
 # server. Consecutive, so a long clean run resets it.
 MAX_CONSECUTIVE_RECOVERIES = 5
+
+# A DROPPED SESSION DOES NOT ALWAYS ARRIVE AS SessionLost. It also arrives as whatever
+# Playwright raises when the page it is driving goes away mid-call -- and that used to
+# escape run_jobs and kill the whole run. Measured: a Shiny modal intercepted a tab click
+# and the resulting TimeoutError ended stage 2 eight files in, with seven good files on
+# disk and nothing to say why.
+#
+# Matched by NAME rather than by importing playwright, so this module stays importable
+# without it and a gate can raise the same shapes without a browser. NotLoggedIn is
+# deliberately NOT here: it is the one failure a human has to fix, and retrying it 600
+# times against someone else's server is the opposite of helpful.
+RECOVERABLE_NAMES = frozenset({"TimeoutError", "Error", "TargetClosedError"})
+
+
+class _RecoverableByName(type):
+    def __instancecheck__(cls, obj: object) -> bool:
+        return type(obj).__name__ in RECOVERABLE_NAMES
+
+
+class Recoverable(Exception, metaclass=_RecoverableByName):
+    """Never raised. Exists so `except (SessionLost, Recoverable)` reads as intended."""
+
+
+RECOVERABLE: tuple[type[BaseException], ...] = (Recoverable,)
 
 
 @dataclass
@@ -153,24 +182,36 @@ def run_jobs(
         payload: str | None = None
         witness_sha: str | None = None
 
+        # EVERY attempt's reasons, not just the last one's. Keeping only the final attempt
+        # erased an aggregation mismatch on attempt 1 whenever attempt 2 lost the session,
+        # and the durable record then said "transient session loss" about a job that had
+        # actually come back mislabelled -- which is the one thing this log exists to catch.
+        history: list[str] = []
+
         for scale in (1.0, RETRY_SCALE):
             try:
                 payload, reasons, witness_sha = _attempt(driver, job, scale=scale)
-                consecutive_recoveries = 0
-            except SessionLost as exc:
+                # RESET ONLY ON SUCCESS. Resetting whenever an attempt merely RETURNED meant
+                # an alternating loss/rejection pattern never tripped the cap -- the run
+                # would hammer the server indefinitely, which is the thing the cap is for.
+                if payload is not None:
+                    consecutive_recoveries = 0
+            except NotLoggedIn:
+                raise
+            except (SessionLost, *RECOVERABLE) as exc:
                 consecutive_recoveries += 1
                 result.recoveries += 1
-                log(f"    session lost ({exc}); re-establishing "
+                log(f"    {type(exc).__name__} ({exc}); re-establishing "
                     f"[{consecutive_recoveries}/{MAX_CONSECUTIVE_RECOVERIES}]")
                 if consecutive_recoveries > MAX_CONSECUTIVE_RECOVERIES:
                     raise
                 driver.establish()
-                reasons = [f"session-lost: {exc}"]
+                reasons = [f"{type(exc).__name__.lower()}: {exc}"]
+                history.extend(reasons)
                 payload = None
                 witness_sha = None
                 continue
-            except NotLoggedIn:
-                raise
+            history.extend(reasons)
             if payload is not None:
                 break
             log(f"    rejected: {'; '.join(reasons)}")
@@ -178,9 +219,9 @@ def run_jobs(
                 log(f"    retrying with settles x{RETRY_SCALE}")
 
         if payload is None:
-            log(f"    FAILED {job.filename}: {'; '.join(reasons)}")
-            result.failed.append((job, reasons))
-            _record_failure(data_dir / FAILURE_LOG, job, reasons, now())
+            log(f"    FAILED {job.filename}: {'; '.join(history)}")
+            result.failed.append((job, history))
+            _record_failure(data_dir / FAILURE_LOG, job, history, now())
             continue
 
         report = inspect_csv(payload)

@@ -1029,7 +1029,7 @@ class FakeShinyPage:
                 "found": True,
                 "href": (
                     f"session/{self.session}/download/"
-                    "projections_page-proj-download_projections-download?w=32ee825b"
+                    "projections_page-proj-download_projections-download?w=0f0f0f0f"
                 ),
                 "text": self.link_text,
             }
@@ -1237,12 +1237,12 @@ def test_the_session_token_is_read_from_the_relative_href_the_app_actually_serve
     """REFUTED PREMISE. The href is `session/<id>/download/...?w=...` -- relative, no worker
     prefix. Splitting on "/session/" found nothing and returned None for a live session,
     which would have made `assert_same_session` raise on every job in the run."""
-    page = FakeShinyPage(session="f8ef99aeb854208d8b1abc8914a0276b")
+    page = FakeShinyPage(session="0123456789abcdef0123456789abcdef")
     driver = _driver_on(page)
     href, _ = driver.download_control()
     assert href.startswith("session/"), href
     assert not href.startswith("/newApp/"), href
-    assert driver.session_token() == "f8ef99aeb854208d8b1abc8914a0276b"
+    assert driver.session_token() == "0123456789abcdef0123456789abcdef"
 
 
 def test_the_absolute_href_form_still_reads_if_the_app_goes_back_to_it() -> None:
@@ -2156,3 +2156,37 @@ def test_a_second_modal_is_named_rather_than_the_one_just_closed() -> None:
         driver.clear_modal()
     assert "Second message" in str(caught.value), caught.value
     assert "First message" in str(caught.value), "the dismissed one should be named too"
+
+
+def test_the_browser_profile_directory_is_ignored_by_git() -> None:
+    """It is the only credential store this tool creates -- a live session cookie for a
+    paid account -- and nothing asserted it was ignored. The corpus had three gates; this
+    had none."""
+    from .tools.ffa_scrape.__main__ import DEFAULT_PROFILE
+
+    relative = DEFAULT_PROFILE.relative_to(_REPO).as_posix()
+    proc = subprocess.run(
+        ["git", "check-ignore", "-v", f"{relative}/Default/Cookies"],
+        cwd=_REPO, capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"{relative} is NOT ignored by git"
+    assert ".gitignore" in proc.stdout
+
+
+def test_no_live_session_identifier_is_committed() -> None:
+    """A real session id and worker token captured from a logged-in paid session were
+    pasted into a module docstring and a fixture. Ephemeral and long dead, but there is no
+    reason for a public repository to carry them."""
+    # Assembled from halves so this gate does not itself carry what it forbids -- which is
+    # exactly what it did on its first run, and it caught itself.
+    captured = (
+        "f8ef99aeb854208d" + "8b1abc8914a0276b",
+        "32ee825bd77448a6" + "a38c279b8174d2a1",
+    )
+    tracked = subprocess.run(
+        ["git", "ls-files", "sim/"], cwd=_REPO, capture_output=True, text=True, check=True
+    ).stdout.split()
+    for name in tracked:
+        text = (_REPO / name).read_text(encoding="utf-8", errors="ignore")
+        for token in captured:
+            assert token not in text, f"{name} carries a captured session identifier"

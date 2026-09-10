@@ -28,7 +28,7 @@ snapshots/
 # paid FFA Insider subscription, so the data itself is never committed -- only
 # sim/data/ffa/README.md and the checksum manifest beside it. See that README before
 # adding anything here.
-sim/data/ffa/*.csv
+sim/data/ffa/**/*.csv
 
 # The FFAnalytics scraped corpus. Same reason as the line above and gated the same way by
 # sim/test_g_ffa_scrape.py: PUBLIC repository, paid-subscription data. Only the README and

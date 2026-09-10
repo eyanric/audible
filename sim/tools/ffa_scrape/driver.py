@@ -3,8 +3,8 @@
 WHY A BROWSER AT ALL. The download link's href is session-bound. MEASURED on a live logged-in
 session, it is RELATIVE and carries no worker prefix:
 
-    session/f8ef99aeb854208d8b1abc8914a0276b/download/
-        projections_page-proj-download_projections-download?w=32ee825bd77448a6a38c279b8174d2a1
+    session/<32 hex>/download/
+        projections_page-proj-download_projections-download?w=<32 hex>
 
 not the absolute `/newApp/_w_<worker>/session/<id>/...` form this module was first written
 against. That matters: the first `session_token` split on "/session/", found nothing in a
@@ -432,7 +432,7 @@ class ShinyDriver:
 
         MEASURED: the href is RELATIVE and has no worker prefix --
 
-            session/f8ef99aeb854208d8b1abc8914a0276b/download/
+            session/<32 hex>/download/
                 projections_page-proj-download_projections-download?w=32ee825b...
 
         not the absolute `/newApp/_w_<worker>/session/<id>/...` this was first written for.
@@ -592,11 +592,19 @@ class ShinyDriver:
         self.assert_same_session()
 
     def fetch_payload(self) -> FetchResult:
+        """Fetch from the session's own endpoint, having just confirmed it is that session.
+
+        The token check happens HERE and not only in `_assert_scope` because the window
+        between the read-back and the fetch was otherwise unguarded -- and for a `proj`
+        payload nothing downstream can close it: a proj export carries no season_year or
+        week column, so `verify_payload` cannot tell which scope produced it.
+        """
         href, text = self.download_control()
         if href is None:
             raise SessionLost("no download control to fetch from")
         if text == LOCKED_TEXT:
             raise NotLoggedIn(f"the download control reads {text!r} mid-run")
+        self.assert_same_session()
         result = self.page.evaluate(_FETCH_JS, href)
         return FetchResult(
             ok=bool(result.get("ok")),
