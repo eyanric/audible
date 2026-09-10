@@ -189,3 +189,61 @@ than the effect being tested.
 **Any future session testing a positional signal must measure the floor at that position.**
 Reporting the board-wide floor beside a positional result is not a control; it is a
 mismatched comparison that flatters every positional signal.
+
+### 3d. contract value — REVERTED, and the handoff's collinearity worry is refuted
+
+`apy_cap_pct` of the most recent contract signed **strictly before** the season -- annual value
+as a share of that year's cap, so the doubling of the cap across the window does not leak the
+calendar into the signal. Coverage 7,860 players, G5 displaces 451.
+
+**The collinearity concern is refuted by measurement.** The handoff says contract value is
+"likely correlated with draft capital; check for collinearity before claiming anything adds".
+Measured: `corr(apy_cap_pct, draft_round) = -0.371` over 3,637 players. Related, as one would
+expect, and nowhere near collinear.
+
+    position  lambda   vs baseline                    vs NOISE at that position
+    QB         +0.00   +0.000                          +0.000
+    RB         +0.05   -0.018 [-0.347, +0.325] ns     -0.426 [-0.823, -0.030] RESOLVED
+    WR         +0.00   +0.000                          +0.000
+    TE         +0.10   +0.106 [-0.339, +0.574] ns     +0.884 [+0.181, +1.615] RESOLVED WORSE
+
+Five of six folds chose lambda = 0 at quarterback and half did at receiver -- the fit declines
+the signal outright at two positions. At running back it beats noise but not the untreated
+baseline, which is not a signal: "less harmful than a hash" is true of any adjustment near zero.
+At tight end the fitted lambda flips sign across folds (+0.1, +0.1, -0.1, -0.1, -0.1, +0.1) and
+it is resolvably WORSE than noise.
+
+**DISPOSITION: REVERTED.**
+
+---
+
+## THE FLOOR IS POSITIONAL, AND IT VARIES BY MORE THAN ANY SIGNAL MEASURED
+
+Measuring the noise floor at each position separately -- which the false positive above forced
+-- produced the session's most transferable result:
+
+    board-wide floor   +0.364
+    QB                  +0.000  (the fit declines noise entirely)
+    RB                  +0.412  [+0.131, +0.679]  RESOLVED -- noise HURTS
+    WR                  -0.296  [-0.789, +0.204]  ns
+    TE                  -0.701  [-1.301, -0.138]  RESOLVED -- noise HELPS
+
+**At tight end, adding a sha256 of player and season improves the board by 0.7 RWRE, and the
+interval excludes zero.** That is not a bug in the hash; it is a statement about the slice. TE
+carries 124 paired observations against RB's 315, and a board that is poorly calibrated on a
+small, noisy position can be improved by almost any perturbation that breaks its ordering.
+
+The floor therefore ranges over **1.11 RWRE across positions** -- wider than every signal effect
+this session measured, and wider than the separation result that looked resolved.
+
+**Consequences, stated for whoever runs the next one:**
+
+1. **G3 as written is not sufficient.** "Report the noise floor beside every signal" produces a
+   mismatched comparison the moment G4's "test where it acts" is also obeyed. The floor must be
+   measured at the same locus, the same lambda and the same n.
+2. **A positional result compared to a board-wide floor is uninterpretable.** Separation at WR
+   read -0.683 against a board-wide +0.364 and looked decisive; against the WR floor of -0.296
+   it is not resolved.
+3. **A negative floor is a diagnostic in its own right.** TE's -0.701 says the board's tight-end
+   ordering is worse than its own noise, which is a finding about the board rather than about
+   any signal, and nothing in this project had measured it before.

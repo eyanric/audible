@@ -80,6 +80,8 @@ def signal_values(name: str, season: int) -> dict[str, float]:
         rates = position_availability(season)
         loaded = arms.load(SOURCE, season, LEAGUE)
         return {p: rates[q] for p, q in loaded.position.items() if q in rates}
+    if name == "contract":
+        return contract_value(season)
     if name == "age":
         meta = residual.ffa_meta(season)
         return {p: m["age"] for p, m in meta.items() if m.get("age") == m.get("age")}
@@ -242,3 +244,32 @@ def position_availability(season: int) -> dict[str, float]:
             if canon in rank.SCOREABLE:
                 tot.setdefault(canon, []).append(float(g))
     return {pos: sum(v) / len(v) for pos, v in tot.items() if v}
+
+
+@lru_cache(maxsize=16)
+def contract_value(season: int) -> dict[str, float]:
+    """`apy_cap_pct` of the most recent contract signed STRICTLY BEFORE *season*.
+
+    VINTAGE BY CONSTRUCTION: a contract signed during or after the season is a leak, so
+    `year_signed < season` is the filter and it is not negotiable. `apy_cap_pct` -- annual
+    value as a share of that year's salary cap -- is used rather than raw dollars, because
+    the cap roughly doubled across the window and raw value would encode the calendar.
+    """
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / "contracts_s4.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"contracts pin missing: {path}")
+    f = (
+        pl.read_parquet(path)
+        .filter(pl.col("gsis_id").is_not_null() & pl.col("year_signed").is_not_null())
+        .filter(pl.col("year_signed") < season)
+        .select(["gsis_id", "year_signed", "apy_cap_pct"])
+        .drop_nulls()
+    )
+    best: dict[str, tuple[int, float]] = {}
+    for gsis, yr, pct in f.iter_rows():
+        g = str(gsis)
+        if g not in best or int(yr) > best[g][0]:
+            best[g] = (int(yr), float(pct))
+    return {g: v for g, (_y, v) in best.items()}
