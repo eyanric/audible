@@ -142,3 +142,102 @@ and the split is doing real work.
     13  dropoff            0.22%
 
 **This ranking replaces the handoff's ordering for Task 2.** 2a goes last, not first.
+
+---
+
+## G6 — every term is shown to move an ordering BEFORE it is measured
+
+`audible#85` shipped a `shrink` knob that was provably inert. This is the gate that catches it.
+Players displaced from the 2022 board at lambda = 0.10:
+
+    noise 456   draft_round 459   snap_share 453   td_oe 453
+    target_share 434   uncertainty 434   adp_gap 429   age 394
+
+    shrink s=0.30 ................................ 0   REFUSED
+
+**Injection 3 fires:** the uniform positional shrink `audible#85` searched over displaces
+exactly nobody, because scaling every player at a position by the same factor scales VORP
+uniformly and leaves the order unchanged. G6 would have refused it before a single measurement.
+
+---
+
+## THE NOISE FLOOR, measured in this regime
+
+A sha256 of player and season, information-free by construction, tuned by the same
+leave-one-season-out procedure as every signal:
+
+    2019 +0.825   2020 +1.119   2021 -0.039   2022 +0.000
+    2024 +0.000   2025 +0.281
+    MEAN +0.364
+
+**Noise makes the board 0.364 WORSE on average here**, where in `audible#85`'s two-season select
+split the same hash bought +2.317 of apparent improvement. That difference is the procedure, not
+the hash: fitting on five seasons and testing on the sixth is far harder to overfit than fitting
+on two and testing on two. The rotated holdout is doing real work.
+
+---
+
+## ITERATION 1 — prior-season snap share (Task 1's top honest signal): REVERTED
+
+Mechanism, committed before running: snap share is the closest thing to a pure workload measure,
+and Task 1 ranked it the only predictor positive in all four positions out of sample.
+
+    season   base -> treated   delta    lambda
+    2019   18.402 -> 17.629   -0.773    +0.05
+    2020   23.406 -> 23.154   -0.252    +0.05
+    2021   24.396 -> 21.707   -2.689    +0.05
+    2022   22.892 -> 23.169   +0.278    +0.05
+    2024   25.566 -> 25.539   -0.027    +0.05
+    2025   19.891 -> 20.124   +0.233    +0.05
+
+    MEAN -0.539, and it BEATS the noise floor of +0.364
+
+Every one of the six folds independently chose lambda = +0.05, the smallest non-zero weight in
+the grid. That consistency is the strongest thing about the result.
+
+**But it does not survive the per-player test.** Paired over players across all six seasons:
+
+    snap_share  -0.072 [-0.307, +0.162]  n=751   NOT RESOLVED
+
+And the season-level mean is one season:
+
+    mean across all six      -0.539
+    mean excluding 2021      -0.108
+
+2021 alone contributes -2.689 of a -0.539 average. Strip it and the effect is a tenth of an
+RWRE, well inside the interval.
+
+**DISPOSITION: REVERTED.** It beats the noise floor on the season-mean and fails the paired
+test, and a result that depends on which of two summaries you quote is not a result.
+
+---
+
+## ITERATION 2 — ADP-versus-projection gap (Task 1's rank 1, CIRCULAR): REVERTED
+
+Mechanism: the market's disagreement with the projection. Reported because Task 1 ranked it
+first, and **labelled circular throughout** -- ADP is partly derived from the same projections
+the board is built from, so this measures the distance between the board and a market that has
+already read the board.
+
+    2019 -0.331   2020 +0.331   2021 -1.178   2022 +0.022
+    2024 -1.322   2025 -0.266
+    MEAN -0.457, also beats the noise floor
+
+    paired over players: -0.212 [-0.667, +0.229]  n=733   NOT RESOLVED
+
+Same shape as iteration 1, larger nominal effect, same verdict. **DISPOSITION: REVERTED**, and
+it would have been reported as circular even had it resolved.
+
+---
+
+## what iterations 1 and 2 establish
+
+**Task 1's ceiling predicted this and the iterations confirmed it.** A signal explaining 3-7% of
+residual variance cannot move a rank metric detectably, and neither of the two best-ranked
+signals did. The board is at its information limit.
+
+The noise floor is also the right instrument in a way `audible#85`'s was not: under
+leave-one-season-out a hash makes the board *worse*, so "beats the noise floor" is a genuine
+bar here rather than an artefact of a short fitting window. Both signals cleared it on the
+season-mean and neither cleared the paired test, which is the more reliable statistic -- 750
+player-observations against six season summaries.
