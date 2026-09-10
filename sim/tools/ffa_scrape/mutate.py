@@ -41,6 +41,12 @@ class Mutation:
     target: str  # module filename under this package
     old: str
     new: str
+    # An EQUIVALENT mutant changes the code without changing what the code does, because a
+    # second guard already covers the same ground. It is REQUIRED to survive: if one of
+    # these is killed, the note beside it is wrong and the defence is not where it claims.
+    # Recording them is the honest alternative to deleting the awkward mutation or to
+    # letting a real survivor hide among them, so each one carries its reason.
+    equivalent: str = ""
 
     @property
     def path(self) -> Path:
@@ -170,6 +176,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         "naming.py",
         r"(?P<avg>weighted|average|robust)\.csv$",
         r"(?P<avg>weighted|average|robust)(?: \(\d+\))?\.csv$",
+        equivalent=(
+            "the round-trip check in parse_filename rejects the suffixed name anyway, so "
+            "widening the regex alone changes nothing observable. That guard -- not the "
+            "regex -- is what actually keeps `... (1).csv` out, and "
+            "`parse-does-not-round-trip-check` is the mutation that proves it."
+        ),
     ),
     Mutation(
         "parse-does-not-round-trip-check",
@@ -288,15 +300,20 @@ def _run_gates() -> tuple[int, set[str]]:
 
 
 def _all_gate_ids() -> set[str]:
+    # No `-q` here. `addopts` in pyproject.toml already supplies one, and a second collapses
+    # `--collect-only` to a bare count -- which silently reported "0 gates", and therefore
+    # "every gate killed", on the first run of this harness.
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", str(GATE), "-m", "slow", "-q", "--no-header",
+        [sys.executable, "-m", "pytest", str(GATE), "-m", "slow", "--no-header",
          "--collect-only", "-p", "no:cacheprovider"],
         cwd=REPO,
         capture_output=True,
         text=True,
     )
-    ids = re.findall(r"^(\S*test_g_ffa_scrape\.py::\S+)$", proc.stdout, re.M)
-    return {_bare(i) for i in ids}
+    ids = re.findall(r"<Function (\w+)", proc.stdout)
+    if not ids:
+        raise RuntimeError(f"collected no gate ids; pytest said:\n{proc.stdout[-2000:]}")
+    return set(ids)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -321,6 +338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     killed: set[str] = set()
     survivors: list[str] = []
+    wrong_notes: list[str] = []
     selected = [m for m in MUTATIONS if args.only is None or m.name == args.only]
     for mutation in selected:
         original = mutation.path.read_text(encoding="utf-8")
@@ -340,20 +358,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         finally:
             mutation.path.write_text(original, encoding="utf-8")
         if code == 0:
-            print(f"  SURVIVED  {mutation.name}")
-            survivors.append(mutation.name)
+            if mutation.equivalent:
+                print(f"  equivalent  {mutation.name}")
+            else:
+                print(f"  SURVIVED    {mutation.name}")
+                survivors.append(mutation.name)
         else:
             killed |= failures
-            print(f"  killed by {len(failures):>2}  {mutation.name}")
+            if mutation.equivalent:
+                print(f"  NOT-EQUIVALENT {mutation.name}: killed, so its note is wrong")
+                wrong_notes.append(mutation.name)
+            else:
+                print(f"  killed by {len(failures):>2}  {mutation.name}")
 
     unkilled = sorted(every_gate - killed)
-    print(f"\nmutations: {len(selected)}, survived: {len(survivors)}")
+    equivalents = [m.name for m in selected if m.equivalent]
+    print(f"\nmutations: {len(selected)}, equivalent-by-design: {len(equivalents)}, "
+          f"survived: {len(survivors)}")
     print(f"gates killed by at least one mutation: {len(killed)}/{len(every_gate)}")
     for name in survivors:
         print(f"  SURVIVOR: {name}")
+    for name in wrong_notes:
+        print(f"  WRONG EQUIVALENCE NOTE: {name}")
     for gate in unkilled:
         print(f"  UNKILLED: {gate}")
-    return 0 if not survivors and not unkilled else 1
+    return 0 if not survivors and not unkilled and not wrong_notes else 1
 
 
 if __name__ == "__main__":

@@ -578,3 +578,42 @@ def test_the_manifest_and_readme_are_the_only_things_meant_to_be_committed() -> 
         "sim/data/ffa_corpus/README.md",
         "sim/data/ffa_corpus/manifest.jsonl",
     }, tracked
+
+
+# ---------------------------------------------------------------------------------------
+# Gaps the mutation sweep found. Each of these was added because a mutation SURVIVED --
+# `sole-avg-type-guesses-when-mixed`, `the-job-list-is-not-deduplicated` and
+# `the-sha256-is-of-the-name-not-the-bytes` all passed a green suite before they existed.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_mixed_payload_has_no_sole_aggregation_to_record() -> None:
+    """`sole_avg_type` is what reaches the manifest. Reporting one of two aggregations would
+    write a manifest line claiming a purity the file does not have."""
+    mixed = raw_csv(avg_type="weighted") + raw_csv(avg_type="robust").split("\n", 1)[1]
+    report = inspect_csv(mixed)
+    assert report.avg_types == frozenset({"weighted", "robust"})
+    assert report.sole_avg_type is None
+
+
+def test_a_job_list_with_duplicates_queues_each_file_once() -> None:
+    """A stage list built from overlapping ranges must not fetch the same file twice --
+    the second fetch would spend a minute to overwrite identical bytes on a server we are
+    deliberately being gentle with."""
+    job = Job(kind="raw", year=2019, week=0, avg="weighted")
+    assert plan([job, job, job], done={}, on_disk={}) == [job]
+    other = Job(kind="raw", year=2020, week=0, avg="weighted")
+    assert plan([job, other, job, other], done={}, on_disk={}) == [job, other]
+
+
+def test_the_sha256_is_of_the_payload_bytes() -> None:
+    """Pinned against a constant rather than against `sha256_of` itself. Asserting
+    `sha256_of(x) == sha256_of(x)` is true of a function that hashes nothing at all, and a
+    manifest full of one repeated digest would vouch for every file equally."""
+    assert sha256_of("") == (
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    )
+    assert sha256_of("abc") == (
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
+    assert sha256_of(raw_csv()) != sha256_of(raw_csv(avg_type="robust"))
