@@ -42,18 +42,6 @@ class Job:
     def filename(self) -> str:
         return filename(self.kind, self.year, self.week, self.avg)
 
-    @property
-    def needs_settings_trip(self) -> bool:
-        """The COST MODEL that orders the stages, not the driver's decision.
-
-        A weighted job is cheap when it follows a year change, which is what leaves the app
-        on weighted. It is not free unconditionally -- writing 2019 over 2019 resets nothing
-        -- so `ShinyDriver.prepare` decides per job from the aggregation it believes is
-        effective. This property answers "is this stage cheap in aggregate", and stage
-        `weekly-weighted` is 187 jobs across 11 year changes.
-        """
-        return self.avg != "weighted"
-
 
 class IllegalJob(ValueError):
     """A job the app cannot serve. Raised at plan time, never discovered mid-run."""

@@ -64,6 +64,10 @@ PROJ_HEADER: tuple[str, ...] = (
 
 POSITIONS: tuple[str, ...] = ("QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "DB")
 
+# The scraped corpus. Gitignored, so every gate that reads it skips where it is absent --
+# which is CI, and is why nothing here may DEPEND on it for its meaning.
+_CORPUS = Path(__file__).resolve().parent / "data" / "ffa_corpus"
+
 
 def _quote(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
@@ -212,9 +216,21 @@ def test_a_payload_missing_any_one_position_is_rejected(dropped: str) -> None:
     assert any(dropped in r for r in reasons), reasons
 
 
-def test_the_nine_positions_are_the_nine_measured_on_a_real_export() -> None:
+def test_the_nine_positions_agree_with_this_module_s_fixture_list() -> None:
+    """Two constants agreeing. Named for that: the real-export claim is the gate below."""
     assert set(POSITIONS) == NINE_POSITIONS
     assert len(NINE_POSITIONS) == 9
+
+
+@pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")
+def test_the_nine_positions_are_the_nine_a_real_export_holds() -> None:
+    """Opens real exports. The gate above carried this name while comparing two hardcoded
+    constants to each other -- it could not have noticed FFA adding a tenth position."""
+    seen: set[str] = set()
+    for path in sorted(_CORPUS.glob("ffa_raw_*_wk0_*.csv")):
+        seen |= set(inspect_csv(path.read_text(encoding="utf-8")).positions)
+    assert seen, "no season raw files to measure"
+    assert seen == NINE_POSITIONS, seen ^ NINE_POSITIONS
 
 
 def test_a_complete_payload_names_no_missing_position() -> None:
@@ -497,10 +513,26 @@ def test_a_manifest_entry_carries_every_field_the_report_promises(tmp_path: Path
     assert loaded.fetched_at
 
 
-def test_a_proj_manifest_entry_records_no_aggregation_claim() -> None:
-    """It must not echo the requested aggregation back as though it had been checked."""
-    report = inspect_csv(proj_csv())
-    assert report.sole_avg_type is None
+def test_a_proj_manifest_entry_records_no_aggregation_claim(tmp_path: Path) -> None:
+    """Through the MANIFEST, which is what the name promises. The previous body was a
+    verbatim duplicate of an assertion in the verifier gates and never built an entry."""
+    path = tmp_path / manifest_mod.MANIFEST_NAME
+    payload = proj_csv()
+    report = inspect_csv(payload)
+    append_entry(
+        path,
+        ManifestEntry(
+            file="ffa_proj_2019_wk0_average.csv", kind="proj", year=2019, week=0,
+            avg="average", sha256=sha256_of(payload),
+            bytes=len(payload.encode("utf-8")), rows=report.rows,
+            measured_avg_type=report.sole_avg_type, witness_sha256="a" * 64,
+            positions=dict(report.positions), fetched_at="2026-09-10T00:00:00Z",
+        ),
+    )
+    entry = load_manifest(path)["ffa_proj_2019_wk0_average.csv"]
+    assert entry.avg == "average", "the request is recorded"
+    assert entry.measured_avg_type is None, "but no verification is claimed"
+    assert entry.witness_sha256 == "a" * 64, "the witness is what stands behind it"
 
 
 # ---------------------------------------------------------------------------------------
@@ -531,13 +563,6 @@ def test_2026_offers_only_week_0_and_week_1() -> None:
     jobs_mod.assert_legal(Job(kind="raw", year=2026, week=1, avg="weighted"))
     jobs_mod.assert_legal(Job(kind="raw", year=2026, week=0, avg="weighted"))
     assert not [job for job in jobs_mod.STAGES["weekly-weighted"] if job.year == 2026]
-
-
-def test_only_weighted_skips_the_settings_round_trip() -> None:
-    """The cost model the stage order rests on."""
-    assert not Job(kind="raw", year=2019, week=0, avg="weighted").needs_settings_trip
-    assert Job(kind="raw", year=2019, week=0, avg="average").needs_settings_trip
-    assert Job(kind="raw", year=2019, week=0, avg="robust").needs_settings_trip
 
 
 def test_weighted_is_ordered_first_within_a_year() -> None:
@@ -761,13 +786,31 @@ def test_a_run_that_keeps_losing_its_session_stops_rather_than_hammering(
     """Politeness, enforced. This is a personal subscription on a server we do not own."""
     jobs = jobs_mod.STAGES["season-raw"][:6]
     script = {job.filename: [driver_mod.SessionLost] * 4 for job in jobs}
+    fake = FakeDriver(script)
     with pytest.raises(driver_mod.SessionLost):
-        _run(script, jobs, tmp_path)
+        runner.run_jobs(
+            fake,  # type: ignore[arg-type]
+            jobs,
+            data_dir=tmp_path,
+            manifest_path=tmp_path / manifest_mod.MANIFEST_NAME,
+            now=lambda: "2026-09-10T00:00:00+00:00",
+            log=lambda _msg: None,
+        )
+    # THE CAP, not merely that it eventually raises. Six jobs at two attempts each leave
+    # room for twelve consecutive recoveries, so "it raised" stayed green for any cap from
+    # 1 to 11. It re-establishes exactly MAX times and raises on the next.
+    assert fake.establishes == runner.MAX_CONSECUTIVE_RECOVERIES, fake.establishes
 
 
-def test_every_job_re_sets_the_aggregation_after_the_year(tmp_path: Path) -> None:
-    """Behaviour 1 has no fast path. The prepare call carries the aggregation EVERY time,
-    because "it is already set" is precisely the assumption that mislabelled 36 files."""
+def test_the_runner_forwards_every_job_its_own_aggregation(tmp_path: Path) -> None:
+    """The RUNNER never substitutes an aggregation, in job order.
+
+    Named for what it asserts. It used to be called `..._re_sets_the_aggregation_after_the_
+    year` and its docstring said "Behaviour 1 has no fast path" -- but `ShinyDriver.prepare`
+    explicitly HAS one (`force_settings_trip or self._effective_avg != avg`), and this gate
+    runs against `FakeDriver`, whose prepare only records its arguments. The driver-level
+    claim is `test_a_weighted_job_after_a_robust_one_in_the_SAME_year_still_gets_weighted`.
+    """
     jobs = [
         Job(kind="raw", year=2019, week=0, avg="average"),
         Job(kind="raw", year=2019, week=0, avg="robust"),
@@ -1017,9 +1060,21 @@ class FakeShinyPage:
         self.tab = "tab_proj"
 
     def serve(self) -> str:
+        """A payload that names its own scope, like 194 of the 213 real raw files do.
+
+        It used to serve `raw_csv(avg_type=...)` with the helper's NA defaults, so every
+        payload the model produced fell in the 19-file minority where `verify.py`'s scope
+        check is switched off by construction -- and every driver-level
+        `verify_payload(...) == []` was insensitive to its own `year=` and `week=`
+        arguments. The check was there; nothing at this level could tell whether it worked.
+        """
         if self.inputs[driver_mod.KIND_INPUT] == "proj":
             return proj_csv()
-        return raw_csv(avg_type=self.effective_avg)
+        return raw_csv(
+            avg_type=self.effective_avg,
+            season_year=self.inputs[driver_mod.YEAR_INPUT],
+            week_col=self.inputs[driver_mod.WEEK_INPUT],
+        )
 
 
 def _driver_on(page: FakeShinyPage) -> driver_mod.ShinyDriver:
@@ -1626,8 +1681,12 @@ def test_a_proj_job_fetches_a_raw_witness_first(tmp_path: Path) -> None:
 
     # The proj file itself still says nothing about its aggregation...
     assert entry.measured_avg_type is None
-    # ...and the raw file fetched from the same state is what stands behind it.
-    assert entry.witness_sha256 == sha256_of(raw_csv(avg_type="robust"))
+    # ...and the raw file fetched from the same state is what stands behind it. The witness
+    # names the scope it was fetched for, which is the whole reason it can vouch: a proj
+    # export has no season_year or week column of its own.
+    assert entry.witness_sha256 == sha256_of(
+        raw_csv(avg_type="robust", season_year="2019", week_col="0")
+    )
 
 
 def test_a_proj_job_is_rejected_when_its_witness_holds_the_wrong_aggregation(
@@ -1877,17 +1936,28 @@ def test_an_unknown_kind_returns_a_reason_rather_than_raising() -> None:
 
 
 def test_the_na_fixture_default_matches_what_real_files_hold() -> None:
-    """The fixture defaults to NA because real files do. If FFA ever populates those
-    columns everywhere, this gate says the fixture has stopped being faithful."""
+    """`raw_csv()` writes 'NA' and `_ABSENT` contains 'NA', so asserting the set is empty is
+    a tautology over the test's own helper. What is NOT a tautology is that real files hold
+    both shapes -- so this reads them."""
     report = inspect_csv(raw_csv())
     assert report.season_years == frozenset()
-    assert report.weeks == frozenset()
     populated = inspect_csv(raw_csv(season_year="2022", week_col="6"))
     assert populated.season_years == frozenset({"2022"})
     assert populated.weeks == frozenset({"6"})
 
 
-_CORPUS = Path(__file__).resolve().parent / "data" / "ffa_corpus"
+@pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")
+def test_both_scope_shapes_really_occur_in_the_corpus() -> None:
+    """The presence-conditional rule exists because BOTH shapes are real. If every file
+    named its scope the rule would be needless laxity; if none did it would be dead code."""
+    named = unnamed = 0
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        if inspect_csv(path.read_text(encoding="utf-8")).season_years:
+            named += 1
+        else:
+            unnamed += 1
+    assert named > 0, "no file names its scope; the check is dead code"
+    assert unnamed > 0, "every file names its scope; the NA branch is needless laxity"
 
 
 @pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")

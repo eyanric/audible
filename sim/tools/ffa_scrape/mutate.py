@@ -304,12 +304,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         "ordered_avgs = sorted(avgs)",
     ),
     Mutation(
-        "every-job-claims-it-needs-a-settings-trip",
-        "jobs.py",
-        'return self.avg != "weighted"',
-        "return True",
-    ),
-    Mutation(
         "the-regular-season-is-sixteen-weeks",
         "jobs.py",
         "REGULAR_WEEKS: tuple[int, ...] = tuple(range(1, 18))",
@@ -427,12 +421,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         "jobs.py",
         "WEEKLY_FROM = 2015",
         "WEEKLY_FROM = 2016",
-    ),
-    Mutation(
-        "every-job-claims-it-skips-the-settings-trip",
-        "jobs.py",
-        'return self.avg != "weighted"',
-        "return False",
     ),
     # --- runner.py: does the runner actually OBEY the checks? ---------------------------
     Mutation(
