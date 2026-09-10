@@ -241,3 +241,84 @@ leave-one-season-out a hash makes the board *worse*, so "beats the noise floor" 
 bar here rather than an artefact of a short fitting window. Both signals cleared it on the
 season-mean and neither cleared the paired test, which is the more reliable statistic -- 750
 player-observations against six season summaries.
+
+---
+
+## ITERATION 3 — rookie draft capital (2e): REVERTED
+
+Mechanism: rookies have no prior-season usage, so every usage signal is null for them by
+construction. Draft capital is the only thing they carry. A first-round back and a sixth-rounder
+get similar projections and different outcomes.
+
+### G7 holds, and injection 4 fires
+
+    2022: 94 players with no prior-season row, 397 with one
+
+    rookies_only=True   veterans moved   0   rookies moved  68   G7 HOLDS
+    rookies_only=False  veterans moved 303                       INJECTION 4 FIRES
+
+The restriction is real rather than asserted: the identical term without it moves three hundred
+veterans, so G7 is testing something that could fail.
+
+### the result
+
+    2019 -0.591   2020 +0.216   2021 -0.043   2022 -0.024
+    2024 -0.416   2025 +0.286
+    MEAN -0.095   (noise floor +0.364, so it beats the floor)
+
+    paired over players, lambda +0.10:  +0.282 [-0.053, +0.643]  n=752  NOT RESOLVED
+
+**The two summaries disagree in SIGN.** The season-mean says -0.095 (better); the paired
+per-player test says +0.282 (worse). They disagree because one weights six seasons equally and
+the other weights 752 players, and neither interval excludes zero.
+
+**And the fitted weight is unstable**: five folds chose +0.10, one chose -0.05. A coefficient
+that flips sign across folds is the same failure Task 1 used to discard `td_oe`, appearing here
+in the fitted weight rather than in the diagnostic.
+
+**DISPOSITION: REVERTED.**
+
+---
+
+## TASK 2 SUMMARY — three signals, three reversions, one consistent story
+
+    signal                 season-mean   paired per-player          floor
+    snap share (rank 2)         -0.539   -0.072 [-0.307,+0.162] ns  +0.364
+    ADP gap (rank 1, circ.)     -0.457   -0.212 [-0.667,+0.229] ns  +0.364
+    rookie draft capital        -0.095   +0.282 [-0.053,+0.643] ns  +0.364
+
+All three beat the noise floor on the season-mean. **None resolves on the per-player test**,
+which is the more reliable statistic -- roughly 750 player-observations against six season
+summaries. Two of the three have a season-mean driven by a single season, and the third has a
+fitted weight that flips sign across folds.
+
+**This is exactly what Task 1's ceiling predicted.** A signal explaining 3-7% of residual
+variance out of sample cannot move a rank metric detectably, and none of the three best-ranked
+signals did.
+
+`td_oe`, the handoff's 2a and its "strongest prior", was not tested at all: Task 1 put it
+twelfth of thirteen with a sign that flips half the time. Testing it would have cost a run to
+confirm what the diagnostic already showed, and the diagnostic is the cheaper instrument -- that
+is the point of doing Task 1 first.
+
+---
+
+## G5 — THE 2026 PREDICTION, committed here before the season is played
+
+The only genuinely clean test left. 2024-2025 has been read by `audible#84` and `audible#85`, so
+nothing reported above is confirmatory. This is scored once, in January 2027, on green_hope
+under symmetric indexing.
+
+**PREDICTION: prior-season snap share at lambda = +0.05 changes 2026 RWRE by 0.0 +/- 0.5 RWRE,
+and the change will not be resolvable on a paired per-player test.**
+
+Direction: slightly negative (a small improvement) is more likely than positive, because five of
+six folds preferred a positive weight and four of six seasons improved. Size: bounded by Task
+1's ceiling -- 3-7% of residual variance cannot produce more than a few tenths of an RWRE.
+
+**What would falsify it:** an improvement larger than 0.5 RWRE, or any resolved paired interval
+in either direction. Either would mean the ceiling measured in Task 1 is wrong, which is the
+single most useful thing a 2026 score could tell the next session.
+
+Secondary, same terms: the ADP-gap signal changes 2026 RWRE by 0.0 +/- 0.7, and remains
+uninterpretable because it is circular.
