@@ -36,6 +36,10 @@ sim/data/ffa/*.csv
 # run can assert it read the bytes the artifact claims without the bytes being in git.
 sim/data/ffa_corpus/**/*.csv
 sim/data/ffa_corpus/**/*.csv.part
+# The per-run rejection log. No subscription data in it -- filenames and reasons -- but it
+# is run-local and churns every run, and a gate says only the README and the manifest are
+# committed here. Its contents go in the PR body instead.
+sim/data/ffa_corpus/failures.jsonl
 
 # Personal draft exports (reconstructible from ESPN + the synced state file)
 draft-*-results.md
