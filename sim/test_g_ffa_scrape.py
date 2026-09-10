@@ -69,6 +69,17 @@ POSITIONS: tuple[str, ...] = ("QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "D
 _CORPUS = Path(__file__).resolve().parent / "data" / "ffa_corpus"
 
 
+def _corpus_present() -> bool:
+    """At least one CSV, not merely the directory.
+
+    `_CORPUS.exists()` is the wrong question and CI answered it on the first run this
+    file was ever executed there: the DIRECTORY is tracked -- it carries README.md,
+    COVERAGE.md and manifest.jsonl -- so it exists on a fresh clone while holding no data
+    at all. Three gates therefore did not skip, and asserted against an empty corpus.
+    """
+    return any(_CORPUS.glob("ffa_*.csv"))
+
+
 def _quote(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
@@ -222,7 +233,7 @@ def test_the_nine_positions_agree_with_this_module_s_fixture_list() -> None:
     assert len(NINE_POSITIONS) == 9
 
 
-@pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
 def test_the_nine_positions_are_the_nine_a_real_export_holds() -> None:
     """Opens real exports. The gate above carried this name while comparing two hardcoded
     constants to each other -- it could not have noticed FFA adding a tenth position."""
@@ -1946,7 +1957,7 @@ def test_the_na_fixture_default_matches_what_real_files_hold() -> None:
     assert populated.weeks == frozenset({"6"})
 
 
-@pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
 def test_both_scope_shapes_really_occur_in_the_corpus() -> None:
     """The presence-conditional rule exists because BOTH shapes are real. If every file
     named its scope the rule would be needless laxity; if none did it would be dead code."""
@@ -1960,7 +1971,7 @@ def test_both_scope_shapes_really_occur_in_the_corpus() -> None:
     assert unnamed > 0, "every file names its scope; the NA branch is needless laxity"
 
 
-@pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
 def test_every_file_in_the_corpus_passes_the_scope_check() -> None:
     """The check was added after 231 files were already fetched. This says none of them
     were wrong -- the hole was open, and nothing had fallen through it."""
