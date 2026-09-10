@@ -365,85 +365,91 @@ Every result below is against that.
 
 ---
 
-## PHASE 3 — four shapes, and all four lose
+## PHASE 3 — four shapes. The first run was wrong; the corrected run has three of them ahead.
 
-    shape          RWRE    vs incumbent   eff params   what it does
-    incumbent     22.425                         1.0   points -> replacement -> VORP
-    quantile      22.656        +0.231           1.0   rank on points + q*sd_pts
-    learned       24.277        +1.852          26.9   predict VORP from all inputs
-    boosted       24.574        +2.149           6.0   depth-1 stumps on all inputs
-    two-stage     25.083        +2.658          34.5   predict points, then the incumbent
+**The first version of this phase reported that all four shapes lose, and that was an artifact
+of my own design matrix.** The phase 3–6 review found it and it is the most important correction
+in the session.
 
-Effective parameters are the exact trace `tr((X'X + lam I)^-1 X'X)`, not the column count. Every
-penalty was fitted **inside** the fold on the remaining seasons — never once across all six.
+`design` z-scored the `projection` column **within position**, which destroys the level. The
+incumbent orders by `points − replacement(pos)`, which in z-space is a per-position **affine**
+map — a slope *and* an intercept. The design supplied per-position intercepts (the dummies) and
+a single **global** slope, so it structurally could not represent the board it was being asked
+to beat. Handed only the projection column and fitted **in-sample**, ridge scored **33.59
+against the incumbent's 18.40** in 2019.
+
+The fix is three columns, `pos × projection`. No outcome, both factors known preseason — a
+specification fix, not a new input. The booster was separately underfit: 60 rounds × 0.05
+shrinkage is a total learning budget of 3.0, and it had no fitted hyperparameter at all.
+
+    shape          before    after   vs incumbent   eff params   what it does
+    incumbent               22.425                         1.0   points -> replacement -> VORP
+    boosted        24.574   22.114        -0.312          24.0   600 stumps x 0.02
+    two-stage      25.083   22.382        -0.044          39.3   predict points, then incumbent
+    learned        24.277   22.418        -0.008          38.2   predict VORP from all inputs
+    quantile       22.656   22.656        +0.231           1.0   rank on points + q*sd_pts
+
+`quantile` is unchanged because it never touched the design matrix.
 
     per season   2019    2020    2021    2022    2024    2025
     incumbent   18.40   23.41   24.40   22.89   25.57   19.89
+    boosted     17.76   23.74   22.78   22.65   25.24   20.51
+    two-stage   17.47   24.62   21.46   22.93   25.46   22.36
+    learned     17.78   24.54   21.77   25.00   25.31   20.11
     quantile    18.78   23.73   24.53   23.20   25.54   20.16
-    learned     23.03   26.61   24.94   25.18   25.21   20.70
-    boosted     21.40   25.36   24.29   25.24   26.02   25.14
-    two-stage   23.30   26.39   25.70   24.68   26.20   24.22
 
-**The fitted quantile is +0.5 in five of six folds and +0.25 in the sixth** — the board should
-be read *above* its mean, consistently. It still loses.
+**These are small margins — the best is under a third of a rank slot** — and phase 6 carries
+them to the other two leagues, which is where they are decided.
 
-### the per-position table says something the board-wide number hides
+### the per-position table, and a mirror image
 
     shape        QB     RB     TE     WR
     incumbent   4.53   8.33   5.56  10.73
+    boosted     5.07   8.50   5.33  11.02
+    two-stage   4.81   8.19   5.68  10.58
+    learned     4.60   8.32   5.62  10.88
     quantile    4.94   8.15   5.46  10.49
-    learned     4.98   8.62   5.77  10.53
-    boosted     4.91   8.24   5.43  10.96
-    two-stage   4.75   8.80   6.05  11.13
 
-**The quantile shape BEATS the incumbent at running back, tight end and wide receiver** — −0.18,
-−0.10, −0.24 — and loses at quarterback by +0.41. It improves three positions out of four and
-still loses board-wide.
+**The boosted shape is WORSE at quarterback, running back and wide receiver, better only at
+tight end — and better board-wide by 0.312.** Its entire gain is in the cross-position
+interleave. `quantile` is the exact mirror: better at RB, TE and WR, worse at QB, and worse
+board-wide.
 
-**So its entire loss is in the cross-position interleave**, which is the `shrink` mechanism this
-session already measured: a transform that changes the *shape* of a position's distribution moves
-the FLEX allocation, `compute_vorp` reassigns a starter slot, and both replacement ranks shift.
-Reading the board above its mean widens each position's spread by a different amount, because
-`sd_pts/points` differs by position — so the interleave moves, and it moves the wrong way.
+So the two shapes that move the needle move it through opposite channels, and neither improves
+both. The interleave and the within-position orderings are close to a zero-sum trade in this
+harness, which is the `shrink`/FLEX-allocation mechanism phase 2 measured showing up as a
+design constraint rather than a curiosity.
 
-That is the most useful thing phase 3 produced: **the incumbent's replacement subtraction is
-doing real work that none of these shapes replaced**, and the one shape that improves the
-within-position orderings gives it all back at the interleave.
+### the boosted model still spends most of itself on the incumbent's own structure
 
-### the boosted model spends 40% of its capacity relearning replacement
+    pos_QB                  32.9%      ffa_dropoff__present     6.0%
+    projection              23.2%      pos_RB                   4.1%
+    pos_QB_x_projection     15.3%      contract                 2.7%
+    pos_RB_x_projection      8.4%      ffa_dropoff              2.0%
+                                       uncertainty              1.9%
+                                       ff_opp_exp               1.1%
 
-    pos_QB                  40.0%
-    projection              35.1%
-    ffa_dropoff__present    11.4%
-    pos_RB                   3.7%
-    ngs_rush_eff__present    3.5%
-    uncertainty              2.9%
-    adp_gap__present         2.2%
-    contract                 1.2%
+**About 84% of the model is the projection and the position structure** — that is, the model
+re-deriving what the incumbent gets for free by subtracting a per-position replacement level.
+The twenty football inputs together account for roughly a tenth of it, and the largest single
+one is `contract` at 2.7%.
 
-Three quarters of the model is "is he a quarterback" plus "what did ESPN project". The position
-dummies are the model rediscovering, badly, what the incumbent gets for free by subtracting a
-per-position replacement level. **Not one of the twenty football inputs clears 3%** except a
-missingness indicator.
-
-**And the third-ranked feature is a MISSINGNESS INDICATOR.** `ffa_dropoff__present` at 11.4%
-means the model learned that *being in FFA's top-N export at all* predicts realised VORP. That is
-true and it is not football: it is FFA's editorial decision about who is worth publishing,
-leaking in as a quality proxy. It is not an outcome leak — the export is vintage — but any future
-model must either drop the indicators or report that a large share of its skill is "this player
-was famous enough to be exported".
+**And a missingness indicator is still ahead of every football value at 6.0%.**
+`ffa_dropoff__present` means "this player was in FFA's top-N export at all", which is FFA's
+editorial judgement leaking in as a quality proxy. Vintage, so not an outcome leak, but any
+future model must either drop the indicators or report how much of its skill is fame.
 
 ### INJECTION 2 — the information-free input
 
-    noise importance, every fold:        0.0000%
-    boosted RWRE with the sha256:        24.574
-    boosted RWRE without it:             24.574
-    incumbent:                           22.425
+    noise importance, every fold:  0.0000%  at 60 rounds
+                                   0.156%   at 600 rounds
+    boosted RWRE with the sha256 and without it: identical to three decimals
 
-**Zero, exactly, in all six folds, and the RWRE is unchanged to three decimals.** The model
-correctly refuses an information-free input — which is the thing `audible#85`'s search could not
-do, where a sha256 bought 42% of the apparent gain.
-
+The first run reported "zero, exactly, in all six folds" and the review pointed out that this
+was an **underfitting artifact** — at 60 rounds the model touched only 7.5 of 46 columns and
+never had enough splits to consider the sha256 at all. At 600 rounds it touches 24.8 columns and
+the hash acquires 0.156%. It still clears the 2% gate comfortably, and now it clears it having
+actually been offered the chance to use it.
 
 ---
 
@@ -624,45 +630,80 @@ found no survivors" and "we did not try" are different claims and only one of th
 
 ---
 
-## PHASE 6 — the honest verdict: it does not beat the incumbent, in any league
+## PHASE 6 — the honest verdict: 0 of 9, and the cross-league test is what settles it
 
-The best shape phase 3 produced (`quantile`) carried to all three leagues, scored under the
-pre-registered `symmetric` indexing, penalty fitted inside each fold.
+Three shapes carried to all three leagues. Running only `quantile` was a defect the review
+caught: a verdict of "does not beat in any league" that never ran the shape which ties in
+green_hope is not a verdict.
 
-    league             incumbent   rebuilt    delta   sign-flip p   verdict
-    espn_green_hope        22.43     22.66    +0.23         0.031   DOES NOT BEAT
-    espn_danger_zone       28.10     28.56    +0.46         0.000   DOES NOT BEAT
-    sleeper_boyfun         32.63     32.58    -0.05         0.688   DOES NOT BEAT
+    league             shape       incumbent   rebuilt    delta   sign p   verdict
+    espn_green_hope    quantile        22.43     22.66    +0.23    0.062   DOES NOT BEAT
+    espn_green_hope    learned         22.43     22.42    -0.01    0.969   DOES NOT BEAT
+    espn_green_hope    boosted         22.43     22.11    -0.31    0.438   DOES NOT BEAT
+    espn_danger_zone   quantile        28.10     28.56    +0.46    0.500   DOES NOT BEAT
+    espn_danger_zone   learned         28.10     28.92    +0.82    0.312   DOES NOT BEAT
+    espn_danger_zone   boosted         28.10     30.05    +1.94    0.031   RESOLVABLY WORSE
+    sleeper_boyfun     quantile        32.63     32.58    -0.05    0.688   DOES NOT BEAT
+    sleeper_boyfun     learned         32.63     33.35    +0.72    0.250   DOES NOT BEAT
+    sleeper_boyfun     boosted         32.63     35.06    +2.43    0.031   RESOLVABLY WORSE
 
-    BEATS THE INCUMBENT: no, 0 of 3 leagues
+    BEATS THE INCUMBENT: no, 0 of 9 league-shape pairs
 
-The p is an **exact sign-flip test** over the six per-season deltas — all 2^6 sign assignments
-enumerated, no bootstrap and no floor of hashes, because the question here is "does this shape
-beat that shape" rather than "does this input beat nothing".
+The p is an **exact sign test** over the per-season deltas, with zero-deltas dropped as
+uninformative. Its floor on six seasons is 2/64 = 0.031, so 0.031 is the strongest statement
+available here and 0.000 — which the first version of this phase printed for danger_zone — is
+unattainable.
 
-**Two of the three are resolvably WORSE.** green_hope improves in 1 of 6 seasons (p 0.031),
-danger_zone in **0 of 6** (p 0.000). boyfun is a genuine tie: −0.05 with 3 of 6 seasons
-improved, p 0.688.
+### THE CROSS-LEAGUE TEST IS THE RESULT
 
-### the per-position table is the same story in all three leagues
+**`boosted` is −0.31 in green_hope and +1.94 and +2.43 in the other two, both resolvably
+worse.** The one shape that looked like a gain is the one that fails hardest elsewhere, and it
+fails in the direction that says overfitting: it was selected on green_hope's six seasons and
+it does not survive contact with a league that scores differently.
 
-    green_hope    QB +0.41    RB -0.18    TE -0.09    WR -0.24
-    danger_zone   QB +0.14    RB -0.00    TE -0.02    WR -0.03
-    boyfun        QB +0.07    RB +0.28    TE -0.09    WR -0.04
+Green_hope's −0.31 is itself **not resolved** (p 0.438). So the honest reading of phase 3's
+corrected table is not "three shapes beat the incumbent" but **"three shapes are
+indistinguishable from the incumbent on the league they were built on, and two of them are
+resolvably worse on the leagues they were not."**
 
-**The rebuilt shape is better at wide receiver and tight end in all three leagues, and worse at
-quarterback in all three.** In green_hope it improves three positions of four and still loses
-board-wide by +0.23.
+`quantile` is the only shape that never loses badly anywhere — +0.23, +0.46, −0.05 — which is
+what a one-parameter model buys: it cannot overfit enough to fail spectacularly, and it cannot
+fit enough to win.
 
-That is the session's structural result, and it reproduces across leagues with different scoring
-and different roster shapes: **reading the board above its mean improves the within-position
-orderings and gives it all back at the cross-position interleave.** `sd_pts/points` differs by
-position, so a quantile shift widens each position's spread by a different amount, the FLEX
-allocation moves, `compute_vorp` reassigns a starter slot, and the replacement ranks shift. It is
-the `shrink` mechanism this session measured in phase 2, arriving as a cost rather than a
-curiosity.
+### per position, all three leagues
 
-**The incumbent's per-position replacement subtraction is doing real work that four different
-shapes failed to replace.** That is worth saying plainly, because it is the opposite of what the
-standing goal assumed — the `points -> subtract replacement -> sort by VORP` shape was described
-as "chosen at the start and not a given", and on this evidence it is load-bearing.
+    green_hope    QB          RB          TE          WR
+      quantile   +0.41       -0.18       -0.09       -0.24
+      learned    +0.07       -0.01       +0.06       +0.15
+      boosted    +0.54       +0.17       -0.23       +0.29
+    danger_zone
+      quantile   +0.14       -0.00       -0.02       -0.03
+      learned    +0.09       -0.24       +0.12       +0.94
+      boosted    +0.19       -0.47       -0.25       +1.64
+    boyfun
+      quantile   +0.07       +0.28       -0.09       -0.04
+      learned    -0.10       -0.00       +0.39       -0.06
+      boosted    +0.18       -0.25       +0.37       +0.43
+
+**`boosted` is better at running back in two of three leagues and worse at wide receiver in all
+three** — and wide receiver is the largest block in every pool, so that is where its board-wide
+losses come from. The green_hope gain came through the interleave; in the other two leagues the
+interleave gain is smaller than the WR damage.
+
+### what this says about the standing goal
+
+The goal was to rework the transform to take in all available information rather than staying
+with `points → subtract replacement → sort by VORP`, which was described as "chosen at the start
+and not a given".
+
+**On this evidence the shape is close to load-bearing.** Four alternatives, one of them a
+gradient-boosted model with 24 effective parameters over twenty football inputs, and the best
+outcome anywhere is a statistical tie on the league it was fitted to. The incumbent's
+per-position replacement subtraction is not an arbitrary choice that survived by inertia; it is
+doing work that a model has to spend most of its capacity re-deriving — 84% of the boosted
+model's importance is the projection and the position structure.
+
+That is not proof the shape is optimal. It is evidence that the *information* is the binding
+constraint rather than the *shape*: with six seasons, 39–43% coverage on every FFA-derived
+input, and a floor whose own sd is comparable to every effect measured, no shape had room to
+win.
