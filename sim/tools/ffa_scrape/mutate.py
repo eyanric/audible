@@ -310,10 +310,10 @@ def _all_gate_ids() -> set[str]:
         capture_output=True,
         text=True,
     )
-    ids = re.findall(r"<Function (\w+)", proc.stdout)
+    ids = re.findall(r"^\S*test_g_ffa_scrape\.py::(\S+)$", proc.stdout, re.M)
     if not ids:
         raise RuntimeError(f"collected no gate ids; pytest said:\n{proc.stdout[-2000:]}")
-    return set(ids)
+    return {_bare(i) for i in ids}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
