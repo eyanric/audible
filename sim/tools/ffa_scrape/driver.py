@@ -92,6 +92,11 @@ class NotLoggedIn(RuntimeError):
     """The download control says `Subscribe to download`. A human has to fix this."""
 
 
+class ModalBlocked(RuntimeError):
+    """A Shiny modal is up and would not close. Carries its text, because that is the
+    only thing that says what the app wants."""
+
+
 @dataclass(frozen=True)
 class Settles:
     """Empirical waits, in seconds. Not documented by the app; measured, and load-dependent.
@@ -118,6 +123,10 @@ class Settles:
     # The app is slow to populate its widgets on a cold worker; this is the wait for the
     # year dropdown to hold a real value, not for the DOM to exist.
     ready_timeout: float = 180.0
+    # A tab click that is being intercepted does not get better with time. Fail in ten
+    # seconds with the reason, rather than in Playwright's default thirty with a wall of
+    # retry log.
+    click_timeout: float = 10.0
 
     def scaled(self, factor: float) -> Settles:
         return replace(
@@ -187,6 +196,30 @@ _READY_JS = f"""
             && String(year.selectize.getValue() || '').length === 4
             && link && (link.textContent || '').trim().length > 0);
 }}
+"""
+
+# MEASURED MID-RUN, eight files into stage 2, and seen by neither the handoff nor the probe.
+# A Shiny modal appears with `data-backdrop="static"` and `data-keyboard="false"` -- it
+# cannot be dismissed by clicking outside it or by pressing Escape -- and its backdrop
+# intercepts pointer events, so every tab click times out against it. Playwright retried for
+# thirty seconds and then killed the run.
+#
+# The fix is not a longer timeout. It is to READ the thing and close it: a modal is the app
+# trying to say something, and whatever it says belongs in the log.
+_MODAL_JS = """
+() => {
+  const modal = document.querySelector('#shiny-modal.show, #shiny-modal-wrapper .modal.show');
+  if (!modal) return {present: false, text: null, closed: false};
+  const text = (modal.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400);
+  // A JS click bypasses the pointer interception that defeated the real one. Try the
+  // documented dismiss controls first, then any button in the footer, then the header X.
+  const button = modal.querySelector(
+    '[data-dismiss="modal"], [data-bs-dismiss="modal"], .btn-close, ' +
+    '.modal-footer button, .modal-header button'
+  );
+  if (button) { button.click(); return {present: true, text: text, closed: true}; }
+  return {present: true, text: text, closed: false};
+}
 """
 
 _HREF_JS = """
@@ -317,8 +350,33 @@ class ShinyDriver:
         if seen != value:
             raise SessionLost(f"{input_id} reads {seen!r} after being set to {value!r}")
 
+    def clear_modal(self) -> str | None:
+        """Close a Shiny modal if one is up. Returns its text when there was one.
+
+        Called before every tab click, because a modal's backdrop intercepts pointer events
+        and a real click just times out against it -- thirty seconds, then the run dies.
+        Whatever the modal says is logged: it is the app talking, and this run has already
+        been surprised once by something nobody wrote down.
+        """
+        state = self.page.evaluate(_MODAL_JS)
+        if not state["present"]:
+            return None
+        text = state["text"]
+        self.log(f"    modal: {text!r}")
+        if not state["closed"]:
+            raise ModalBlocked(f"a modal is up and has no dismiss control: {text!r}")
+        self._pause(self.settles.action)
+        still = self.page.evaluate(_MODAL_JS)
+        if still["present"]:
+            raise ModalBlocked(f"a modal would not close: {text!r}")
+        self.wait_idle()
+        return text
+
     def click_tab(self, tab: str) -> None:
-        self.page.click(f'a[data-value="{tab}"]')
+        self.clear_modal()
+        # A modest timeout, not the 30s default. If a click is being intercepted, waiting
+        # longer does not help -- something is in the way and the log should say so.
+        self.page.click(f'a[data-value="{tab}"]', timeout=self.settles.click_timeout * 1000)
         self._pause(self.settles.action)
         self.wait_idle()
 

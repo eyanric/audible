@@ -299,6 +299,12 @@ MUTATIONS: tuple[Mutation, ...] = (
         'entries[payload["file"]] = entries.get(payload["file"]) or ManifestEntry(',
     ),
     Mutation(
+        "a-manifest-line-without-a-witness-field-crashes-the-load",
+        "manifest.py",
+        '            witness_sha256=payload.get("witness_sha256"),',
+        '            witness_sha256=payload["witness_sha256"],',
+    ),
+    Mutation(
         "the-sha256-is-of-the-name-not-the-bytes",
         "manifest.py",
         "return hashlib.sha256(text.encode(\"utf-8\")).hexdigest()",
@@ -514,6 +520,24 @@ MUTATIONS: tuple[Mutation, ...] = (
         "driver.py",
         "if self._session_token is not None and token != self._session_token:",
         "if False:",
+    ),
+    Mutation(
+        "modals-are-never-checked-for",
+        "driver.py",
+        "        self.clear_modal()\n        # A modest timeout",
+        "        # A modest timeout",
+    ),
+    Mutation(
+        "a-modal-that-will-not-close-is-treated-as-closed",
+        "driver.py",
+        '            raise ModalBlocked(f"a modal is up and has no dismiss control: {text!r}")',
+        "            return text",
+    ),
+    Mutation(
+        "a-modal-that-reappears-is-treated-as-closed",
+        "driver.py",
+        '            raise ModalBlocked(f"a modal would not close: {text!r}")',
+        "            return text",
     ),
     Mutation(
         "a-locked-control-does-not-stop-the-start",

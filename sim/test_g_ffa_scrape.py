@@ -882,6 +882,11 @@ class FakeShinyPage:
         # False models a cold worker: the widgets exist and Shiny has not
         # filled them in yet.
         self.populated = True
+        # A Shiny modal. Measured live mid-run: data-backdrop="static" and
+        # data-keyboard="false", so it cannot be dismissed by clicking away or by Escape,
+        # and its backdrop intercepts pointer events -- a real click just times out.
+        self.modal: str | None = None
+        self.modal_dismissible = True
 
     # -- playwright surface -------------------------------------------------------------
 
@@ -900,7 +905,12 @@ class FakeShinyPage:
     def wait_for_selector(self, _selector: str, **_kwargs: object) -> None:
         return None
 
-    def click(self, selector: str) -> None:
+    def click(self, selector: str, **_kwargs: object) -> None:
+        if self.modal is not None:
+            # What Playwright actually does: retries until the timeout, then raises.
+            raise TimeoutError(
+                "Page.click: Timeout exceeded -- #shiny-modal intercepts pointer events"
+            )
         tab = selector.split('"')[1]
         self.calls.append(f"click:{tab}")
         if self.tab == "tab_settings" and tab == "tab_proj":
@@ -908,6 +918,14 @@ class FakeShinyPage:
         self.tab = tab
 
     def evaluate(self, script: str, arg: object = None) -> object:
+        if script is driver_mod._MODAL_JS:
+            if self.modal is None:
+                return {"present": False, "text": None, "closed": False}
+            text = self.modal
+            if self.modal_dismissible:
+                self.modal = None
+                return {"present": True, "text": text, "closed": True}
+            return {"present": True, "text": text, "closed": False}
         if script is driver_mod._BUSY_JS:
             # MEASURED on the live app: five outputs on tabs this run never opens stay
             # `.recalculating` forever. The model carries them, so a driver that waits for
@@ -1598,7 +1616,7 @@ def test_a_proj_job_is_rejected_when_its_witness_holds_the_wrong_aggregation(
     page = FakeShinyPage()
     page.effective_avg = "weighted"
     # Pin it: the Settings round trip no longer takes.
-    page.click = lambda selector: None  # type: ignore[method-assign]
+    page.click = lambda selector, **_kw: None  # type: ignore[method-assign]
     driver = _witness_driver(page)
     driver.establish()
 
@@ -1664,3 +1682,76 @@ def test_a_manifest_written_before_witnessing_existed_still_loads(tmp_path: Path
     )
     entry = load_manifest(path)["ffa_raw_2019_wk0_weighted.csv"]
     assert entry.witness_sha256 is None
+
+
+# ---------------------------------------------------------------------------------------
+# MODALS. Measured mid-run, eight files into stage 2, and seen by neither the handoff nor
+# the probe: a Shiny modal appears with data-backdrop="static" and data-keyboard="false",
+# so it cannot be dismissed by clicking away or by Escape, and its backdrop intercepts
+# pointer events. Playwright retried the tab click for thirty seconds and the run died.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_modal_blocks_a_real_click_the_way_the_live_one_did() -> None:
+    """The model earns the gates below by reproducing the failure first."""
+    page = FakeShinyPage()
+    page.modal = "Your session is about to expire."
+    with pytest.raises(TimeoutError):
+        page.click('a[data-value="tab_proj"]')
+
+
+def test_a_modal_is_read_and_closed_before_the_click() -> None:
+    """A modal is the app trying to say something. Log it, close it, carry on."""
+    page = FakeShinyPage()
+    logged: list[str] = []
+    driver = driver_mod.ShinyDriver(page, INSTANT, log=logged.append)
+    driver.establish()
+    page.modal = "Your session is about to expire."
+
+    driver.click_tab("tab_proj")  # would have raised TimeoutError without clear_modal
+    assert page.modal is None
+    assert any("about to expire" in line for line in logged), logged
+
+
+def test_a_modal_with_no_dismiss_control_stops_the_run_and_says_what_it_said() -> None:
+    """A run that cannot proceed must name the reason. Thirty seconds of Playwright retry
+    log naming a div is not that."""
+    page = FakeShinyPage()
+    page.modal = "Subscription expired. Renew to continue."
+    page.modal_dismissible = False
+    driver = driver_mod.ShinyDriver(page, INSTANT, log=lambda _m: None)
+    driver.establish()
+    with pytest.raises(driver_mod.ModalBlocked, match="Subscription expired"):
+        driver.click_tab("tab_proj")
+
+
+def test_no_modal_costs_nothing_and_says_nothing() -> None:
+    """CONTROL. A handler that fired on every click would fill the log with noise."""
+    page = FakeShinyPage()
+    logged: list[str] = []
+    driver = driver_mod.ShinyDriver(page, INSTANT, log=logged.append)
+    driver.establish()
+    logged.clear()
+    assert driver.clear_modal() is None
+    driver.click_tab("tab_proj")
+    assert not any("modal" in line for line in logged), logged
+
+
+def test_a_modal_that_reappears_immediately_is_not_treated_as_closed() -> None:
+    """Clicking dismiss is not the same as the modal being gone. A modal that Shiny puts
+    straight back is still blocking, and pretending otherwise loops forever."""
+    page = FakeShinyPage()
+
+    page.modal = "Please wait..."
+    original = page.evaluate
+
+    def evaluate(script: str, arg: object = None) -> object:
+        result = original(script, arg)
+        if script is driver_mod._MODAL_JS:
+            page.modal = "Please wait..."  # Shiny puts it straight back
+        return result
+
+    page.evaluate = evaluate  # type: ignore[method-assign]
+    driver = driver_mod.ShinyDriver(page, INSTANT, log=lambda _m: None)
+    with pytest.raises(driver_mod.ModalBlocked, match="would not close"):
+        driver.clear_modal()
