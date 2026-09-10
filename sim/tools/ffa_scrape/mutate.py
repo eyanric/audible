@@ -87,8 +87,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "proj-gaining-an-aggregation-column-is-waved-through",
         "verify.py",
-        "if AVG_TYPE_COLUMN in report.columns:\n            reasons.append(",
-        "if False:\n            reasons.append(",
+        '    elif kind == "proj" and AVG_TYPE_COLUMN in report.columns:',
+        "    elif False:",
     ),
     Mutation(
         "sole-avg-type-guesses-when-mixed",
@@ -132,6 +132,48 @@ MUTATIONS: tuple[Mutation, ...] = (
         "verify.py",
         'IDP_POSITIONS: Final[frozenset[str]] = frozenset({"DL", "LB", "DB"})',
         "IDP_POSITIONS: Final[frozenset[str]] = frozenset()",
+    ),
+    Mutation(
+        "the-season-check-never-fires",
+        "verify.py",
+        "if report.season_years and report.season_years != frozenset({str(year)}):",
+        "if False:",
+    ),
+    Mutation(
+        "the-season-check-fires-on-a-match",
+        "verify.py",
+        "if report.season_years and report.season_years != frozenset({str(year)}):",
+        "if report.season_years:",
+    ),
+    Mutation(
+        "the-week-check-never-fires",
+        "verify.py",
+        "if report.weeks and report.weeks != frozenset({str(week)}):",
+        "if False:",
+    ),
+    Mutation(
+        "the-week-check-fires-on-a-match",
+        "verify.py",
+        "if report.weeks and report.weeks != frozenset({str(week)}):",
+        "if report.weeks:",
+    ),
+    Mutation(
+        "an-NA-scope-column-is-read-as-a-real-value",
+        "verify.py",
+        '_ABSENT: Final[frozenset[str]] = frozenset({"NA", "", "N/A", "null"})',
+        "_ABSENT: Final[frozenset[str]] = frozenset()",
+    ),
+    Mutation(
+        "the-scope-columns-are-never-read",
+        "verify.py",
+        "        if year_index is not None and row[year_index] not in _ABSENT:",
+        "        if False:",
+    ),
+    Mutation(
+        "an-unknown-kind-raises-again",
+        "verify.py",
+        "    if kind not in KNOWN_KINDS:",
+        "    if False:",
     ),
     Mutation(
         "the-nine-positions-are-eight",
@@ -347,8 +389,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "a-proj-file-is-rejected-for-lacking-an-aggregation-column",
         "verify.py",
-        "if AVG_TYPE_COLUMN in report.columns:\n            reasons.append(",
-        "if AVG_TYPE_COLUMN not in report.columns:\n            reasons.append(",
+        '    elif kind == "proj" and AVG_TYPE_COLUMN in report.columns:',
+        '    elif kind == "proj" and AVG_TYPE_COLUMN not in report.columns:',
     ),
     Mutation(
         "the-ragged-check-fires-on-a-clean-file",

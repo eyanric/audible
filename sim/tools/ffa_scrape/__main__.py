@@ -149,7 +149,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         driver.prepare("raw", 2019, 0, "weighted")
         payload = driver.fetch_payload()
         weighted_seconds = time.time() - started
-        reasons = verify_payload(payload.text, kind="raw", week=0, avg="weighted")
+        reasons = verify_payload(payload.text, kind="raw", year=2019, week=0, avg="weighted")
         report = inspect_csv(payload.text) if payload.text else None
         record(
             "weighted-season-2019",
@@ -165,7 +165,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             driver.prepare("raw", 2019, 0, avg)
             payload = driver.fetch_payload()
             seconds = time.time() - started
-            reasons = verify_payload(payload.text, kind="raw", week=0, avg=avg)
+            reasons = verify_payload(payload.text, kind="raw", year=2019, week=0, avg=avg)
             report = inspect_csv(payload.text) if payload.text else None
             record(
                 f"{avg}-season-2019",
@@ -180,7 +180,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             driver.prepare("raw", year, week, "weighted")
             payload = driver.fetch_payload()
             seconds = time.time() - started
-            reasons = verify_payload(payload.text, kind="raw", week=week, avg="weighted")
+            reasons = verify_payload(payload.text, kind="raw", year=year, week=week, avg="weighted")
             report = inspect_csv(payload.text) if payload.text else None
             record(
                 f"weekly-{year}-wk{week}",

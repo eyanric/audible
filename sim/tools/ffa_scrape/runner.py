@@ -110,7 +110,7 @@ def _attempt(
             if reasons:
                 return None, [f"witness-{r}" for r in reasons], None
             reasons = verify_payload(
-                witness.text, kind="raw", week=job.week, avg=job.avg
+                witness.text, kind="raw", year=job.year, week=job.week, avg=job.avg
             )
             if reasons:
                 return None, [f"witness-{r}" for r in reasons], None
@@ -124,7 +124,9 @@ def _attempt(
     if reasons:
         return None, reasons, None
 
-    reasons = verify_payload(result.text, kind=job.kind, week=job.week, avg=job.avg)
+    reasons = verify_payload(
+        result.text, kind=job.kind, year=job.year, week=job.week, avg=job.avg
+    )
     return (result.text if not reasons else None), reasons, witness_sha
 
 

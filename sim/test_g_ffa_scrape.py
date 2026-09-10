@@ -75,11 +75,21 @@ def raw_csv(
     per_position: int = 60,
     positions: tuple[str, ...] = POSITIONS,
     header: tuple[str, ...] = RAW_HEADER,
+    season_year: str = "NA",
+    week_col: str = "NA",
 ) -> str:
-    """A synthetic raw export. Shaped like the real thing where the checks look."""
+    """A synthetic raw export. Shaped like the real thing where the checks look.
+
+    `season_year` and `week_col` default to "NA" because that is exactly what 19 of the 213
+    real raw files hold -- 2015 and early-2016 weekly -- and the scope check is
+    presence-conditional for that reason. Gates that exercise the scope check pass real
+    values, and one gate asserts the NA default is still faithful to the corpus.
+    """
     lines = [",".join(_quote(column) for column in header)]
     pos_index = header.index("position")
     avg_index = header.index("avg_type") if "avg_type" in header else None
+    year_index = header.index("season_year") if "season_year" in header else None
+    week_index = header.index("week") if "week" in header else None
     for position in positions:
         for n in range(per_position):
             row = ["0"] * len(header)
@@ -89,6 +99,10 @@ def raw_csv(
             row[3] = _quote(str(10000 + n))
             if avg_index is not None:
                 row[avg_index] = _quote(avg_type)
+            if year_index is not None:
+                row[year_index] = _quote(season_year)
+            if week_index is not None:
+                row[week_index] = _quote(week_col)
             lines.append(",".join(row))
     return "\n".join(lines) + "\n"
 
@@ -114,7 +128,7 @@ def test_a_weighted_payload_asked_for_as_average_is_rejected() -> None:
     """THE gate. This is the defect, reproduced exactly: a year change reset the
     aggregation server-side and the download came back weighted under an average name."""
     payload = raw_csv(avg_type="weighted")
-    reasons = verify_payload(payload, kind="raw", week=0, avg="average")
+    reasons = verify_payload(payload, year=2019, kind="raw", week=0, avg="average")
     assert reasons, "a weighted payload was accepted for an average job"
     assert any(r.startswith("avg-type-mismatch") for r in reasons), reasons
     assert "weighted" in reasons[0] or any("weighted" in r for r in reasons)
@@ -123,14 +137,14 @@ def test_a_weighted_payload_asked_for_as_average_is_rejected() -> None:
 def test_the_same_payload_asked_for_as_weighted_is_accepted() -> None:
     """The CONTROL. Without it a verifier that rejects everything would pass the gate above."""
     payload = raw_csv(avg_type="weighted")
-    assert verify_payload(payload, kind="raw", week=0, avg="weighted") == []
+    assert verify_payload(payload, year=2019, kind="raw", week=0, avg="weighted") == []
 
 
 @pytest.mark.parametrize("wanted", ["weighted", "average", "robust"])
 def test_each_aggregation_accepts_only_its_own(wanted: str) -> None:
     """Not just weighted-for-average. Every off-diagonal pair is rejected."""
     for held in ("weighted", "average", "robust"):
-        reasons = verify_payload(raw_csv(avg_type=held), kind="raw", week=0, avg=wanted)
+        reasons = verify_payload(raw_csv(avg_type=held), year=2019, kind="raw", week=0, avg=wanted)
         if held == wanted:
             assert reasons == [], f"{held} rejected for its own job: {reasons}"
         else:
@@ -142,14 +156,14 @@ def test_each_aggregation_accepts_only_its_own(wanted: str) -> None:
 def test_a_payload_holding_two_aggregations_is_rejected() -> None:
     """A mid-file switch is not a partial success. Neither half is what was asked for."""
     mixed = raw_csv(avg_type="weighted") + raw_csv(avg_type="robust").split("\n", 1)[1]
-    reasons = verify_payload(mixed, kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(mixed, year=2019, kind="raw", week=0, avg="weighted")
     assert any(r.startswith("avg-type-mismatch") for r in reasons), reasons
 
 
 def test_a_raw_payload_that_lost_its_aggregation_column_is_rejected() -> None:
     header = tuple(c for c in RAW_HEADER if c != "avg_type")
     payload = raw_csv(header=header)
-    reasons = verify_payload(payload, kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(payload, year=2019, kind="raw", week=0, avg="weighted")
     assert any(r.startswith("avg-type-column-absent") for r in reasons), reasons
 
 
@@ -158,7 +172,7 @@ def test_a_moved_aggregation_column_is_rejected_even_though_the_values_are_right
     the position claim this tool rests on is that avg_type is the FIFTH column."""
     header = ("avg_type",) + tuple(c for c in RAW_HEADER if c != "avg_type")
     payload = raw_csv(avg_type="average", header=header)
-    reasons = verify_payload(payload, kind="raw", week=0, avg="average")
+    reasons = verify_payload(payload, year=2019, kind="raw", week=0, avg="average")
     assert any(r.startswith("avg-type-column-moved") for r in reasons), reasons
     assert not any(r.startswith("avg-type-mismatch") for r in reasons), (
         "the values were correct; only the column moved"
@@ -167,14 +181,14 @@ def test_a_moved_aggregation_column_is_rejected_even_though_the_values_are_right
 
 def test_a_proj_payload_is_accepted_without_an_aggregation_claim() -> None:
     """proj files carry no avg_type. They are unverifiable, not invalid."""
-    assert verify_payload(proj_csv(), kind="proj", week=0, avg="robust") == []
+    assert verify_payload(proj_csv(), year=2019, kind="proj", week=0, avg="robust") == []
     assert inspect_csv(proj_csv()).sole_avg_type is None
 
 
 def test_a_proj_payload_that_gained_an_aggregation_column_is_rejected() -> None:
     """If FFA ever adds one, the unverifiable-by-construction assumption is stale and the
     tool must be told rather than quietly keep treating proj as unverifiable."""
-    reasons = verify_payload(raw_csv(), kind="proj", week=0, avg="weighted")
+    reasons = verify_payload(raw_csv(), year=2019, kind="proj", week=0, avg="weighted")
     assert any(r.startswith("avg-type-column-unexpected") for r in reasons), reasons
 
 
@@ -193,7 +207,7 @@ def test_a_payload_missing_any_one_position_is_rejected(dropped: str) -> None:
     """
     kept = tuple(p for p in POSITIONS if p != dropped)
     payload = raw_csv(positions=kept)
-    reasons = verify_payload(payload, kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(payload, year=2019, kind="raw", week=0, avg="weighted")
     assert any(r.startswith("positions-") for r in reasons), reasons
     assert any(dropped in r for r in reasons), reasons
 
@@ -205,7 +219,7 @@ def test_the_nine_positions_are_the_nine_measured_on_a_real_export() -> None:
 
 def test_a_complete_payload_names_no_missing_position() -> None:
     """CONTROL for the parametrised gate above."""
-    reasons = verify_payload(raw_csv(), kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(raw_csv(), year=2019, kind="raw", week=0, avg="weighted")
     assert not any(r.startswith("positions-missing") for r in reasons), reasons
 
 
@@ -218,25 +232,25 @@ def test_a_payload_truncated_mid_row_is_rejected() -> None:
     """A response cut short by a dropped connection. The last row has too few fields."""
     payload = raw_csv()
     truncated = payload[: len(payload) - 40]
-    reasons = verify_payload(truncated, kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(truncated, year=2019, kind="raw", week=0, avg="weighted")
     assert any(r.startswith("ragged-rows") for r in reasons), reasons
 
 
 def test_a_payload_truncated_to_a_stub_is_rejected_on_row_count() -> None:
     """A clean cut at a row boundary leaves no ragged row, so the floor is what catches it."""
     payload = raw_csv(per_position=2)
-    reasons = verify_payload(payload, kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(payload, year=2019, kind="raw", week=0, avg="weighted")
     assert any(r.startswith("row-count") for r in reasons), reasons
 
 
 def test_a_header_only_payload_is_rejected() -> None:
     header_only = raw_csv().split("\n", 1)[0] + "\n"
-    reasons = verify_payload(header_only, kind="raw", week=0, avg="weighted")
+    reasons = verify_payload(header_only, year=2019, kind="raw", week=0, avg="weighted")
     assert any(r.startswith("row-count") for r in reasons), reasons
 
 
 def test_an_empty_payload_is_rejected_rather_than_raising() -> None:
-    assert verify_payload("", kind="raw", week=0, avg="weighted") == [
+    assert verify_payload("", year=2019, kind="raw", week=0, avg="weighted") == [
         "empty-payload: payload has no header row"
     ]
 
@@ -251,10 +265,10 @@ def test_the_weekly_floor_is_lower_than_the_season_floor() -> None:
 def test_a_small_but_complete_weekly_payload_passes_at_the_weekly_floor() -> None:
     """CONTROL: the lower floor is not decorative -- this payload fails the season floor."""
     payload = raw_csv(per_position=20)
-    assert verify_payload(payload, kind="raw", week=5, avg="weighted") == []
+    assert verify_payload(payload, year=2019, kind="raw", week=5, avg="weighted") == []
     assert any(
         r.startswith("row-count")
-        for r in verify_payload(payload, kind="raw", week=0, avg="weighted")
+        for r in verify_payload(payload, year=2019, kind="raw", week=0, avg="weighted")
     )
 
 
@@ -551,7 +565,7 @@ def test_the_synthetic_raw_fixture_matches_a_real_export() -> None:
     assert real.ragged == 0
     assert real.sole_avg_type == "weighted"
     assert verify_payload(
-        _REAL.read_text(encoding="utf-8"), kind="raw", week=0, avg="weighted"
+        _REAL.read_text(encoding="utf-8"), year=2019, kind="raw", week=0, avg="weighted"
     ) == []
 
 
@@ -1008,7 +1022,7 @@ def test_the_driver_fetches_the_aggregation_it_was_asked_for(tmp_path: Path) -> 
     for avg in ("weighted", "average", "robust"):
         driver.prepare("raw", 2019, 0, avg)
         payload = driver.fetch_payload()
-        assert verify_payload(payload.text, kind="raw", week=0, avg=avg) == [], avg
+        assert verify_payload(payload.text, year=2019, kind="raw", week=0, avg=avg) == [], avg
 
 
 def test_setting_the_aggregation_before_the_year_would_lose_it() -> None:
@@ -1028,7 +1042,7 @@ def test_setting_the_aggregation_before_the_year_would_lose_it() -> None:
     driver.set_input(driver_mod.KIND_INPUT, "raw", 0.0)
 
     payload = driver.fetch_payload()
-    reasons = verify_payload(payload.text, kind="raw", week=0, avg="average")
+    reasons = verify_payload(payload.text, year=2019, kind="raw", week=0, avg="average")
     assert any(r.startswith("avg-type-mismatch") for r in reasons), reasons
     assert inspect_csv(payload.text).sole_avg_type == "weighted"
 
@@ -1339,7 +1353,7 @@ def test_a_weighted_job_after_a_robust_one_in_the_SAME_year_still_gets_weighted(
 
     driver.prepare("raw", 2019, 5, "weighted")  # same year -- no reset comes for free
     payload = driver.fetch_payload()
-    assert verify_payload(payload.text, kind="raw", week=5, avg="weighted") == []
+    assert verify_payload(payload.text, year=2019, kind="raw", week=5, avg="weighted") == []
     assert inspect_csv(payload.text).sole_avg_type == "weighted"
 
 
@@ -1427,7 +1441,7 @@ CORE_ONLY: tuple[str, ...] = ("QB", "RB", "WR", "TE", "K", "DST")
 def test_a_weekly_file_with_no_idp_at_all_is_kept() -> None:
     """2015 week 1, as measured. Six positions, no IDP, and nothing wrong with it."""
     payload = raw_csv(positions=CORE_ONLY, per_position=40)
-    assert verify_payload(payload, kind="raw", week=1, avg="weighted") == []
+    assert verify_payload(payload, year=2019, kind="raw", week=1, avg="weighted") == []
 
 
 def test_a_file_missing_a_CORE_position_is_still_rejected() -> None:
@@ -1435,7 +1449,7 @@ def test_a_file_missing_a_CORE_position_is_still_rejected() -> None:
     for dropped in CORE_ONLY:
         kept = tuple(p for p in CORE_ONLY if p != dropped)
         reasons = verify_payload(
-            raw_csv(positions=kept, per_position=40), kind="raw", week=1, avg="weighted"
+            raw_csv(positions=kept, per_position=40), year=2019, kind="raw", week=1, avg="weighted"
         )
         assert any(r.startswith("positions-missing") for r in reasons), (dropped, reasons)
 
@@ -1445,14 +1459,14 @@ def test_a_file_with_SOME_idp_is_rejected(partial: tuple[str, ...]) -> None:
     """All-or-nothing. A scope either has IDP or it does not; two of the three is not a
     narrower file, it is a broken one -- and that is the shape a truncated download takes."""
     payload = raw_csv(positions=(*CORE_ONLY, *partial), per_position=40)
-    reasons = verify_payload(payload, kind="raw", week=1, avg="weighted")
+    reasons = verify_payload(payload, year=2019, kind="raw", week=1, avg="weighted")
     assert any(r.startswith("positions-partial-idp") for r in reasons), reasons
 
 
 def test_a_file_with_every_idp_position_is_kept() -> None:
     """CONTROL for the rule above."""
     payload = raw_csv(positions=POSITIONS, per_position=40)
-    assert verify_payload(payload, kind="raw", week=1, avg="weighted") == []
+    assert verify_payload(payload, year=2019, kind="raw", week=1, avg="weighted") == []
 
 
 def test_the_core_and_idp_sets_partition_the_nine() -> None:
@@ -1467,7 +1481,7 @@ def test_a_season_file_with_all_nine_is_still_the_normal_case() -> None:
     manifest records the positions either way, so a reader can tell them apart."""
     report = inspect_csv(raw_csv())
     assert set(report.positions) == NINE_POSITIONS
-    assert verify_payload(raw_csv(), kind="raw", week=0, avg="weighted") == []
+    assert verify_payload(raw_csv(), year=2019, kind="raw", week=0, avg="weighted") == []
 
 
 def test_no_offline_gate_sleeps_through_a_production_settle() -> None:
@@ -1755,3 +1769,129 @@ def test_a_modal_that_reappears_immediately_is_not_treated_as_closed() -> None:
     driver = driver_mod.ShinyDriver(page, INSTANT, log=lambda _m: None)
     with pytest.raises(driver_mod.ModalBlocked, match="would not close"):
         driver.clear_modal()
+
+
+# ---------------------------------------------------------------------------------------
+# THE SCOPE CHECK. Found by adversarial review, not by this session: `verify_payload` took
+# no `year` and never read the payload's own `season_year`, so a payload for the WRONG
+# SEASON passed with zero reasons and was written under the requested year's clean name.
+#
+# It is the same shape as the defect this tool exists for, on a different axis, and the
+# avg_type check provably cannot see it: a real year change ALSO resets the aggregation to
+# weighted, so a stale payload and the wanted one both read `weighted`. Positions are
+# complete in both, both clear the row floor, so nothing else fires either.
+#
+# Measured over 213 raw files: 194 carry a populated season_year and week agreeing with
+# their filename exactly, 0 disagree, 19 hold NA in both.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_payload_for_the_wrong_season_is_rejected() -> None:
+    """The reviewer's scenario, exactly: 2019 bytes offered for a 2020 job."""
+    payload = raw_csv(season_year="2019", week_col="0")
+    assert verify_payload(payload, kind="raw", year=2019, week=0, avg="weighted") == []
+    reasons = verify_payload(payload, kind="raw", year=2020, week=0, avg="weighted")
+    assert any(r.startswith("season-mismatch") for r in reasons), reasons
+
+
+def test_the_aggregation_check_cannot_see_a_wrong_season() -> None:
+    """Why the scope check had to be added rather than relied upon elsewhere.
+
+    A year change resets the aggregation to weighted, so a stale payload and the wanted one
+    carry the SAME avg_type. Every other check passes too. Without the season check this
+    payload is indistinguishable from a correct one.
+    """
+    stale = raw_csv(avg_type="weighted", season_year="2019", week_col="0")
+    reasons = verify_payload(stale, kind="raw", year=2020, week=0, avg="weighted")
+    assert [r.split(":")[0] for r in reasons] == ["season-mismatch"], reasons
+
+
+def test_a_payload_for_the_wrong_week_is_rejected() -> None:
+    """The weekly stage fetches 17 consecutive jobs differing only in the week dropdown,
+    with no Settings trip. A download handler one step behind the widget writes week N-1's
+    bytes under week N's name, byte-identical to the file written one job earlier."""
+    payload = raw_csv(season_year="2021", week_col="4", per_position=30)
+    assert verify_payload(payload, kind="raw", year=2021, week=4, avg="weighted") == []
+    reasons = verify_payload(payload, kind="raw", year=2021, week=5, avg="weighted")
+    assert any(r.startswith("week-mismatch") for r in reasons), reasons
+
+
+def test_a_season_payload_offered_as_weekly_is_rejected() -> None:
+    """And the reverse. The row floors cannot tell these apart -- 113 of 186 weekly files
+    hold MORE rows than the smallest season file."""
+    season = raw_csv(season_year="2019", week_col="0")
+    reasons = verify_payload(season, kind="raw", year=2019, week=9, avg="weighted")
+    assert any(r.startswith("week-mismatch") for r in reasons), reasons
+
+    weekly = raw_csv(season_year="2019", week_col="9", per_position=30)
+    reasons = verify_payload(weekly, kind="raw", year=2019, week=0, avg="weighted")
+    assert any(r.startswith("week-mismatch") for r in reasons), reasons
+
+
+def test_a_payload_that_names_no_season_is_still_kept() -> None:
+    """PRESENCE-CONDITIONAL, like IDP. 19 real files hold NA in both columns and are not
+    defective for it; requiring the column would discard every 2015 weekly file."""
+    payload = raw_csv(season_year="NA", week_col="NA")
+    assert verify_payload(payload, kind="raw", year=2020, week=7, avg="weighted") == []
+
+
+def test_a_payload_with_two_seasons_in_it_is_rejected() -> None:
+    """A frame stitched across a year change is not a partial success."""
+    first = raw_csv(season_year="2019", week_col="0")
+    second = raw_csv(season_year="2020", week_col="0").split("\n", 1)[1]
+    reasons = verify_payload(first + second, kind="raw", year=2019, week=0, avg="weighted")
+    assert any(r.startswith("season-mismatch") for r in reasons), reasons
+
+
+def test_the_row_floors_do_not_pretend_to_separate_season_from_weekly() -> None:
+    """The docstring used to claim season files are "far larger" than weekly ones, and that
+    is measurably false -- which is exactly why nobody added the check above.
+
+    Season raw spans 819..2236 rows and weekly raw spans 521..1856. A weekly-sized payload
+    clears the SEASON floor, so the floors provide no scope discrimination whatsoever.
+    """
+    weekly_sized = raw_csv(per_position=60)  # 540 rows, a realistic weekly count
+    assert verify_payload(weekly_sized, kind="raw", year=2019, week=0, avg="weighted") == []
+    assert verify.min_rows_for("raw", 0) < 540
+
+
+def test_an_unknown_kind_returns_a_reason_rather_than_raising() -> None:
+    """It used to raise KeyError from min_rows_for before the reason could be produced, so
+    a typo'd kind killed the run with a traceback out of run_jobs -- which catches only
+    SessionLost and NotLoggedIn -- instead of rejecting one file with a logged reason.
+    That contradicted this module's own stated contract."""
+    reasons = verify_payload(raw_csv(), kind="projections", year=2019, week=0, avg="weighted")
+    assert reasons == ["unknown-kind: 'projections'"]
+
+
+def test_the_na_fixture_default_matches_what_real_files_hold() -> None:
+    """The fixture defaults to NA because real files do. If FFA ever populates those
+    columns everywhere, this gate says the fixture has stopped being faithful."""
+    report = inspect_csv(raw_csv())
+    assert report.season_years == frozenset()
+    assert report.weeks == frozenset()
+    populated = inspect_csv(raw_csv(season_year="2022", week_col="6"))
+    assert populated.season_years == frozenset({"2022"})
+    assert populated.weeks == frozenset({"6"})
+
+
+_CORPUS = Path(__file__).resolve().parent / "data" / "ffa_corpus"
+
+
+@pytest.mark.skipif(not _CORPUS.exists(), reason="gitignored corpus not on this machine")
+def test_every_file_in_the_corpus_passes_the_scope_check() -> None:
+    """The check was added after 231 files were already fetched. This says none of them
+    were wrong -- the hole was open, and nothing had fallen through it."""
+    from .tools.ffa_scrape.naming import parse_filename as _parse
+
+    checked = failures = 0
+    for path in sorted(_CORPUS.glob("ffa_*.csv")):
+        kind, year, week, avg = _parse(path.name)
+        reasons = verify_payload(
+            path.read_text(encoding="utf-8"), kind=kind, year=year, week=week, avg=avg
+        )
+        checked += 1
+        if reasons:
+            failures += 1
+    assert checked > 0, "corpus directory is present but empty"
+    assert failures == 0, f"{failures} of {checked} corpus files fail verification"

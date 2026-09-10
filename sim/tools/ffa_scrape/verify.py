@@ -49,6 +49,8 @@ IDP_POSITIONS: Final[frozenset[str]] = frozenset({"DL", "LB", "DB"})
 AVG_TYPE_INDEX: Final[int] = 4
 AVG_TYPE_COLUMN: Final[str] = "avg_type"
 
+KNOWN_KINDS: Final[frozenset[str]] = frozenset({"raw", "proj"})
+
 # Floors that catch truncation, not tight bounds. Real counts range 830..2238 for season raw
 # and 493..593 for season proj, and vary by how deep FFA's sources went that year, so a tight
 # bound would reject good files. `_ragged` is the precise truncation check; these catch a
@@ -61,6 +63,20 @@ _MIN_ROWS: Final[Mapping[tuple[str, bool], int]] = {
 }
 
 
+# A raw export names its own scope in its last two columns. MEASURED over 213 raw files:
+# 194 carry a populated `season_year` and `week` that agree with the filename exactly, 0
+# disagree, and 19 -- 2015 and early-2016 weekly -- hold 'NA' in both.
+#
+# Checking them closes a hole of exactly the same shape as the one this tool exists for,
+# on a different axis. If a year change has not reached the download handler, the payload
+# is the PREVIOUS year's; and because a real year change also resets the aggregation to
+# weighted, the stale payload and the wanted one both read `weighted`, so the avg_type
+# check cannot see it. Positions are complete in both and both clear the row floor, so
+# nothing else fires either.
+SCOPE_COLUMNS: Final[tuple[str, str]] = ("season_year", "week")
+_ABSENT: Final[frozenset[str]] = frozenset({"NA", "", "N/A", "null"})
+
+
 @dataclass(frozen=True)
 class FileReport:
     """What a payload actually contains, measured."""
@@ -70,6 +86,10 @@ class FileReport:
     positions: Mapping[str, int]
     avg_types: frozenset[str]
     ragged: int
+    # The distinct populated values of `season_year` and `week`, or an empty set when the
+    # column is absent or holds only NA. Presence-conditional, like IDP.
+    season_years: frozenset[str] = frozenset()
+    weeks: frozenset[str] = frozenset()
 
     @property
     def sole_avg_type(self) -> str | None:
@@ -95,9 +115,13 @@ def inspect_csv(text: str) -> FileReport:
 
     pos_index = header.index("position") if "position" in header else None
     avg_index = header.index(AVG_TYPE_COLUMN) if AVG_TYPE_COLUMN in header else None
+    year_index = header.index(SCOPE_COLUMNS[0]) if SCOPE_COLUMNS[0] in header else None
+    week_index = header.index(SCOPE_COLUMNS[1]) if SCOPE_COLUMNS[1] in header else None
 
     positions: dict[str, int] = {}
     avg_types: set[str] = set()
+    season_years: set[str] = set()
+    weeks: set[str] = set()
     rows = 0
     ragged = 0
     width = len(header)
@@ -112,17 +136,33 @@ def inspect_csv(text: str) -> FileReport:
             positions[row[pos_index]] = positions.get(row[pos_index], 0) + 1
         if avg_index is not None:
             avg_types.add(row[avg_index])
+        if year_index is not None and row[year_index] not in _ABSENT:
+            season_years.add(row[year_index])
+        if week_index is not None and row[week_index] not in _ABSENT:
+            weeks.add(row[week_index])
     return FileReport(
         columns=tuple(header),
         rows=rows,
         positions=positions,
         avg_types=frozenset(avg_types),
         ragged=ragged,
+        season_years=frozenset(season_years),
+        weeks=frozenset(weeks),
     )
 
 
 def min_rows_for(kind: str, week: int) -> int:
-    """The floor for this scope. Season (week 0) files are far larger than weekly ones."""
+    """The floor for this scope.
+
+    NOT a scope discriminator, and the docstring here used to claim otherwise -- "season
+    files are far larger than weekly ones". MEASURED over 213 files: season raw spans
+    819..2236 rows and weekly raw spans 521..1856, and 113 of 186 weekly files hold more
+    rows than the smallest season file. The ranges overlap almost entirely.
+
+    That matters because a reader who believes the floors separate season from weekly does
+    not add the check that actually does, which is `season_year`/`week` in the payload
+    itself. These floors catch a stub, an error page or an empty frame. Nothing more.
+    """
     return _MIN_ROWS[(kind, week == 0)]
 
 
@@ -130,6 +170,7 @@ def verify_payload(
     text: str,
     *,
     kind: str,
+    year: int,
     week: int,
     avg: str,
     min_rows: int | None = None,
@@ -140,6 +181,13 @@ def verify_payload(
     on purpose: the prior attempt survived precisely because a mismatch looked survivable.
     """
     reasons: list[str] = []
+    # BEFORE the row floor, which indexes on `kind` and would raise on an unknown one. The
+    # unknown-kind reason used to sit below it and was unreachable on every production call
+    # path: min_rows_for raised KeyError first, so a typo'd kind killed the run with a
+    # traceback out of run_jobs instead of rejecting one file with a logged reason. That
+    # contradicted this module's own contract -- every check returns a reason, none raise.
+    if kind not in KNOWN_KINDS:
+        return [f"unknown-kind: {kind!r}"]
     try:
         report = inspect_csv(text)
     except EmptyPayload as exc:
@@ -191,13 +239,25 @@ def verify_payload(
                     f"avg-type-mismatch: asked for {avg!r}, file holds "
                     f"{sorted(report.avg_types)} -- the year change reset the aggregation"
                 )
-    elif kind == "proj":
-        if AVG_TYPE_COLUMN in report.columns:
-            reasons.append(
-                "avg-type-column-unexpected: a proj file gained an aggregation column; "
-                "the unverifiable-by-construction assumption no longer holds"
-            )
-    else:
-        reasons.append(f"unknown-kind: {kind!r}")
+    elif kind == "proj" and AVG_TYPE_COLUMN in report.columns:
+        reasons.append(
+            "avg-type-column-unexpected: a proj file gained an aggregation column; "
+            "the unverifiable-by-construction assumption no longer holds"
+        )
+
+    # THE SCOPE CHECK. Presence-conditional, like IDP: 19 of 213 raw files hold 'NA' in
+    # both columns and are not defective for it. Where the payload DOES name its own
+    # season and week, it must be the one that was asked for.
+    if report.season_years and report.season_years != frozenset({str(year)}):
+        reasons.append(
+            f"season-mismatch: asked for {year}, file holds "
+            f"{sorted(report.season_years)} -- the year change had not reached the "
+            "download handler"
+        )
+    if report.weeks and report.weeks != frozenset({str(week)}):
+        reasons.append(
+            f"week-mismatch: asked for wk{week}, file holds "
+            f"{sorted(report.weeks)} -- the week change had not reached the download handler"
+        )
 
     return reasons
