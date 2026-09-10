@@ -438,8 +438,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         "the-runner-asks-for-weighted-whatever-the-job-says",
         "runner.py",
-        "            job.kind, job.year, job.week, job.avg,",
-        '            job.kind, job.year, job.week, "weighted",',
+        "            job.avg,\n",
+        '            "weighted",\n',
     ),
     # --- driver.py: the ORDER, which is the mechanism of the original defect -------------
     # The ORIGINAL defect, restored exactly: skip the Settings trip for any weighted job on
