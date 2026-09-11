@@ -40,6 +40,11 @@ from pathlib import Path
 from typing import Any
 
 from . import rank, room, weekly
+from .roundtrip import (
+    FUMBLE_RECOVERY_TD_POINTS,
+    RETURN_TD_POINTS,
+    RETURN_YARD_POINTS,
+)
 
 CORPUS: Path = Path(__file__).resolve().parent / "data" / "ffa_corpus"
 
@@ -64,7 +69,28 @@ USABLE_WEIGHTED_FROM = 2016
 # So the corpus offers weighted 2016-2025 and the harness can only score 2019-2025. The
 # intersection is what `scoreable_scopes` returns, and the difference is reported rather
 # than quietly dropped: 2016-2018 weekly projections are on disk with no pinned outcome.
-ACTUALS_SEASONS: tuple[int, ...] = tuple(range(2019, 2026))
+def pinned_actuals_seasons() -> tuple[int, ...]:
+    """Which seasons have a pinned weekly-outcome file, READ FROM DISK.
+
+    This was a hardcoded `range(2019, 2026)` and the phase-1 review refuted it: pinning
+    `player_stats_2018.parquet` would silently drop 17 scopes while the run's own accounting
+    line -- "51 weekly projections have no pinned outcome" -- became a false statement, and no
+    gate read the directory. A constant that describes the filesystem has to be measured.
+
+    Both cache roots are consulted because `room.resolve_input` falls back from `sim-cache` to
+    `cache`, and `realised_week` goes through it. Reading only one root would make "pinned"
+    mean two different things in the two halves of the same script.
+    """
+    seasons: set[int] = set()
+    for root in (room.SIM_CACHE, room.LIVE_CACHE):
+        folder = Path(root) / "nflverse"
+        if not folder.is_dir():
+            continue
+        for path in folder.glob("player_stats_*.parquet"):
+            stem = path.stem.rsplit("_", 1)[-1]
+            if stem.isdigit():
+                seasons.add(int(stem))
+    return tuple(sorted(seasons))
 
 # FFA has no data for it in any aggregation: 23 bytes for raw weighted, three defensive
 # players for average and robust, a 500 for proj. Never substituted.
@@ -133,11 +159,12 @@ def available_scopes(
     seasons whose outcomes are pinned -- which is what any scoring run needs, and which is
     narrower than the corpus.
     """
+    pinned = pinned_actuals_seasons() if require_actuals else ()
     scopes = []
     for season in WEEKLY_SEASONS:
         if aggregation == "weighted" and season < USABLE_WEIGHTED_FROM:
             continue
-        if require_actuals and season not in ACTUALS_SEASONS:
+        if require_actuals and season not in pinned:
             continue
         for week in REGULAR_WEEKS:
             if (season, week) in MISSING_SCOPES:
@@ -266,7 +293,12 @@ def build_board(
         # larger rather than summing: summing would double a traded player's projection.
         if points > projected.get(gsis, float("-inf")):
             projected[gsis] = points
-        position[gsis] = pos
+            # The position comes from the row that WON, not from whichever row came last: a
+            # player duplicated under two team aliases can carry two different positions
+            # (`00-0037450` is RB in one 2024 wk8 row and WR in another) and recording the
+            # loser's would group him against the wrong replacement level.
+            position[gsis] = pos
+        position.setdefault(gsis, pos)
 
     value = _scaled(projected, position, league_key, scale)
     board = sorted(value, key=lambda pid: (-value[pid], pid))
@@ -283,7 +315,22 @@ SCALES: tuple[str, ...] = ("points", "vorp")
 def _scaled(
     points: dict[str, float], position: dict[str, str], league_key: str, scale: str
 ) -> dict[str, float]:
-    """Put a points dict on the requested scale. The SAME call serves both sides."""
+    """Put a points dict on the requested scale.
+
+    THE SAME FUNCTION SERVES BOTH SIDES; THE FITTED REPLACEMENT LEVELS ARE NOT THE SAME.
+    `compute_vorp` re-derives its rostered counts and replacement points from whatever
+    population it is handed, and the two populations differ -- 444 projected players against
+    351 who actually recorded a row in 2024 wk8 green_hope, replacement at QB 19.875 against
+    27.600. Forcing the board's own levels onto the realised side moves that scope from 28.037
+    to 33.813, so this is a live choice and not a formality.
+
+    IT IS DELIBERATELY LEFT AS TWO POPULATIONS, because that is exactly what the seasonal
+    pipeline does -- `rank.vorp_values` on the projection, `rank.realised_vorp` on the
+    outcome -- and the incumbent bar of 22.43 / 28.10 / 32.63 was measured that way. Changing
+    it here would make the weekly number incomparable with the one it has to be confirmed
+    against. The phase-1 review found the previous wording ("the SAME call serves both sides")
+    read as a claim that the levels match. They do not.
+    """
     if scale == "points":
         return dict(points)
     if scale == "vorp":
@@ -301,9 +348,82 @@ class WeeklyRealised:
     points: dict[str, float]
     position: dict[str, str]
 
-    def on(self, scale: str) -> dict[str, float]:
-        """The outcome on *scale* -- the same transform the board side was built with."""
-        return _scaled(self.points, self.position, self.league_key, scale)
+    def on(self, scale: str, position: dict[str, str] | None = None) -> dict[str, float]:
+        """The outcome on *scale*.
+
+        *position* overrides this frame's own position map where the two know the same player,
+        and the caller passes the BOARD's map. Without it the realised VORP groups a player by
+        his nflverse position while `score_board`'s per-position metric groups him by his FFA
+        position, so his group's shift stops being constant and the within-position order
+        moves. The phase-1 review measured that: `00-0033357` is an FFA quarterback and an
+        nflverse tight end, and alone he produced 11 QB rank flips and a +0.634 QB delta in
+        2021 wk17. Two or three such players appear per scope, in 17 of 118.
+        """
+        merged = self.position if position is None else {**self.position, **position}
+        return _scaled(self.points, merged, self.league_key, scale)
+
+
+def permutation_floor(
+    pool_size: int, teams: int, *, draws: int = 400, seed: int = 20260911,
+    indexing: str = "symmetric",
+) -> tuple[float, float]:
+    """The rank error of a RANDOM PERMUTATION of *pool_size* players. No football involved.
+
+    THIS IS THE MOST IMPORTANT CORRECTION THE PHASE-1 REVIEW MADE. `rank._realised_order`
+    replaces realised values with within-pool ranks 1..n and `rank._weights` reads only the two
+    ranks, so a shuffled board's score depends on `pool_size` and `teams` and on NOTHING ELSE.
+    Every player, every week, every league rulebook cancels.
+
+    The consequence is that "the weekly floor equals the seasonal floor" is arithmetic, not a
+    finding: both modes score 128 / 160 / 190-player pools at 8 / 10 / 10 teams, so both get
+    the same number. It would still be the same number if one problem were ten times harder.
+    A shuffle floor is a sanity bar on the METRIC, and it is reported as one.
+
+    The floor that carries information about a SIGNAL is a different object -- `signals.noise`,
+    a sha256 of player and season, which shuffles one term inside a real board rather than
+    destroying the board. That is the one phase 2 adjudicates against.
+    """
+    import random
+
+    rng = random.Random(seed)
+    ids = [f"s{i:05d}" for i in range(pool_size)]
+    outcome = {pid: float(i) for i, pid in enumerate(ids)}
+    draws_out = []
+    for _ in range(draws):
+        shuffled = list(ids)
+        rng.shuffle(shuffled)
+        draws_out.append(
+            rank.score_board(
+                shuffled, outcome, teams=teams, pool_size=pool_size, indexing=indexing
+            ).rwre
+        )
+    import statistics
+
+    return statistics.mean(draws_out), statistics.stdev(draws_out)
+
+
+def preflight(scopes: list[tuple[int, int]], league_key: str) -> None:
+    """Fail BEFORE any work if a scope's inputs are missing, naming the file.
+
+    `rank.PreflightError`'s own contract is "raised BEFORE any work, naming the file, never
+    mid-run", and the phase-1 sweep violated it: unpinning one season left every gate green and
+    crashed the run partway through with a bare `FileNotFoundError`. This closes that.
+    """
+    missing: list[str] = []
+    for season, week in scopes:
+        try:
+            corpus_path(season, week, "weighted")
+        except ScopeMissing as exc:
+            missing.append(str(exc))
+        path = Path(room.SIM_CACHE) / "nflverse" / f"player_stats_{season}.parquet"
+        alt = Path(room.LIVE_CACHE) / "nflverse" / f"player_stats_{season}.parquet"
+        if not path.exists() and not alt.exists():
+            missing.append(f"outcome missing for {season}: {path}")
+    if missing:
+        raise rank.PreflightError(
+            f"{league_key}: {len(missing)} scope inputs missing before any work began; "
+            f"first is {sorted(set(missing))[0]}"
+        )
 
 
 def realised_week(
@@ -338,8 +458,21 @@ def realised_week(
             weights_by_position[pos] = weights
         stats = {key: float(row.get(col) or 0.0) for col, key in weekly.COLUMN_TO_KEY.items()}
         stats["pass_yd"] = weekly.bucket25(float(row.get("passing_yards") or 0.0))
+        pts = score_stat_line(stats, weights)
+        # THE SAME THREE TERMS THE SEASONAL SIDE PAYS. `rank.realised_per_game` adds return
+        # yards, return touchdowns and fumble-recovery touchdowns; this function did not, and
+        # the phase-1 review measured the gap at 28 offensive players and 68.0 points in one
+        # week of one league, up to 13.0 for a single returner -- tens of weekly ranks. A
+        # script whose headline compares the weekly and seasonal modes cannot score them under
+        # two different rulebooks.
+        pts += RETURN_YARD_POINTS * (
+            weekly.bucket25(float(row.get("punt_return_yards") or 0.0))
+            + weekly.bucket25(float(row.get("kickoff_return_yards") or 0.0))
+        )
+        pts += RETURN_TD_POINTS * float(row.get("special_teams_tds") or 0.0)
+        pts += FUMBLE_RECOVERY_TD_POINTS * float(row.get("fumble_recovery_tds") or 0.0)
         pid = str(row["player_id"])
-        points[pid] = points.get(pid, 0.0) + score_stat_line(stats, weights)
+        points[pid] = points.get(pid, 0.0) + pts
         position[pid] = pos
     return WeeklyRealised(
         season=season, week=week, league_key=league_key, points=points, position=position,

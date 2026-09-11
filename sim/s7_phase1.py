@@ -11,18 +11,38 @@ WHAT IT ESTABLISHES, and why each number is here rather than asserted:
     dispositions flipping when a single floor draw was used instead of a distribution -- 28%,
     every one a false resolution. A shuffled board is scored `FLOOR_DRAWS` times per scope and
     the spread is reported.
-  * How the weekly floor compares to the seasonal one. The whole premise of S7 is that the
-    weekly sample is large enough to resolve what six observations could not, and that claim
-    is only worth anything if both floors are on the page: +2 means one thing against a floor
-    of 53 and another against a floor of 79.
+  * THAT THE SHUFFLE FLOOR CONTAINS NO FOOTBALL. This is the phase-1 review's correction and
+    it retracts this script's first headline. `rank._realised_order` replaces realised values
+    with within-pool ranks and `rank._weights` reads only the two ranks, so a shuffled board's
+    score is a function of `pool_size` and `teams` and of nothing else -- `permutation_floor`
+    reproduces all three leagues' floors from synthetic ids with no data at all. The weekly and
+    seasonal floors agree (53.1 / 66.4 / 79.6 against 52.8 / 65.9 / 78.7) because both modes
+    score 128 / 160 / 190 pools at 8 / 10 / 10 teams. That is arithmetic. It is NOT evidence
+    that the weekly problem is as hard as the seasonal one; the two would agree whichever was
+    harder. The first version of this file inferred exactly that and was wrong.
 
-VALIDATION RUNS FIRST AND THE SCRIPT REFUSES TO CONTINUE WITHOUT IT, weekly and seasonal. A
-board built from the realised order must score exactly 0.000000 and a shuffled board must sit
-at chance. `audible#85` caught a units bug this way on its first run: a VORP-ordered board
-scored against points-ordered outcomes read 13.99 with every per-position figure at exactly
-0.0. IT CAUGHT THE SAME CLASS OF BUG AGAIN IN THIS SESSION -- the first seasonal G1 written
-here fed `Realised.per_game` to a VORP-ordered perfect board and read 25.060311. That is the
-gate doing its job, and it is why the weekly side now carries an explicit `scale`.
+    What the shuffle floor IS good for is a bar on the metric: if a shuffled REAL board departs
+    from the synthetic permutation floor, the metric is reading something other than the two
+    ranks. That check is now in `validate`.
+
+VALIDATION RUNS FIRST AND THE SCRIPT REFUSES TO CONTINUE WITHOUT IT, weekly and seasonal.
+`audible#85` caught a units bug this way on its first run: a VORP-ordered board scored against
+points-ordered outcomes read 13.99 with every per-position figure at exactly 0.0. IT CAUGHT THE
+SAME CLASS OF BUG AGAIN IN THIS SESSION -- the first seasonal G1 written here fed
+`Realised.per_game` to a VORP-ordered perfect board and read 25.060311. That is why the weekly
+side carries an explicit `scale`.
+
+The perfect-board half of G1 is a tautology on its own and the review proved it; see
+`validate`, where the cross-scale and permutation-floor checks that actually gate the units
+live.
+
+WHAT PHASE 1 DOES NOT ESTABLISH, stated because the review asked for it: the sd this script
+publishes is the sd of the LEVEL, and what decides whether the weekly sample can resolve a
+treatment is the sd of the PAIRED DIFFERENCE between two arms on the same scope. Phase 2
+computes that; phase 1 does not, so "weekly resolves what six observations could not" is still
+an open claim at the end of this file. Season-clustering is also live: the between-season mean
+square is 59.689 against 16.970 within, ICC 0.130, so 118 weekly scopes are worth an effective
+n near 39 for a season-level effect -- not 118.
 """
 
 from __future__ import annotations
@@ -63,17 +83,42 @@ class ScopeResult:
     per_position: dict[str, float]
     floor_mean: float
     floor_sd: float
-    pool: int
-    observations: int
+    scored: int
+    candidates: int
 
 
 def _weekly(league: str, season: int, week: int, scale: str):
+    """A board and its outcome on the same scale, grouped by the same position map."""
     board = s7.build_board(season, week, league, aggregation=AGGREGATION, scale=scale)
     realised = s7.realised_week(season, week, league)
-    return board, realised.on(scale)
+    return board, realised.on(scale, position=board.position)
 
 
 def validate(league: str, season: int, week: int, scale: str) -> None:
+    """G1, and the phase-1 review's correction to it.
+
+    THE PERFECT-BOARD CHECK ALONE IS A TAUTOLOGY and cannot catch the bug G1 exists for. A
+    board sorted by `(-outcome[pid], pid)` is sorted by the SAME key `rank._realised_order`
+    uses, so it reads 0.000000 against any outcome dict whatsoever -- the review demonstrated
+    it against uniform random numbers. It is kept because it proves the metric is internally
+    consistent, and the two checks below are what actually gate the units:
+
+      CROSS-SCALE, ON THE PERFECT BOARD. The perfect board built from the OTHER scale's
+      outcome, scored against THIS scale's outcome, must be strictly worse than 0.000000. That
+      is precisely `audible#85`'s 13.99 -- a perfect answer in the wrong unit -- and it is a
+      units invariant, so it can be gated.
+
+      IT IS NOT "THE FFA BOARD ON THE RIGHT SCALE BEATS THE FFA BOARD ON THE WRONG SCALE." The
+      first version of this gate asserted that and it FIRED on sleeper_boyfun 2024 wk8: a
+      points-ordered board scored 51.413 against the vorp outcome where the vorp-ordered board
+      scored 52.163. Which board ranks better is an empirical question about `compute_vorp` in a
+      10-team SUPERFLEX league -- `rank.vorp_values` already records its `rostered_counts` as
+      known wrong at QB -- not an invariant. It is reported below as a finding instead.
+
+      CHANCE, against the analytic permutation floor rather than an arbitrary bar. The old test
+      was `chance < score.rwre + 1.0` where `score.rwre` is always exactly 0, i.e. `chance <
+      1.0`, which nothing could fail.
+    """
     board, outcome = _weekly(league, season, week, scale)
     common = [pid for pid in board.board if pid in outcome]
     perfect = sorted(common, key=lambda pid: (-outcome[pid], pid))
@@ -84,17 +129,49 @@ def validate(league: str, season: int, week: int, scale: str) -> None:
             f"from the realised order scored {score.rwre:.6f}, not 0.000000. Nothing "
             "measured after this would mean anything."
         )
+
+    other = "points" if scale == "vorp" else "vorp"
+    wrong_board, wrong_outcome = _weekly(league, season, week, other)
+    wrong_perfect = sorted(
+        [pid for pid in wrong_board.board if pid in wrong_outcome],
+        key=lambda pid: (-wrong_outcome[pid], pid),
+    )
+    cross = s7.score_week(
+        [pid for pid in wrong_perfect if pid in outcome], outcome, league,
+        position=board.position,
+    ).rwre
+    if cross <= 1e-9:
+        raise SystemExit(
+            f"G1 FAILED weekly: {league} {season} wk{week} -- the PERFECT board on {other} "
+            f"scored {cross:.6f} against a {scale} outcome. A right answer in the wrong unit "
+            "must cost something; if it does not, the two scales are the same object and "
+            "nothing here is gating units."
+        )
+    right = s7.score_week(board.board, outcome, league, position=board.position).rwre
+    other_board = s7.score_week(
+        wrong_board.board, outcome, league, position=board.position
+    ).rwre
+
+    pool = min(rank.pool_size_for(league), len(common))
+    teams = int(rank.league(league).num_teams)
+    floor_mean, floor_sd = s7.permutation_floor(pool, teams, draws=FLOOR_DRAWS, seed=SEED)
     rng = random.Random(SEED)
     shuffled = list(common)
     rng.shuffle(shuffled)
     chance = s7.score_week(shuffled, outcome, league, position=board.position).rwre
-    if chance < score.rwre + 1.0:
+    if abs(chance - floor_mean) > 4 * floor_sd:
         raise SystemExit(
-            f"G1 FAILED weekly: {league} {season} wk{week} scale {scale} -- a shuffled board "
-            f"scored {chance:.3f}, not at chance."
+            f"G1 FAILED weekly: {league} {season} wk{week} scale {scale} -- a shuffled real "
+            f"board scored {chance:.3f} against a football-free permutation floor of "
+            f"{floor_mean:.3f} sd {floor_sd:.3f}. Those must agree; if they do not the metric "
+            "is reading something other than the two ranks."
         )
-    print(f"G1  {league} {season} wk{week} {scale}: perfect {score.rwre:.6f}, "
-          f"shuffled {chance:.3f}")
+    print(f"G1  {league} {season} wk{week} {scale}: perfect 0.000000, "
+          f"perfect-in-wrong-unit {cross:.3f}, shuffled {chance:.3f}, "
+          f"permutation floor {floor_mean:.3f}")
+    verdict = "beaten by" if other_board < right else "beats"
+    print(f"    FFA board ordered on {scale} scores {right:.3f}; ordered on {other} it scores "
+          f"{other_board:.3f} against the same {scale} outcome -- {scale} {verdict} {other}")
 
 
 def run_scope(league: str, season: int, week: int, scale: str) -> ScopeResult | None:
@@ -118,7 +195,10 @@ def run_scope(league: str, season: int, week: int, scale: str) -> ScopeResult | 
         ffa=score.rwre, spearman=score.spearman, top24=score.top24_hit,
         per_position=dict(score.per_position),
         floor_mean=statistics.mean(draws), floor_sd=statistics.stdev(draws),
-        pool=len(common), observations=len(outcome),
+        # `scored` is what enters RWRE; `candidates` is what was available to it. The first
+        # report published the second and called it player-weeks, overstating green_hope's
+        # sample by 2.4x. They are different numbers and both are printed.
+        scored=score.n, candidates=len(common),
     )
 
 
@@ -128,13 +208,19 @@ def report(league: str, scale: str, results: list[ScopeResult]) -> None:
     beat = sum(1 for r in results if r.ffa < r.floor_mean - 2 * r.floor_sd)
     print(f"== {league} {scale} ==")
     print(f"  scopes scored      {len(results)}")
-    print(f"  player-weeks       {sum(r.pool for r in results)}")
+    print(f"  player-weeks SCORED    {sum(r.scored for r in results)}"
+          f"   (candidates {sum(r.candidates for r in results)})")
     print(f"  FFA  RWRE  mean {statistics.mean(ffa):7.3f}  sd {statistics.stdev(ffa):6.3f}"
           f"  min {min(ffa):7.3f}  max {max(ffa):7.3f}")
     print(f"  FLOOR RWRE mean {statistics.mean(floor):7.3f}"
           f"  sd {statistics.stdev(floor):6.3f}"
           f"  min {min(floor):7.3f}  max {max(floor):7.3f}")
     print(f"  within-scope floor sd  mean {statistics.mean(r.floor_sd for r in results):.3f}")
+    pool = rank.pool_size_for(league)
+    teams = int(rank.league(league).num_teams)
+    synth_mean, synth_sd = s7.permutation_floor(pool, teams, draws=200, seed=SEED)
+    print(f"  PERMUTATION floor (no football at all, pool {pool} teams {teams}): "
+          f"{synth_mean:7.3f} sd {synth_sd:5.3f}")
     print(f"  scopes where FFA beats its own floor by 2sd: {beat}/{len(results)}")
     print(f"  spearman   mean {statistics.mean(r.spearman for r in results):.4f}")
     print(f"  top24 hit  mean {statistics.mean(r.top24 for r in results):.4f}")
@@ -196,6 +282,11 @@ def seasonal(league: str) -> None:
     print(f"  FLOOR RWRE mean {statistics.mean(means):7.3f}"
           f"  sd {statistics.stdev(means):6.3f}"
           f"  min {min(means):7.3f}  max {max(means):7.3f}")
+    synth_mean, synth_sd = s7.permutation_floor(pool, teams, draws=200, seed=SEED)
+    print(f"  PERMUTATION floor (no football at all, pool {pool} teams {teams}): "
+          f"{synth_mean:7.3f} sd {synth_sd:5.3f}")
+    print("  the weekly and seasonal floors agree BECAUSE the pool and team count agree.")
+    print("  That is arithmetic, not a finding about weekly-vs-seasonal difficulty.")
     for season, mean, sd in per_season:
         print(f"    {season}  floor {mean:7.3f}  within-season sd {sd:5.3f}")
 
@@ -210,11 +301,17 @@ def main() -> int:
     scopes = s7.available_scopes(AGGREGATION, require_actuals=True)
     print(f"-- {len(scopes)} scopes scoreable for {AGGREGATION} --")
     print(f"   the corpus offers {len(offered)}; the outcome side binds. player_stats is")
-    print(f"   pinned for {s7.ACTUALS_SEASONS[0]}-{s7.ACTUALS_SEASONS[-1]}, so "
+    pinned = s7.pinned_actuals_seasons()
+    print(f"   pinned for {pinned[0]}-{pinned[-1]} (read from disk, not asserted), so "
           f"{len(offered) - len(scopes)} weekly projections on disk")
     print("   have no pinned outcome and are NOT scored. No substitution.")
     print("   2015 is excluded: its weighted files carry sd without point estimates.")
     print("   2020 wk17 is excluded: FFA has no data, in any aggregation.")
+    print()
+
+    for league in LEAGUES:
+        s7.preflight(scopes, league)
+    print("preflight: every scope's projection and outcome present before any work")
     print()
 
     print("-- G1 validation, weekly, one scope per league per scale --")

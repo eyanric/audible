@@ -4,156 +4,173 @@ scales ('vorp', 'points') -- vorp is primary, it is what the draft board ships
 
 -- 118 scopes scoreable for weighted --
    the corpus offers 169; the outcome side binds. player_stats is
-   pinned for 2019-2025, so 51 weekly projections on disk
+   pinned for 2019-2025 (read from disk, not asserted), so 51 weekly projections on disk
    have no pinned outcome and are NOT scored. No substitution.
    2015 is excluded: its weighted files carry sd without point estimates.
    2020 wk17 is excluded: FFA has no data, in any aggregation.
 
+preflight: every scope's projection and outcome present before any work
+
 -- G1 validation, weekly, one scope per league per scale --
-G1  espn_green_hope 2024 wk8 vorp: perfect 0.000000, shuffled 57.151
-G1  espn_danger_zone 2024 wk8 vorp: perfect 0.000000, shuffled 69.613
-G1  sleeper_boyfun 2024 wk8 vorp: perfect 0.000000, shuffled 81.668
-G1  espn_green_hope 2024 wk8 points: perfect 0.000000, shuffled 56.844
-G1  espn_danger_zone 2024 wk8 points: perfect 0.000000, shuffled 65.801
-G1  sleeper_boyfun 2024 wk8 points: perfect 0.000000, shuffled 80.887
+G1  espn_green_hope 2024 wk8 vorp: perfect 0.000000, perfect-in-wrong-unit 38.363, shuffled 57.243, permutation floor 53.526
+    FFA board ordered on vorp scores 29.721; ordered on points it scores 59.775 against the same vorp outcome -- vorp beats points
+G1  espn_danger_zone 2024 wk8 vorp: perfect 0.000000, perfect-in-wrong-unit 27.814, shuffled 69.525, permutation floor 66.230
+    FFA board ordered on vorp scores 37.120; ordered on points it scores 58.962 against the same vorp outcome -- vorp beats points
+G1  sleeper_boyfun 2024 wk8 vorp: perfect 0.000000, perfect-in-wrong-unit 6.776, shuffled 81.980, permutation floor 80.186
+    FFA board ordered on vorp scores 52.163; ordered on points it scores 51.413 against the same vorp outcome -- vorp beaten by points
+G1  espn_green_hope 2024 wk8 points: perfect 0.000000, perfect-in-wrong-unit 26.070, shuffled 55.527, permutation floor 53.526
+    FFA board ordered on points scores 28.619; ordered on vorp it scores 42.456 against the same points outcome -- points beats vorp
+G1  espn_danger_zone 2024 wk8 points: perfect 0.000000, perfect-in-wrong-unit 23.012, shuffled 64.909, permutation floor 66.230
+    FFA board ordered on points scores 48.320; ordered on vorp it scores 52.052 against the same points outcome -- points beats vorp
+G1  sleeper_boyfun 2024 wk8 points: perfect 0.000000, perfect-in-wrong-unit 6.565, shuffled 80.548, permutation floor 80.186
+    FFA board ordered on points scores 46.113; ordered on vorp it scores 53.329 against the same points outcome -- points beats vorp
 
 == espn_green_hope vorp ==
   scopes scored      118
-  player-weeks       36201
-  FFA  RWRE  mean  34.529  sd  4.377  min  25.990  max  47.726
-  FLOOR RWRE mean  53.141  sd  0.662  min  51.777  max  55.142
-  within-scope floor sd  mean 3.933
-  scopes where FFA beats its own floor by 2sd: 116/118
-  spearman   mean 0.4095
-  top24 hit  mean 0.4163
-  QB  mean  5.402  sd 0.949  n 118
-  RB  mean 11.603  sd 1.827  n 118
-  WR  mean 13.864  sd 1.935  n 118
-  TE  mean  7.247  sd 1.118  n 118
+  player-weeks SCORED    15104   (candidates 36201)
+  FFA  RWRE  mean  34.906  sd  4.279  min  26.559  max  48.312
+  FLOOR RWRE mean  53.184  sd  0.684  min  51.524  max  55.210
+  within-scope floor sd  mean 3.907
+  PERMUTATION floor (no football at all, pool 128 teams 8):  53.084 sd 4.077
+  scopes where FFA beats its own floor by 2sd: 117/118
+  spearman   mean 0.3996
+  top24 hit  mean 0.4131
+  QB  mean  5.392  sd 0.955  n 118
+  RB  mean 11.697  sd 1.825  n 118
+  WR  mean 13.933  sd 1.891  n 118
+  TE  mean  7.258  sd 1.120  n 118
   by season:
-    2019  n 17  mean  35.877  sd  4.526
-    2020  n 16  mean  37.469  sd  4.620
-    2021  n 17  mean  34.158  sd  4.058
-    2022  n 17  mean  33.462  sd  4.622
-    2023  n 17  mean  35.840  sd  3.813
-    2024  n 17  mean  32.828  sd  4.204
-    2025  n 17  mean  32.242  sd  2.682
+    2019  n 17  mean  36.121  sd  4.505
+    2020  n 16  mean  37.546  sd  4.535
+    2021  n 17  mean  34.502  sd  4.158
+    2022  n 17  mean  33.729  sd  4.503
+    2023  n 17  mean  35.908  sd  3.656
+    2024  n 17  mean  33.595  sd  4.280
+    2025  n 17  mean  33.093  sd  2.911
 
 == espn_danger_zone vorp ==
   scopes scored      118
-  player-weeks       36201
-  FFA  RWRE  mean  40.818  sd  4.687  min  32.528  max  53.828
-  FLOOR RWRE mean  66.403  sd  0.675  min  64.862  max  68.148
-  within-scope floor sd  mean 4.336
+  player-weeks SCORED    18880   (candidates 36201)
+  FFA  RWRE  mean  41.288  sd  4.660  min  32.601  max  53.962
+  FLOOR RWRE mean  66.387  sd  0.655  min  64.980  max  68.094
+  within-scope floor sd  mean 4.313
+  PERMUTATION floor (no football at all, pool 160 teams 10):  66.350 sd 4.181
   scopes where FFA beats its own floor by 2sd: 118/118
-  spearman   mean 0.4678
-  top24 hit  mean 0.3814
-  QB  mean  6.593  sd 1.152  n 118
-  RB  mean 12.598  sd 1.921  n 118
-  WR  mean 15.657  sd 1.943  n 118
-  TE  mean  8.260  sd 1.275  n 118
+  spearman   mean 0.4591
+  top24 hit  mean 0.3743
+  QB  mean  6.594  sd 1.161  n 118
+  RB  mean 12.767  sd 1.970  n 118
+  WR  mean 15.734  sd 1.921  n 118
+  TE  mean  8.276  sd 1.279  n 118
   by season:
-    2019  n 17  mean  41.430  sd  3.997
-    2020  n 16  mean  43.360  sd  4.617
-    2021  n 17  mean  41.015  sd  5.625
-    2022  n 17  mean  40.646  sd  5.403
-    2023  n 17  mean  40.463  sd  4.538
-    2024  n 17  mean  39.949  sd  4.460
-    2025  n 17  mean  39.014  sd  3.472
+    2019  n 17  mean  41.810  sd  4.088
+    2020  n 16  mean  43.539  sd  4.749
+    2021  n 17  mean  41.429  sd  5.734
+    2022  n 17  mean  41.042  sd  5.263
+    2023  n 17  mean  40.793  sd  4.665
+    2024  n 17  mean  40.209  sd  4.519
+    2025  n 17  mean  40.327  sd  3.198
 
 == sleeper_boyfun vorp ==
   scopes scored      118
-  player-weeks       36201
-  FFA  RWRE  mean  48.141  sd  5.119  min  32.588  max  61.686
-  FLOOR RWRE mean  79.556  sd  0.760  min  77.739  max  82.044
-  within-scope floor sd  mean 4.988
+  player-weeks SCORED    22420   (candidates 36201)
+  FFA  RWRE  mean  48.502  sd  5.228  min  32.625  max  61.820
+  FLOOR RWRE mean  79.562  sd  0.753  min  77.691  max  82.108
+  within-scope floor sd  mean 5.005
+  PERMUTATION floor (no football at all, pool 190 teams 10):  79.582 sd 4.976
   scopes where FFA beats its own floor by 2sd: 118/118
-  spearman   mean 0.4892
-  top24 hit  mean 0.3453
-  QB  mean  7.392  sd 1.290  n 118
-  RB  mean 12.948  sd 1.981  n 118
-  WR  mean 20.815  sd 2.690  n 118
-  TE  mean  9.007  sd 1.266  n 118
+  spearman   mean 0.4826
+  top24 hit  mean 0.3450
+  QB  mean  7.397  sd 1.295  n 118
+  RB  mean 13.140  sd 2.028  n 118
+  WR  mean 21.048  sd 2.673  n 118
+  TE  mean  9.007  sd 1.265  n 118
   by season:
-    2019  n 17  mean  49.860  sd  5.685
-    2020  n 16  mean  50.128  sd  4.667
-    2021  n 17  mean  47.913  sd  5.766
-    2022  n 17  mean  47.062  sd  5.999
-    2023  n 17  mean  46.904  sd  5.068
-    2024  n 17  mean  47.455  sd  4.266
-    2025  n 17  mean  47.782  sd  3.888
+    2019  n 17  mean  50.162  sd  5.754
+    2020  n 16  mean  50.550  sd  4.707
+    2021  n 17  mean  48.246  sd  5.662
+    2022  n 17  mean  47.130  sd  6.361
+    2023  n 17  mean  47.087  sd  5.133
+    2024  n 17  mean  47.768  sd  4.459
+    2025  n 17  mean  48.691  sd  3.912
 
 == espn_green_hope points ==
   scopes scored      118
-  player-weeks       36201
-  FFA  RWRE  mean  28.047  sd  3.347  min  20.787  max  45.879
-  FLOOR RWRE mean  53.065  sd  0.635  min  51.497  max  54.681
-  within-scope floor sd  mean 3.822
+  player-weeks SCORED    15104   (candidates 36201)
+  FFA  RWRE  mean  28.156  sd  3.337  min  20.787  max  45.879
+  FLOOR RWRE mean  53.057  sd  0.603  min  51.555  max  54.584
+  within-scope floor sd  mean 3.825
+  PERMUTATION floor (no football at all, pool 128 teams 8):  53.084 sd 4.077
   scopes where FFA beats its own floor by 2sd: 117/118
-  spearman   mean 0.5224
-  top24 hit  mean 0.5251
+  spearman   mean 0.5194
+  top24 hit  mean 0.5230
   QB  mean  5.392  sd 0.955  n 118
-  RB  mean 11.604  sd 1.826  n 118
-  WR  mean 13.866  sd 1.926  n 118
-  TE  mean  7.247  sd 1.118  n 118
+  RB  mean 11.697  sd 1.824  n 118
+  WR  mean 13.933  sd 1.891  n 118
+  TE  mean  7.258  sd 1.120  n 118
   by season:
-    2019  n 17  mean  29.042  sd  3.002
-    2020  n 16  mean  26.656  sd  5.856
-    2021  n 17  mean  27.593  sd  2.877
-    2022  n 17  mean  27.665  sd  3.035
-    2023  n 17  mean  29.098  sd  2.616
-    2024  n 17  mean  28.036  sd  2.218
-    2025  n 17  mean  28.153  sd  2.640
+    2019  n 17  mean  29.083  sd  3.022
+    2020  n 16  mean  26.747  sd  5.852
+    2021  n 17  mean  27.752  sd  2.849
+    2022  n 17  mean  27.771  sd  3.010
+    2023  n 17  mean  29.146  sd  2.577
+    2024  n 17  mean  28.178  sd  2.236
+    2025  n 17  mean  28.334  sd  2.662
 
 == espn_danger_zone points ==
   scopes scored      118
-  player-weeks       36201
-  FFA  RWRE  mean  41.977  sd  4.447  min  30.755  max  52.393
-  FLOOR RWRE mean  66.337  sd  0.696  min  64.474  max  69.013
-  within-scope floor sd  mean 4.311
+  player-weeks SCORED    18880   (candidates 36201)
+  FFA  RWRE  mean  42.221  sd  4.456  min  30.905  max  52.552
+  FLOOR RWRE mean  66.338  sd  0.714  min  64.558  max  68.971
+  within-scope floor sd  mean 4.322
+  PERMUTATION floor (no football at all, pool 160 teams 10):  66.350 sd 4.181
   scopes where FFA beats its own floor by 2sd: 118/118
-  spearman   mean 0.4551
-  top24 hit  mean 0.3711
+  spearman   mean 0.4498
+  top24 hit  mean 0.3690
   QB  mean  6.594  sd 1.161  n 118
-  RB  mean 12.598  sd 1.921  n 118
-  WR  mean 15.655  sd 1.935  n 118
-  TE  mean  8.260  sd 1.276  n 118
+  RB  mean 12.766  sd 1.969  n 118
+  WR  mean 15.734  sd 1.921  n 118
+  TE  mean  8.277  sd 1.279  n 118
   by season:
-    2019  n 17  mean  43.143  sd  4.778
-    2020  n 16  mean  42.084  sd  4.558
-    2021  n 17  mean  41.972  sd  4.217
-    2022  n 17  mean  40.438  sd  5.111
-    2023  n 17  mean  42.196  sd  4.851
-    2024  n 17  mean  42.572  sd  3.735
-    2025  n 17  mean  41.438  sd  4.024
+    2019  n 17  mean  43.379  sd  4.837
+    2020  n 16  mean  42.249  sd  4.591
+    2021  n 17  mean  42.249  sd  4.220
+    2022  n 17  mean  40.628  sd  5.087
+    2023  n 17  mean  42.330  sd  4.896
+    2024  n 17  mean  42.726  sd  3.692
+    2025  n 17  mean  41.990  sd  4.037
 
 == sleeper_boyfun points ==
   scopes scored      118
-  player-weeks       36201
-  FFA  RWRE  mean  43.280  sd  4.650  min  30.606  max  58.793
-  FLOOR RWRE mean  79.479  sd  0.860  min  77.399  max  81.859
-  within-scope floor sd  mean 4.979
+  player-weeks SCORED    22420   (candidates 36201)
+  FFA  RWRE  mean  43.715  sd  4.683  min  30.877  max  59.007
+  FLOOR RWRE mean  79.471  sd  0.848  min  77.421  max  81.735
+  within-scope floor sd  mean 4.970
+  PERMUTATION floor (no football at all, pool 190 teams 10):  79.582 sd 4.976
   scopes where FFA beats its own floor by 2sd: 118/118
-  spearman   mean 0.5453
-  top24 hit  mean 0.3972
+  spearman   mean 0.5375
+  top24 hit  mean 0.3930
   QB  mean  7.397  sd 1.295  n 118
-  RB  mean 12.947  sd 1.981  n 118
-  WR  mean 20.815  sd 2.689  n 118
-  TE  mean  9.009  sd 1.266  n 118
+  RB  mean 13.140  sd 2.028  n 118
+  WR  mean 21.048  sd 2.673  n 118
+  TE  mean  9.008  sd 1.264  n 118
   by season:
-    2019  n 17  mean  44.379  sd  5.765
-    2020  n 16  mean  43.825  sd  4.460
-    2021  n 17  mean  42.548  sd  4.145
-    2022  n 17  mean  43.323  sd  6.155
-    2023  n 17  mean  42.710  sd  4.390
-    2024  n 17  mean  42.935  sd  3.639
-    2025  n 17  mean  43.274  sd  4.003
+    2019  n 17  mean  44.693  sd  5.802
+    2020  n 16  mean  44.167  sd  4.525
+    2021  n 17  mean  42.948  sd  4.141
+    2022  n 17  mean  43.532  sd  6.111
+    2023  n 17  mean  42.986  sd  4.483
+    2024  n 17  mean  43.430  sd  3.717
+    2025  n 17  mean  44.274  sd  4.026
 
 -- SEASONAL mode: G1 and the floor, for comparison --
 == espn_green_hope SEASONAL ==
   observations 7  pool_size 128
   perfect board 0.000000 in every season: yes
   FLOOR RWRE mean  52.809  sd  0.617  min  51.708  max  53.383
+  PERMUTATION floor (no football at all, pool 128 teams 8):  53.084 sd 4.077
+  the weekly and seasonal floors agree BECAUSE the pool and team count agree.
+  That is arithmetic, not a finding about weekly-vs-seasonal difficulty.
     2019  floor  51.708  within-season sd 4.122
     2020  floor  53.383  within-season sd 3.536
     2021  floor  52.402  within-season sd 4.300
@@ -166,6 +183,9 @@ G1  sleeper_boyfun 2024 wk8 points: perfect 0.000000, shuffled 80.887
   observations 7  pool_size 160
   perfect board 0.000000 in every season: yes
   FLOOR RWRE mean  65.897  sd  0.962  min  64.613  max  67.115
+  PERMUTATION floor (no football at all, pool 160 teams 10):  66.350 sd 4.181
+  the weekly and seasonal floors agree BECAUSE the pool and team count agree.
+  That is arithmetic, not a finding about weekly-vs-seasonal difficulty.
     2019  floor  64.613  within-season sd 4.984
     2020  floor  67.115  within-season sd 4.850
     2021  floor  65.034  within-season sd 4.980
@@ -178,6 +198,9 @@ G1  sleeper_boyfun 2024 wk8 points: perfect 0.000000, shuffled 80.887
   observations 7  pool_size 190
   perfect board 0.000000 in every season: yes
   FLOOR RWRE mean  78.670  sd  0.882  min  77.395  max  79.628
+  PERMUTATION floor (no football at all, pool 190 teams 10):  79.582 sd 4.976
+  the weekly and seasonal floors agree BECAUSE the pool and team count agree.
+  That is arithmetic, not a finding about weekly-vs-seasonal difficulty.
     2019  floor  77.395  within-season sd 5.695
     2020  floor  79.628  within-season sd 4.540
     2021  floor  77.551  within-season sd 5.450
