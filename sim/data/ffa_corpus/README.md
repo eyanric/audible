@@ -1,7 +1,7 @@
 # FFAnalytics projection corpus — scraped, verified, gitignored
 
 The CSVs here are **never committed**. This repository is public and the data comes from a
-paid FFA Insider subscription. Only this README and `manifest.jsonl` are tracked, and
+paid FFA Insider subscription. Only this README, `COVERAGE.md` and `manifest.jsonl` are tracked, and
 `sim/test_g_ffa_scrape.py` asserts that no `.csv` is tracked *anywhere* in the repository —
 not just in this directory, because a file dropped in the wrong place is exactly how paid
 data reaches a public remote.
@@ -59,9 +59,13 @@ password.**
 session-bound:
 
 ```
-/newApp/_w_<worker>/session/<sessionId>/download/
-    projections_page-proj-download_projections-download?w=<worker>
+session/<32 hex>/download/
+    projections_page-proj-download_projections-download?w=<32 hex>
 ```
+
+RELATIVE, with no worker prefix — measured on a live logged-in session. An earlier version of
+this section documented the absolute `/newApp/_w_<worker>/session/<id>/…` form, which
+`driver.py` records as measured false and which contradicted this README's own later bullet.
 
 There is no parameterised URL, so a plain HTTP loop is impossible. Inputs must be set through
 a live Shiny session and the file fetched from that session's own endpoint. The link's text
@@ -77,9 +81,13 @@ otherwise.
 2. **An aggregation only takes effect after a Settings → Projections round trip**, with a
    long settle. Setting it while on the Projections page changes the widget and not the
    server: the page reads `average` and serves `weighted`.
-3. **`weighted` needs no Settings trip at all**, because a year change already leaves it
-   there. Those jobs cost roughly a third of the others, which is why the stage order
-   front-loads them.
+3. **`weighted` needs no Settings trip *after a real year change***, because that is what
+   leaves the app on weighted. Writing 2019 over 2019 is not a change and resets nothing —
+   the unqualified form of this sentence *is* the defect, and the driver skipping the trip on
+   the strength of a reset that had not happened is what served `robust` for a `weighted`
+   request. Measured cost after the stage-4 reordering: weighted weekly files averaged 17.2s
+   and average/robust 19.5s — 88% of each other, not a third, because the Settings trip is
+   now paid twice a season rather than once a file.
 4. **`avg_type` is the fifth column of every `raw` file**, so each raw download self-verifies.
    **`proj` files have no such column and cannot be verified this way** — the manifest records
    their `measured_avg_type` as `null` rather than echoing the request back, and the corpus
@@ -109,8 +117,8 @@ early reading of the first two seasons suggested 2015 → 2016 and that was wron
 
 ```
 2015 wk1-17   no IDP, every week
-2016 wk1-12   IDP        2016 wk13-17  no IDP
-2017 wk1-6,8  IDP        2017 wk7      no IDP
+2016 wk1-12      IDP     2016 wk13-17        no IDP
+2017 wk1-6,8,9   IDP     2017 wk7, wk10-17   no IDP
 ```
 
 And the IDP-less weeks come in **two different shapes**, which matters more than the flag:
@@ -123,8 +131,8 @@ And the IDP-less weeks come in **two different shapes**, which matters more than
 2017 wk08    951 rows  9 pos   WR 224  RB 184           full again the next week
 ```
 
-2015 is a season whose contributing sources did no IDP but went deep on offence. 2016 wk13-17
-and 2017 wk7 lose IDP *and* roughly half their offensive depth — a source dropped out for
+2015 is a season whose contributing sources did no IDP but went deep on offence. 2016 wk13-17,
+and 2017 wk7 and wk10-17, lose IDP *and* roughly half their offensive depth — a source dropped out for
 those weeks. Neither is a defective download: zero ragged rows, complete CSV documents,
 stable hashes.
 
@@ -191,14 +199,14 @@ Every field, and what each is for:
 
 ```json
 {"avg": "weighted",
- "bytes": 700698,
+ "bytes": 772033,
  "fetched_at": "2026-09-10T12:00:00+00:00",
  "file": "ffa_raw_2019_wk0_weighted.csv",
  "kind": "raw",
  "measured_avg_type": "weighted",
- "positions": {"DB": 399, "DL": 351, "DST": 33, "K": 57, "LB": 309,
-               "QB": 158, "RB": 291, "TE": 218, "WR": 422},
- "rows": 2238,
+ "positions": {"DB": 398, "DL": 351, "DST": 33, "K": 57, "LB": 309,
+               "QB": 157, "RB": 291, "TE": 218, "WR": 422},
+ "rows": 2236,
  "sha256": "...",
  "week": 0,
  "witness_sha256": null,
@@ -223,6 +231,30 @@ a file with no entry. That is the safe direction: `plan` re-fetches a file the m
 not name, and `status` reports it as UNVOUCHED. The reverse order would leave an entry
 vouching for bytes that are not there. (An earlier version of this README claimed a corpus
 "can never contain a file the manifest does not vouch for" — that was an overclaim.)
+
+## 2015 weekly WEIGHTED carries standard deviations with no point estimates
+
+**Sixteen files — 2015 weeks 2–17, `weighted` only — hold `X_sd` populated while `X` is `NA`
+for 93–95% of the paired cells.** Every other file in the corpus is at 0.0%.
+
+```
+ffa_raw_2015_wk2_weighted.csv    6145 sd-populated cells, 5858 with the value NA = 95.3%
+ffa_raw_2015_wk10_weighted.csv   6288 sd-populated cells, 5861 with the value NA = 93.2%
+ffa_raw_2016_wk2_weighted.csv    8113 sd-populated cells,    0 with the value NA =  0.0%
+ffa_raw_2019_wk5_weighted.csv    6451 sd-populated cells,    0 with the value NA =  0.0%
+```
+
+Do not measure a raw NA rate instead: ~81% of point-estimate cells are legitimately `NA`
+corpus-wide, because a receiver has no passing yards. The anomaly is specifically an `sd`
+without its value.
+
+**2015 wk1 weighted is clean, and 2015 `average` and `robust` are clean in every week.** So
+2015 weekly data is usable — *from the alternate aggregations*, not from weighted. Any model
+reading weighted point estimates should treat its usable weekly window as **2016–2025**, or
+use `average`/`robust` for 2015.
+
+Nothing in `verify_payload` looks at cell values, which is why these 16 files passed: they are
+structurally perfect — right aggregation, right scope, right positions, no ragged rows.
 
 ## THE RAW SCHEMA IS NOT ONE SHAPE — read this before joining anything
 
@@ -275,7 +307,8 @@ that treats both as zero — is the silent-zeros failure again, on the IDP axis.
 
 ## What is actually in each file
 
-**`raw` — the stat lines.** 63 columns: passing, rushing, receiving, kicking by distance
+**`raw` — the stat lines.** 65 columns in 535 of 585 files (see the three shapes above; 63
+is the rec-less season shape and 55 the IDP-less weekly one): passing, rushing, receiving, kicking by distance
 band, team-defence and IDP counts, each with a standard deviation, plus `draft_year`,
 `birthdate`, injury fields and the `season_year`/`week` scope columns. **This is what a
 league-specific board needs**, because points are computed from the stat line under *your*
@@ -311,8 +344,10 @@ season raw  2018-2026 wk0     x all three   27/27
 season proj 2018-2026 wk0     x all three   27/27
 ```
 
-That is ~43,000 player-weeks, against the ~2,400 player-seasons every measurement in this
-project ran on before it.
+That is **177,885 data rows** in the weighted weekly files alone and **533,655** across all
+558 weekly files, against the ~2,400 player-seasons every measurement in this project ran on
+before it. (An earlier version of this line said "~43,000 player-weeks", which was computed
+from the season pool rather than from the data and understated it about fourfold.)
 
 See `COVERAGE.md` beside this file — the per-season/week grid, the IDP map, the `proj` depth
 table and the per-file list — regenerated from the manifest by
@@ -321,8 +356,18 @@ substituted.**
 
 ### Do the three aggregations differ? Yes.
 
-186 weekly weeks hold two or more aggregations and **no pair is byte-identical**. Same
-players, different projections, monotonically smaller from weighted to robust:
+186 weekly weeks hold two or more aggregations and **no pair is byte-identical** — nor is any
+pair identical after stripping the `avg_type` column, which is the check that would catch a
+relabelled copy. Same players, different projections.
+
+**They are NOT monotonic.** 22 of the 186 weekly scopes have `average` larger than `weighted`,
+and they are exactly the IDP-less ones — all of 2015, and 2016 wk13-17. An earlier version of
+this line asserted monotonicity from the four examples below; most scopes are monotonic and it
+is not a property you may rely on.
+
+Note also that `2018 wk0` is a *season* scope, and its `average`/`robust` exports have two
+fewer columns than its `weighted` one (no `rec`/`rec_sd`), so part of that byte drop is schema
+rather than different numbers.
 
 ```
 2018 wk0   weighted 580500B  average 498114B  robust 416777B   1624 rows each
@@ -350,16 +395,19 @@ The `weighted` response is a degenerate one-column frame; the `average` response
 well-formed 65-column CSV holding three defensive players and nothing else; `proj` returns
 a 500. The verifier rejected all three, which is the correct outcome for each.
 
-Stage 4 then re-tested the same scope from a different session two months of wall-clock
-later, and got the same answer for both remaining aggregations:
+Stage 4 then re-tested the same scope in a later run -- 5h48m after the first rejection, the
+same working day -- and got the same answer for both remaining aggregations:
 
 ```
 ffa_raw_2020_wk17_average.csv   3 rows, only DB/DL/LB   rejected, twice
 ffa_raw_2020_wk17_robust.csv    3 rows, only DB/DL/LB   rejected, twice
 ```
 
-Both were retried with doubled settles and a forced Settings round trip. **Three
-independent sessions, three aggregations, same result: FFA has no week 17 of 2020.** The
+Both were retried with doubled settles and a forced Settings round trip. **Two runs, three
+aggregations, same result: FFA has no week 17 of 2020.** (An earlier version of this line
+claimed three independent sessions two months apart; the `failures.jsonl` timestamps are
+2026-09-10T18:25:30Z for weighted and 2026-09-11T00:13:16Z and 00:19:42Z for average and
+robust, six minutes apart inside one continuous stage-4 run.) The
 three absent files are the corpus's only holes.
 
 **Do not substitute week 16 or 18 for it.** A weekly model that silently fills this in is

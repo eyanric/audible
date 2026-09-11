@@ -466,12 +466,40 @@ def _idp_grid(entries: dict) -> list[str]:
     return lines
 
 
-def _proj_depth(entries: dict) -> list[str]:
+def _distinct_players(path: Path) -> dict[str, int] | None:
+    """Distinct player names per position, or None when the file is not on disk.
+
+    The manifest's `positions` histogram counts ROWS, and the proj export repeats a player
+    once per team alias. Depth means players.
+    """
+    if not path.exists():
+        return None
+    import csv
+    import io
+
+    reader = csv.reader(io.StringIO(path.read_text(encoding="utf-8"), newline=""))
+    header = next(reader)
+    pos_i, name_i = header.index("position"), header.index("player")
+    seen: dict[str, set[str]] = {}
+    for row in reader:
+        if len(row) == len(header):
+            seen.setdefault(row[pos_i], set()).add(row[name_i])
+    return {position: len(names) for position, names in seen.items()}
+
+
+def _proj_depth(entries: dict, data_dir: Path) -> list[str]:
     """How much of the raw pool the `proj` export carries, per season and position.
 
     The proj export is TRUNCATED, and not by a single global cutoff -- it is a fixed cap per
     position. A board built from it has exactly as many quarterbacks as FFA chose to rank,
     which for a SUPERFLEX league is the difference between a usable board and a short one.
+
+    COUNTED IN DISTINCT PLAYERS, NOT ROWS. The export repeats a player once per team alias --
+    Jameis Winston appears as both TB and NO with the same id and identical stats -- so a row
+    count overstates how deep the ranking goes. Measured on rows, 2019 read QB 47 and looked
+    30% deeper than every other season; measured on players it is QB 36, exactly like the
+    rest. The cap is the same in all nine seasons and the earlier "2019 is deeper" claim was
+    an artefact of counting rows.
     """
     pairs: list[tuple[int, str, Mapping[str, int], Mapping[str, int]]] = []
     raw_by_scope = {
@@ -481,8 +509,13 @@ def _proj_depth(entries: dict) -> list[str]:
         (e for e in entries.values() if e.kind == "proj"), key=lambda e: (e.year, e.avg)
     ):
         raw = raw_by_scope.get((entry.year, entry.week, entry.avg))
-        if raw is not None:
-            pairs.append((entry.year, entry.avg, entry.positions, raw.positions))
+        if raw is None:
+            continue
+        proj_players = _distinct_players(data_dir / entry.file)
+        raw_players = _distinct_players(data_dir / raw.file)
+        if proj_players is None or raw_players is None:
+            continue
+        pairs.append((entry.year, entry.avg, proj_players, raw_players))
     if not pairs:
         return []
 
@@ -613,7 +646,7 @@ def _coverage_markdown(entries: dict, data_dir: Path) -> str:
         lines += ["```", ""]
 
     lines += _idp_grid(entries)
-    lines += _proj_depth(entries)
+    lines += _proj_depth(entries, data_dir)
 
     unverifiable = [n for n, e in entries.items() if e.kind == "proj"]
     unwitnessed = sorted(
