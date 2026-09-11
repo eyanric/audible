@@ -1,0 +1,77 @@
+S7 PHASE 5 -- 2026 PRE-REGISTRATION
+written at 1be0a10165771e81d59f276088ca316f4e518f5f
+Today is 2026-09-11. No 2026 regular-season outcome exists. Nothing below has
+been fitted to 2026 and nothing below may be edited after a 2026 game is played;
+a later session checks this file, it does not revise it.
+
+== P1: what the FFA weekly board will score in 2026 ==
+Point prediction is the 2019-2025 per-season mean; the interval is two between-
+season standard deviations. REFUTED if the 2026 mean over weeks 1-17 falls outside
+the interval for a league, on the vorp scale with symmetric indexing.
+
+  espn_green_hope
+    2019   36.121
+    2020   37.546
+    2021   34.502
+    2022   33.729
+    2023   35.908
+    2024   33.595
+    2025   33.093
+    PREDICTION 2026:  34.928   interval [ 31.662,  38.194]   (sd 1.633, n 7)
+  espn_danger_zone
+    2019   41.810
+    2020   43.539
+    2021   41.429
+    2022   41.042
+    2023   40.793
+    2024   40.209
+    2025   40.327
+    PREDICTION 2026:  41.307   interval [ 39.034,  43.580]   (sd 1.136, n 7)
+  sleeper_boyfun
+    2019   50.162
+    2020   50.550
+    2021   48.246
+    2022   47.130
+    2023   47.087
+    2024   47.768
+    2025   48.691
+    PREDICTION 2026:  48.519   interval [ 45.754,  51.285]   (sd 1.383, n 7)
+
+== P2: no term re-tested in 2026 will resolve in more than one league ==
+Phases 2 and 3 ran 24 terms in 3 leagues over 7 seasons and produced 7 verdicts of
+RESOLVES across 7 DISTINCT terms -- zero replicated. The prediction is that a 2026
+re-run of the same 24 terms produces at most ONE term with RESOLVES in two or more
+leagues. REFUTED by two or more such terms.
+
+== P3: inj_status at WR, the one lead, with a direction and a size ==
+Measured: +0.1125 (p 0.0244) in danger_zone, +0.1919 (p 0.0244) in green_hope,
+-0.0873 (p 0.9512) in boyfun. Both hits are 1-QB ESPN leagues; the reversal is the
+10-team SUPERFLEX. It is OFF its pre-registered locus, which was board-level.
+PREDICTION for 2026, all three parts, each refutable on its own:
+  a) the WR effect is POSITIVE in both espn_green_hope and espn_danger_zone
+  b) its size is between +0.05 and +0.30 RWRE in both
+  c) it is NOT positive-and-significant at WR in sleeper_boyfun
+REFUTED by any of the three failing. If (a) and (b) hold, inj_status at WR is the
+one thing this session found, and it should then be pre-registered board-level for
+2027 rather than mined further.
+
+== P4: green_hope will still have no composite ==
+Zero terms survived in green_hope, so no composite exists to carry forward. The
+prediction is that a 2026 re-run again produces no composite there with a material
+out-of-sample weekly gain, where material is 0.1 RWRE as pre-registered.
+REFUTED by a green_hope composite improving the out-of-sample weekly RWRE by
+0.1 or more.
+
+== P5: the hit count will again be what multiple testing predicts ==
+336 p-values produced 20 hits at p <= 0.05 against 16.4 expected, +0.91 sd. The
+prediction is that a 2026 re-run of the same battery lands within two standard
+deviations of its own expectation. REFUTED by a hit count more than 2 sd above it.
+
+== WHAT WOULD CHANGE THE PRODUCT ==
+None of P1, P2, P4 or P5 coming true changes the draft board: they are predictions
+that the null holds. P3 is the only one whose confirmation would, and even then the
+effect is +0.11 to +0.19 RWRE at one position in two leagues, against a board error
+of 34.9 to 48.5. The honest summary is that the incumbent board stands:
+  espn_green_hope      incumbent  22.43 over 6 espn seasons
+  espn_danger_zone     incumbent  28.10 over 6 espn seasons
+  sleeper_boyfun       incumbent  32.63 over 6 espn seasons

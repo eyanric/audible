@@ -1,0 +1,30 @@
+S7 MULTIPLICITY -- an accounting of tests already run
+floor draws 40, reachable p grid k/41, so P(p <= 0.05) = 2/41 = 0.04878 exactly
+
+measurements (term x league) : 72
+p-values computed            : 336
+hits at p <= 0.05            : 20
+expected under a pure null   : 16.4  sd 3.9
+excess over the null         : +3.6  (+0.91 sd)
+
+(term, place) pairs hit in >= 2 leagues : 1
+   inj_status at WR: ['espn_danger_zone', 'espn_green_hope']
+      espn_danger_zone   effect +0.1125  p 0.0244  verdict OFF-LOCUS
+      espn_green_hope    effect +0.1919  p 0.0244  verdict OFF-LOCUS
+      sleeper_boyfun     effect -0.0873  p 0.9512  verdict OFF-LOCUS
+(term, place) pairs hit in exactly 1 league : 18
+
+verdict RESOLVES: 7 across 7 distinct terms
+   availability         ['espn_danger_zone']
+   depth_slot           ['sleeper_boyfun']
+   ngs_separation       ['espn_danger_zone']
+   ngs_time_to_throw    ['sleeper_boyfun']
+   snap_share           ['espn_danger_zone']
+   target_share         ['espn_danger_zone']
+   true_age             ['espn_danger_zone']
+terms resolving in >= 2 leagues: 0
+
+board-wide selected effects, all measurements:
+   n 72   exactly 0.0 (selection chose lambda 0 in every fold): 31
+   > 0: 14   < 0: 27
+   mean -0.0018   median +0.0000
