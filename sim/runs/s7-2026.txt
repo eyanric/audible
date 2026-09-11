@@ -1,13 +1,21 @@
 S7 PHASE 5 -- 2026 PRE-REGISTRATION
-written at 1be0a10165771e81d59f276088ca316f4e518f5f
+written at 5cc67e95dca70566758980bc649eefc5ad47704a
 Today is 2026-09-11. No 2026 regular-season outcome exists. Nothing below has
 been fitted to 2026 and nothing below may be edited after a 2026 game is played;
 a later session checks this file, it does not revise it.
 
 == P1: what the FFA weekly board will score in 2026 ==
-Point prediction is the 2019-2025 per-season mean; the interval is two between-
-season standard deviations. REFUTED if the 2026 mean over weeks 1-17 falls outside
-the interval for a league, on the vorp scale with symmetric indexing.
+A PREDICTION INTERVAL, NOT A CONFIDENCE INTERVAL, and the first version of this file
+shipped the wrong one. `mean +- 2*sd` covers a NEW draw only about 89% of the time at
+n = 7, because it ignores both the uncertainty in the mean and the t-distribution's
+tails. The 95% interval for one future season is mean +- t(6, .975) * s * sqrt(1 +
+1/7) = mean +- 2.447 * s * 1.0690, which is 1.31x wider.
+REFUTED if the 2026 mean over weeks 1-17 falls outside it, vorp scale, symmetric.
+
+A FLAT PREDICTION CANNOT DISCRIMINATE A TREND, so the trend is stated beside it. All
+three leagues decline across 2019-2025 and the OLS extrapolation for 2026 sits INSIDE
+the flat interval, so P1 holding is consistent with both models. The second line is
+the discriminating one: it says which of the two 2026 will land closer to.
 
   espn_green_hope
     2019   36.121
@@ -17,7 +25,9 @@ the interval for a league, on the vorp scale with symmetric indexing.
     2023   35.908
     2024   33.595
     2025   33.093
-    PREDICTION 2026:  34.928   interval [ 31.662,  38.194]   (sd 1.633, n 7)
+    FLAT  prediction 2026:  34.928   95% interval [ 30.656,  39.199]   (s 1.633, n 7)
+    TREND prediction 2026:  32.702   (OLS slope -0.556 RWRE per season)
+    DISCRIMINATING: 2026 lands closer to the FLAT number (34.928) than to the TREND number (32.702).
   espn_danger_zone
     2019   41.810
     2020   43.539
@@ -26,7 +36,9 @@ the interval for a league, on the vorp scale with symmetric indexing.
     2023   40.793
     2024   40.209
     2025   40.327
-    PREDICTION 2026:  41.307   interval [ 39.034,  43.580]   (sd 1.136, n 7)
+    FLAT  prediction 2026:  41.307   95% interval [ 38.334,  44.280]   (s 1.136, n 7)
+    TREND prediction 2026:  39.629   (OLS slope -0.419 RWRE per season)
+    DISCRIMINATING: 2026 lands closer to the FLAT number (41.307) than to the TREND number (39.629).
   sleeper_boyfun
     2019   50.162
     2020   50.550
@@ -35,43 +47,49 @@ the interval for a league, on the vorp scale with symmetric indexing.
     2023   47.087
     2024   47.768
     2025   48.691
-    PREDICTION 2026:  48.519   interval [ 45.754,  51.285]   (sd 1.383, n 7)
+    FLAT  prediction 2026:  48.519   95% interval [ 44.902,  52.136]   (s 1.383, n 7)
+    TREND prediction 2026:  46.929   (OLS slope -0.398 RWRE per season)
+    DISCRIMINATING: 2026 lands closer to the FLAT number (48.519) than to the TREND number (46.929).
 
 == P2: no term re-tested in 2026 will resolve in more than one league ==
-Phases 2 and 3 ran 24 terms in 3 leagues over 7 seasons and produced 7 verdicts of
-RESOLVES across 7 DISTINCT terms -- zero replicated. The prediction is that a 2026
-re-run of the same 24 terms produces at most ONE term with RESOLVES in two or more
-leagues. REFUTED by two or more such terms.
+Phases 2 and 3 ran 24 terms in 3 leagues over 7 seasons. The prediction is that a
+2026 re-run of the same 24 terms produces at most ONE term with RESOLVES in two or
+more leagues. REFUTED by two or more such terms.
 
-== P3: inj_status at WR, the one lead, with a direction and a size ==
-Measured: +0.1125 (p 0.0244) in danger_zone, +0.1919 (p 0.0244) in green_hope,
--0.0873 (p 0.9512) in boyfun. Both hits are 1-QB ESPN leagues; the reversal is the
-10-team SUPERFLEX. It is OFF its pre-registered locus, which was board-level.
-PREDICTION for 2026, all three parts, each refutable on its own:
-  a) the WR effect is POSITIVE in both espn_green_hope and espn_danger_zone
-  b) its size is between +0.05 and +0.30 RWRE in both
-  c) it is NOT positive-and-significant at WR in sleeper_boyfun
-REFUTED by any of the three failing. If (a) and (b) hold, inj_status at WR is the
-one thing this session found, and it should then be pre-registered board-level for
-2027 rather than mined further.
+P2 IS THE WEAKEST PREDICTION HERE AND IS LABELLED AS SUCH. At the observed base rate
+of resolutions, the chance that two or more terms replicate under a pure null is
+roughly 13%, so P2 confirms about seven times in eight whether or not anything is
+real. It is kept because a refutation would be informative and because removing a
+weak prediction after writing it is worse than labelling it.
+
+== P3: the strongest surviving lead, whatever it turns out to be ==
+READ FROM THE COMMITTED RECORDS, not typed in. A hardcoded lead becomes a wrong fact
+the moment the adjudication is corrected, and this session corrected it twice.
+  NO LEAD. Nothing hit at p <= 0.05 in more than one league under the
+  permutation floor. The prediction is that a 2026 re-run also produces none.
+  REFUTED by any (term, place) pair hitting in two or more leagues in 2026 with
+  an effect at or above 0.1 RWRE in both.
 
 == P4: green_hope will still have no composite ==
-Zero terms survived in green_hope, so no composite exists to carry forward. The
+No term survived in green_hope, so no composite exists to carry forward. The
 prediction is that a 2026 re-run again produces no composite there with a material
 out-of-sample weekly gain, where material is 0.1 RWRE as pre-registered.
 REFUTED by a green_hope composite improving the out-of-sample weekly RWRE by
 0.1 or more.
 
 == P5: the hit count will again be what multiple testing predicts ==
-336 p-values produced 20 hits at p <= 0.05 against 16.4 expected, +0.91 sd. The
+The benchmark is in sim/runs/s7-multiplicity.txt and is the SUM OF EACH TEST'S OWN
+null hit rate, enumerated from its own tie structure -- not a flat 2/41, which the
+adversarial review showed is zero for a test whose floor ties at the maximum. The
 prediction is that a 2026 re-run of the same battery lands within two standard
-deviations of its own expectation. REFUTED by a hit count more than 2 sd above it.
+deviations of its own expectation, using the overdispersion-corrected sd. REFUTED by
+a hit count more than 2 sd above it.
 
 == WHAT WOULD CHANGE THE PRODUCT ==
 None of P1, P2, P4 or P5 coming true changes the draft board: they are predictions
-that the null holds. P3 is the only one whose confirmation would, and even then the
-effect is +0.11 to +0.19 RWRE at one position in two leagues, against a board error
-of 34.9 to 48.5. The honest summary is that the incumbent board stands:
+that the null holds. P3 is the only one whose confirmation would, and it is a
+fraction of an RWRE point at one position against a board error of 34.9 to 48.5.
+The honest summary is that the incumbent board stands:
   espn_green_hope      incumbent  22.43 over 6 espn seasons
   espn_danger_zone     incumbent  28.10 over 6 espn seasons
   sleeper_boyfun       incumbent  32.63 over 6 espn seasons

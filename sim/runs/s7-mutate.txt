@@ -1,6 +1,9 @@
-S7 MUTATION SWEEP -- 14 mutations against sim/test_g_s7.py
+S7 MUTATION SWEEP -- 27 mutations across 3 targets
+  weekly: s7_weekly.py against sim/test_g_s7.py
+  adjudication: s7_phase2.py against sim/test_g_s7_adjudication.py
+  phase4: s7_phase4.py against sim/test_g_s7_adjudication.py
 
-baseline green
+baseline green on every target
 
 killed by test_2015_weighted_is_excluded_by_CHOICE_and_the_files_are_there  <- 2015 weighted is no longer excluded
 killed by test_the_actuals_requirement_drops_exactly_the_unpinned_seasons  <- the pinned-outcome filter does nothing
@@ -17,7 +20,21 @@ SURVIVED (expected)  the permutation floor is fed a constant outcome
    EQUIVALENT, AND THE REASON IS THE PHASE-1 FINDING ITSELF. `rank._realised_order` turns values into within-pool ranks and breaks ties by id, so a constant outcome still produces a permutation of 1..n -- just a different one. The metric reads only the two ranks, so feeding it zeros cannot change the distribution of a shuffled board's score. This mutation surviving is a demonstration that the shuffle floor contains no football, not a hole in the gate that says so.
 killed by test_preflight_names_the_missing_file_before_any_work  <- preflight finds problems and says nothing
 killed by test_the_2015_weighted_defect_is_real_and_2016_is_clean  <- sd-without-value counts every NA instead of only the paired ones
+killed by test_loso_never_lets_a_season_choose_its_own_strength  <- leave-one-season-out lets a season choose its own strength
+killed by test_loso_selects_zero_when_no_strength_helps  <- 0.0 is dropped from the strength grid, so a useless term must intervene
+killed by test_reference_p_is_smallest_when_the_term_beats_every_draw  <- the reference-set p loses its +1, so a term can score p = 0
+killed by test_harm_p_is_the_mirror_and_the_first_version_had_it_backwards  <- the harm p is the same one-sided test as the improvement p
+killed by test_null_hit_rate_is_zero_when_the_floor_ties_at_the_maximum  <- the null hit rate ignores ties and returns a flat 2/41
+killed by test_the_floor_preserves_the_terms_own_marginal_distribution  <- the floor goes back to a hash instead of permuting the term's own values
+killed by test_a_position_level_constant_is_permuted_ACROSS_positions  <- a position-level constant is dealt to individual players
+SURVIVED (expected)  materiality goes back to the magnitude of a term's own damage
+   EQUIVALENT AGAINST THIS GATE SET, and the reason is worth recording. The old defect took the max over the BOARD effect and the LOCUS effects whether or not they qualified; this mutation only restores the `abs`, and a value that reached `qualifying` is already positive, so `abs` changes nothing. The defect was the unqualified membership, not the absolute value, and the gate targets the membership.
+killed by test_an_off_locus_hit_is_a_lead_and_never_a_resolution  <- an off-locus hit is promoted to a resolution
+killed by test_a_material_harm_is_reported_as_a_harm  <- the harm branch goes back to testing the improvement p
+killed by test_only_a_RESOLVES_record_becomes_a_survivor  <- phase 4 accepts any verdict, not only RESOLVES
+killed by test_the_modal_lambda_is_a_grid_point_and_never_an_average  <- phase 4 averages the selected strengths instead of taking the mode
+killed by test_an_in_season_term_is_never_draft_capable  <- an in-season term is allowed onto the draft board
 SURVIVED (expected)  the deduplicated player keeps the LOSING row's position
    NOT COVERED. Only two players in the whole 118-scope window carry two positions under two team aliases, and neither sits where a 128-deep pool can see the difference. A gate would have to assert on those two ids, which is a gate about a fixture rather than about behaviour. Recorded as a known hole instead of papered over.
 
-mutations 14  killed 11  survived 3  unexpected survivors 0
+mutations 27  killed 23  survived 4  unexpected survivors 0

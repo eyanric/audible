@@ -30,17 +30,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0170  <- locus
     TE  SELECTED +0.0409  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0101 sd 0.0874 max +0.1822
-    reference-set p, board-wide: 0.0732
-    reference-set p, QB: 1.0000  (floor mean -0.0039)
-    reference-set p, RB: 0.5610  (floor mean -0.0102)  <- locus
-    reference-set p, WR: 0.0244  (floor mean -0.0147)  <- locus
-    reference-set p, TE: 0.0244  (floor mean -0.0126)  <- locus
+    board-wide  mean -0.0252 sd 0.0716 max +0.1642
+    reference-set p, board-wide: 0.0488  (harm p 0.9756; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 1.0000  (floor mean -0.0031, best possible 0.0244)
+    reference-set p, RB: 0.5366  (floor mean -0.0134, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.0976  (floor mean -0.0120, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.0244  (floor mean -0.0133, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [+0.0314, +0.2429]
    scope-clustered  95% interval (reported only):          [+0.0013, +0.2573]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +1.1302  (at fixed lambda 0.1: +0.2674)
-   VERDICT: RESOLVES  (best p 0.0244, locus WR TE, material True (bar 0.1 RWRE))
+   VERDICT: RESOLVES  (p board 0.0488, locus TE, material True, bar 0.1 RWRE)
 
 -- target share  [target_share] --
    LOCUS (pre-registered): WR TE RB
@@ -69,17 +69,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED -0.0287  <- locus
     TE  SELECTED -0.0287  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0031 sd 0.1080 max +0.2458
-    reference-set p, board-wide: 0.0488
-    reference-set p, QB: 0.8293  (floor mean -0.0010)
-    reference-set p, RB: 0.8780  (floor mean -0.0145)  <- locus
-    reference-set p, WR: 0.7805  (floor mean -0.0121)  <- locus
-    reference-set p, TE: 0.6829  (floor mean -0.0142)  <- locus
+    board-wide  mean -0.0150 sd 0.0846 max +0.1967
+    reference-set p, board-wide: 0.0244  (harm p 1.0000; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.7073  (floor mean -0.0072, best possible 0.0244)
+    reference-set p, RB: 0.7805  (floor mean -0.0247, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.8049  (floor mean -0.0060, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.7317  (floor mean -0.0102, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.0229, +0.5402]
    scope-clustered  95% interval (reported only):          [-0.0059, +0.4683]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 6 observations: SELECTED +0.4082  (at fixed lambda 0.1: +1.1875)
-   VERDICT: RESOLVES  (best p 0.0488, material True (bar 0.1 RWRE))
+   VERDICT: RESOLVES  (p board 0.0244, material True, bar 0.1 RWRE)
 
 -- air-yards share  [ay_share] --
    LOCUS (pre-registered): WR TE
@@ -108,17 +108,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  <- locus
     TE  SELECTED +0.0000  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0031 sd 0.1080 max +0.2458
-    reference-set p, board-wide: 0.8049
-    reference-set p, QB: 0.7805  (floor mean -0.0010)
-    reference-set p, RB: 0.9268  (floor mean -0.0145)
-    reference-set p, WR: 0.7073  (floor mean -0.0121)  <- locus
-    reference-set p, TE: 0.4390  (floor mean -0.0142)  <- locus
+    board-wide  mean -0.0122 sd 0.0878 max +0.1785
+    reference-set p, board-wide: 0.9024  (harm p 0.1220; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.6098  (floor mean -0.0057, best possible 0.0244)
+    reference-set p, RB: 0.9024  (floor mean -0.0176, best possible 0.0244)
+    reference-set p, WR: 0.6585  (floor mean -0.0123, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.3902  (floor mean -0.0123, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.2479, +0.0000]
    scope-clustered  95% interval (reported only):          [-0.2079, -0.0210]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 6 observations: SELECTED -0.8816  (at fixed lambda 0.1: +0.4910)
-   VERDICT: null  (best p 0.4390, material True (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.9024, material False, bar 0.1 RWRE)
 
 -- route participation  [route_share] --
    LOCUS (pre-registered): WR TE RB
@@ -147,17 +147,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  <- locus
     TE  SELECTED +0.0497  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0004 sd 0.0862 max +0.1737
-    reference-set p, board-wide: 0.4878
-    reference-set p, QB: 0.1220  (floor mean -0.0041)
-    reference-set p, RB: 0.0732  (floor mean -0.0102)  <- locus
-    reference-set p, WR: 0.6341  (floor mean -0.0147)  <- locus
-    reference-set p, TE: 0.0244  (floor mean -0.0110)  <- locus
+    board-wide  mean +0.0011 sd 0.0856 max +0.2013
+    reference-set p, board-wide: 0.5122  (harm p 0.5122; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.0976  (floor mean -0.0051, best possible 0.0244)
+    reference-set p, RB: 0.0732  (floor mean -0.0155, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.6098  (floor mean -0.0103, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.0244  (floor mean -0.0103, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.1598, +0.1375]
    scope-clustered  95% interval (reported only):          [-0.1547, +0.1352]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -1.2685  (at fixed lambda 0.1: -0.3900)
-   VERDICT: resolves but immaterial  (best p 0.0244, locus TE, material False (bar 0.1 RWRE))
+   VERDICT: resolves but immaterial  (p board 0.5122, locus TE, material False, bar 0.1 RWRE)
 
 -- ff_opportunity expected points  [ff_opp_exp] --
    LOCUS (pre-registered): RB WR TE
@@ -186,17 +186,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0010  <- locus
     TE  SELECTED -0.0525  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0107 sd 0.0971 max +0.2011
-    reference-set p, board-wide: 0.5854
-    reference-set p, QB: 0.6341  (floor mean -0.0070)
-    reference-set p, RB: 0.6829  (floor mean -0.0138)  <- locus
-    reference-set p, WR: 0.0732  (floor mean -0.0099)  <- locus
-    reference-set p, TE: 0.9268  (floor mean -0.0183)  <- locus
+    board-wide  mean -0.0148 sd 0.0818 max +0.1765
+    reference-set p, board-wide: 0.6585  (harm p 0.3659; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.4878  (floor mean -0.0105, best possible 0.0244)
+    reference-set p, RB: 0.7317  (floor mean -0.0137, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.0488  (floor mean -0.0087, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.9512  (floor mean -0.0172, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.1306, +0.0026]
    scope-clustered  95% interval (reported only):          [-0.1569, +0.0383]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -0.0542  (at fixed lambda 0.1: +0.3944)
-   VERDICT: null  (best p 0.0732, material False (bar 0.1 RWRE))
+   VERDICT: resolves but immaterial  (p board 0.6585, locus WR, material False, bar 0.1 RWRE)
 
 -- td over expected  [td_oe] --
    LOCUS (pre-registered): RB WR TE
@@ -225,17 +225,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  <- locus
     TE  SELECTED -0.0473  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0047 sd 0.0791 max +0.1713
-    reference-set p, board-wide: 0.3902
-    reference-set p, QB: 0.6585  (floor mean -0.0045)
-    reference-set p, RB: 0.0732  (floor mean -0.0114)  <- locus
-    reference-set p, WR: 0.6585  (floor mean -0.0137)  <- locus
-    reference-set p, TE: 0.9268  (floor mean -0.0122)  <- locus
+    board-wide  mean -0.0191 sd 0.0710 max +0.1645
+    reference-set p, board-wide: 0.4878  (harm p 0.8049; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.4634  (floor mean -0.0158, best possible 0.0244)
+    reference-set p, RB: 0.0488  (floor mean -0.0139, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.6098  (floor mean -0.0102, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.9024  (floor mean -0.0111, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
    scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +0.0000  (at fixed lambda 0.1: -2.3801)
-   VERDICT: null  (best p 0.0732, material False (bar 0.1 RWRE))
+   VERDICT: resolves but immaterial  (p board 0.4878, locus RB, material False, bar 0.1 RWRE)
 
 -- availability  [availability] --
    LOCUS (pre-registered): board-level only
@@ -265,8 +265,8 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  STRUCTURALLY ZERO
     TE  SELECTED +0.0000  STRUCTURALLY ZERO
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0263 sd 0.0902 max +0.1764
-    reference-set p, board-wide: 0.0488
+    board-wide  mean -0.0203 sd 0.0748 max +0.1126
+    reference-set p, board-wide: 0.0244  (harm p 1.0000; the smallest p this test could return given its own ties is 0.0244)
     reference-set p, QB: not reported -- the treatment is structurally 0.0000 here and the floor is not
     reference-set p, RB: not reported -- the treatment is structurally 0.0000 here and the floor is not
     reference-set p, WR: not reported -- the treatment is structurally 0.0000 here and the floor is not
@@ -275,7 +275,7 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
    scope-clustered  95% interval (reported only):          [-0.1398, +0.4572]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 6 observations: SELECTED +0.8393  (at fixed lambda 0.1: +0.3334)
-   VERDICT: RESOLVES  (best p 0.0488, material True (bar 0.1 RWRE))
+   VERDICT: RESOLVES  (p board 0.0244, material True, bar 0.1 RWRE)
 
 -- rookie draft capital  [draft_round] --
    LOCUS (pre-registered): RB WR TE QB
@@ -304,17 +304,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  <- locus
     TE  SELECTED -0.0080  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0376 sd 0.0460 max +0.1221
-    reference-set p, board-wide: 0.9512
-    reference-set p, QB: 0.1463  (floor mean +0.0047)  <- locus
-    reference-set p, RB: 0.4146  (floor mean -0.0047)  <- locus
-    reference-set p, WR: 0.4146  (floor mean -0.0122)  <- locus
-    reference-set p, TE: 0.6829  (floor mean -0.0007)  <- locus
+    board-wide  mean -0.0425 sd 0.0715 max +0.1227
+    reference-set p, board-wide: 0.8293  (harm p 0.1951; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.1707  (floor mean +0.0079, best possible 0.0244)  <- locus
+    reference-set p, RB: 0.4878  (floor mean -0.0075, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.3659  (floor mean -0.0200, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.6098  (floor mean -0.0048, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.2342, +0.0000]
    scope-clustered  95% interval (reported only):          [-0.1711, -0.0341]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -0.1213  (at fixed lambda 0.1: -0.4889)
-   VERDICT: null  (best p 0.1463, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.8293, material False, bar 0.1 RWRE)
 
 -- depth slot  [depth_slot] --
    LOCUS (pre-registered): RB WR TE
@@ -343,17 +343,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED -0.0543  <- locus
     TE  SELECTED -0.0318  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0019 sd 0.0903 max +0.2283
-    reference-set p, board-wide: 0.2439
-    reference-set p, QB: 0.6341  (floor mean -0.0057)
-    reference-set p, RB: 0.6098  (floor mean -0.0114)  <- locus
-    reference-set p, WR: 0.9512  (floor mean -0.0121)  <- locus
-    reference-set p, TE: 0.7317  (floor mean -0.0145)  <- locus
+    board-wide  mean -0.0096 sd 0.0756 max +0.1304
+    reference-set p, board-wide: 0.0976  (harm p 0.9268; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.6585  (floor mean -0.0072, best possible 0.0244)
+    reference-set p, RB: 0.5610  (floor mean -0.0123, best possible 0.0244)  <- locus
+    reference-set p, WR: 1.0000  (floor mean -0.0042, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.7805  (floor mean -0.0080, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.0168, +0.1871]
    scope-clustered  95% interval (reported only):          [-0.0288, +0.2039]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +0.2872  (at fixed lambda 0.1: +0.2240)
-   VERDICT: null  (best p 0.2439, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.0976, material False, bar 0.1 RWRE)
 
 -- ADP-vs-projection  [adp_gap] --
    LOCUS (pre-registered): board-level only
@@ -382,17 +382,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000
     TE  SELECTED +0.0000
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0275 sd 0.0616 max +0.1598
-    reference-set p, board-wide: 1.0000
-    reference-set p, QB: 0.5122  (floor mean -0.0123)
-    reference-set p, RB: 0.5122  (floor mean -0.0122)
-    reference-set p, WR: 0.6585  (floor mean -0.0064)
-    reference-set p, TE: 0.5122  (floor mean -0.0122)
+    board-wide  mean -0.0039 sd 0.0675 max +0.1487
+    reference-set p, board-wide: 0.9756  (harm p 0.0488; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.5122  (floor mean -0.0122, best possible 0.0244)
+    reference-set p, RB: 0.4146  (floor mean -0.0069, best possible 0.0244)
+    reference-set p, WR: 0.6829  (floor mean -0.0079, best possible 0.0244)
+    reference-set p, TE: 0.5122  (floor mean -0.0117, best possible 0.0244)
    season-clustered 95% interval (PRIMARY, reported only): [-0.2299, -0.0169]
    scope-clustered  95% interval (reported only):          [-0.2333, -0.0089]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -0.8107  (at fixed lambda 0.1: -0.1726)
-   VERDICT: null  (best p 1.0000, material True (bar 0.1 RWRE))
+   VERDICT: HARM  (p board 0.9756, HARM at board, material False, bar 0.1 RWRE)
 
 -- contract value  [contract] --
    LOCUS (pre-registered): board-level only
@@ -421,17 +421,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED -0.0178
     TE  SELECTED -0.0112
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean +0.0044 sd 0.0915 max +0.2125
-    reference-set p, board-wide: 0.4634
-    reference-set p, QB: 0.6829  (floor mean -0.0064)
-    reference-set p, RB: 0.9512  (floor mean -0.0147)
-    reference-set p, WR: 0.5366  (floor mean -0.0194)
-    reference-set p, TE: 0.5122  (floor mean -0.0168)
+    board-wide  mean -0.0243 sd 0.0725 max +0.1562
+    reference-set p, board-wide: 0.4390  (harm p 0.7805; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.6341  (floor mean -0.0106, best possible 0.0244)
+    reference-set p, RB: 1.0000  (floor mean -0.0033, best possible 0.0244)
+    reference-set p, WR: 0.8049  (floor mean -0.0073, best possible 0.0244)
+    reference-set p, TE: 0.6585  (floor mean -0.0055, best possible 0.0244)
    season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
    scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +0.6467  (at fixed lambda 0.1: +0.7682)
-   VERDICT: null  (best p 0.4634, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.4390, material False, bar 0.1 RWRE)
 
 -- ngs_separation  [ngs_separation] --
    LOCUS (pre-registered): WR TE
@@ -460,17 +460,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0411  <- locus
     TE  SELECTED +0.0000  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0329 sd 0.0611 max +0.0862
-    reference-set p, board-wide: 0.9268
-    reference-set p, QB: 1.0000  (floor mean +0.0000)
-    reference-set p, RB: 1.0000  (floor mean +0.0000)
-    reference-set p, WR: 0.0244  (floor mean -0.0142)  <- locus
-    reference-set p, TE: 0.3659  (floor mean -0.0170)  <- locus
+    board-wide  mean -0.0300 sd 0.0528 max +0.1101
+    reference-set p, board-wide: 1.0000  (harm p 0.0244; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 1.0000  (floor mean +0.0000, best possible 1.0000)
+    reference-set p, RB: 1.0000  (floor mean +0.0000, best possible 1.0000)
+    reference-set p, WR: 0.0488  (floor mean -0.0071, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.3902  (floor mean -0.0132, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.2603, -0.0294]
    scope-clustered  95% interval (reported only):          [-0.2533, -0.0296]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -0.1480  (at fixed lambda 0.1: -0.5908)
-   VERDICT: RESOLVES  (best p 0.0244, locus WR, material True (bar 0.1 RWRE))
+   VERDICT: resolves but immaterial  (p board 1.0000, locus WR, HARM at board, material False, bar 0.1 RWRE)
 
 -- ngs_time_to_throw  [ngs_time_to_throw] --
    LOCUS (pre-registered): QB
@@ -499,17 +499,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000
     TE  SELECTED +0.0000
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean +0.0140 sd 0.0428 max +0.1284
-    reference-set p, board-wide: 0.9268
-    reference-set p, QB: 0.9024  (floor mean -0.0054)  <- locus
-    reference-set p, RB: 1.0000  (floor mean +0.0000)
-    reference-set p, WR: 1.0000  (floor mean +0.0000)
-    reference-set p, TE: 1.0000  (floor mean +0.0000)
+    board-wide  mean -0.0093 sd 0.0402 max +0.1009
+    reference-set p, board-wide: 0.8049  (harm p 0.2195; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.8780  (floor mean -0.0072, best possible 0.0244)  <- locus
+    reference-set p, RB: 1.0000  (floor mean +0.0000, best possible 1.0000)
+    reference-set p, WR: 1.0000  (floor mean +0.0000, best possible 1.0000)
+    reference-set p, TE: 1.0000  (floor mean +0.0000, best possible 1.0000)
    season-clustered 95% interval (PRIMARY, reported only): [-0.0818, -0.0040]
    scope-clustered  95% interval (reported only):          [-0.0856, +0.0013]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +0.0726  (at fixed lambda 0.1: -0.1250)
-   VERDICT: null  (best p 0.9024, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.8049, material False, bar 0.1 RWRE)
 
 -- ngs_rush_eff  [ngs_rush_eff] --
    LOCUS (pre-registered): RB
@@ -538,17 +538,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000
     TE  SELECTED +0.0000
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0036 sd 0.0670 max +0.1251
-    reference-set p, board-wide: 0.2927
-    reference-set p, QB: 1.0000  (floor mean +0.0000)
-    reference-set p, RB: 0.7073  (floor mean -0.0067)  <- locus
-    reference-set p, WR: 1.0000  (floor mean +0.0000)
-    reference-set p, TE: 1.0000  (floor mean +0.0000)
+    board-wide  mean +0.0209 sd 0.0592 max +0.1506
+    reference-set p, board-wide: 0.3171  (harm p 0.7073; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 1.0000  (floor mean +0.0000, best possible 1.0000)
+    reference-set p, RB: 0.6341  (floor mean -0.0116, best possible 0.0244)  <- locus
+    reference-set p, WR: 1.0000  (floor mean +0.0000, best possible 1.0000)
+    reference-set p, TE: 1.0000  (floor mean +0.0000, best possible 1.0000)
    season-clustered 95% interval (PRIMARY, reported only): [-0.0572, +0.1557]
    scope-clustered  95% interval (reported only):          [-0.0390, +0.1494]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -0.0320  (at fixed lambda 0.1: -0.3579)
-   VERDICT: null  (best p 0.2927, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.3171, material False, bar 0.1 RWRE)
 
 -- projection uncertainty (sd_pts)  [uncertainty] --
    LOCUS (pre-registered): QB RB WR TE
@@ -577,17 +577,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  <- locus
     TE  SELECTED -0.0162  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0193 sd 0.0694 max +0.1669
-    reference-set p, board-wide: 0.7073
-    reference-set p, QB: 0.7073  (floor mean -0.0121)  <- locus
-    reference-set p, RB: 0.7561  (floor mean -0.0129)  <- locus
-    reference-set p, WR: 0.6585  (floor mean -0.0059)  <- locus
-    reference-set p, TE: 0.5610  (floor mean -0.0171)  <- locus
+    board-wide  mean -0.0257 sd 0.0658 max +0.1380
+    reference-set p, board-wide: 0.7073  (harm p 0.3171; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.9512  (floor mean -0.0019, best possible 0.0244)  <- locus
+    reference-set p, RB: 0.8293  (floor mean -0.0084, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.7561  (floor mean -0.0040, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.6585  (floor mean -0.0123, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [-0.1822, +0.0412]
    scope-clustered  95% interval (reported only):          [-0.1751, +0.0338]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +0.0000  (at fixed lambda 0.1: -1.8854)
-   VERDICT: null  (best p 0.5610, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.7073, material False, bar 0.1 RWRE)
 
 -- age  [age_at_export] --
    LOCUS (pre-registered): QB RB WR TE
@@ -616,17 +616,17 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED +0.0000  <- locus
     TE  SELECTED +0.0000  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean -0.0167 sd 0.0772 max +0.1489
-    reference-set p, board-wide: 0.4390
-    reference-set p, QB: 0.5122  (floor mean -0.0121)  <- locus
-    reference-set p, RB: 0.4146  (floor mean -0.0112)  <- locus
-    reference-set p, WR: 0.6341  (floor mean -0.0076)  <- locus
-    reference-set p, TE: 0.4390  (floor mean -0.0148)  <- locus
+    board-wide  mean -0.0117 sd 0.0665 max +0.1441
+    reference-set p, board-wide: 0.5366  (harm p 0.8049; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.8049  (floor mean -0.0040, best possible 0.0244)  <- locus
+    reference-set p, RB: 0.5854  (floor mean -0.0070, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.7073  (floor mean -0.0042, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.5366  (floor mean -0.0086, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
    scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED -0.1796  (at fixed lambda 0.1: -2.9188)
-   VERDICT: null  (best p 0.4146, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.5366, material False, bar 0.1 RWRE)
 
 -- experience  [ffa_experience] --
    LOCUS (pre-registered): QB RB WR TE
@@ -655,15 +655,15 @@ aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-se
     WR  SELECTED -0.0184  <- locus
     TE  SELECTED +0.0000  <- locus
    FLOOR, 40 salts matched to this signal's coverage, same selection:
-    board-wide  mean +0.0026 sd 0.0862 max +0.1458
-    reference-set p, board-wide: 0.5366
-    reference-set p, QB: 0.4878  (floor mean -0.0126)  <- locus
-    reference-set p, RB: 0.5610  (floor mean -0.0080)  <- locus
-    reference-set p, WR: 0.6098  (floor mean -0.0145)  <- locus
-    reference-set p, TE: 0.3902  (floor mean -0.0177)  <- locus
+    board-wide  mean +0.0069 sd 0.0721 max +0.1786
+    reference-set p, board-wide: 0.5610  (harm p 0.6829; the smallest p this test could return given its own ties is 0.0244)
+    reference-set p, QB: 0.5122  (floor mean -0.0082, best possible 0.0244)  <- locus
+    reference-set p, RB: 0.4390  (floor mean -0.0089, best possible 0.0244)  <- locus
+    reference-set p, WR: 0.7317  (floor mean -0.0117, best possible 0.0244)  <- locus
+    reference-set p, TE: 0.3415  (floor mean -0.0140, best possible 0.0244)  <- locus
    season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
    scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
    player-clustered: NOT COMPUTED. See the module docstring.
    SEASONAL draft board, 7 observations: SELECTED +0.3858  (at fixed lambda 0.1: -0.6247)
-   VERDICT: null  (best p 0.3902, material False (bar 0.1 RWRE))
+   VERDICT: null  (p board 0.5610, material False, bar 0.1 RWRE)
 

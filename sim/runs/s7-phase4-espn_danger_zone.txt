@@ -1,27 +1,27 @@
 S7 PHASE 4 -- the assembled board, espn_danger_zone
 gain grid (0.0, 0.25, 0.5, 0.75, 1.0, 1.25), walk-forward fit (2019, 2020, 2021, 2022) test (2023, 2024, 2025), seed 20260911
 
-survivors from phases 2 and 3: 5
-  snap_share           lambda  0.02  phase2  draft-capable  effect +0.1283  p 0.0732  scope position
-  target_share         lambda  0.05  phase2  draft-capable  effect +0.2330  p 0.0488  scope position
-  availability         lambda  0.20  phase2  draft-capable  effect +0.1655  p 0.0488  scope board
-  ngs_separation       lambda  0.02  phase2  draft-capable  effect -0.1404  p 0.9268  scope position
-  true_age             lambda  0.02  phase3  IN-SEASON ONLY  effect +0.1791  p 0.0488  scope position
-excluded: 19
+survivors from phases 2 and 3: 4
+  snap_share           lambda  0.02  phase2  draft-capable  board effect +0.1283  board p 0.0488  scope position  QUALIFIED AT board TE
+  target_share         lambda  0.05  phase2  draft-capable  board effect +0.2330  board p 0.0244  scope position  QUALIFIED AT board
+  availability         lambda  0.20  phase2  draft-capable  board effect +0.1655  board p 0.0244  scope board  QUALIFIED AT board
+  true_age             lambda  0.02  phase3  IN-SEASON ONLY  board effect +0.1791  board p 0.0244  scope position  QUALIFIED AT board
+excluded: 20
   ay_share: null
   route_share: resolves but immaterial
-  ff_opp_exp: null
-  td_oe: null
+  ff_opp_exp: resolves but immaterial
+  td_oe: resolves but immaterial
   draft_round: null
   depth_slot: null
-  adp_gap: null
+  adp_gap: HARM
   contract: null
+  ngs_separation: resolves but immaterial
   ngs_time_to_throw: null
   ngs_rush_eff: null
   uncertainty: null
   age_at_export: null
   ffa_experience: null
-  inj_status: OFF-LOCUS
+  inj_status: null
   true_experience: null
   weekly_sd_rel: resolves but immaterial
   role_change_snaps: null
@@ -30,20 +30,20 @@ excluded: 19
 
 -- WEEKLY, every surviving term --
   gain 0.00  RWRE 41.2880  delta +0.0000
-  gain 0.25  RWRE 41.1505  delta +0.1375
-  gain 0.50  RWRE 41.0905  delta +0.1976
-  gain 0.75  RWRE 41.1292  delta +0.1588
-  gain 1.00  RWRE 41.1247  delta +0.1634
-  gain 1.25  RWRE 41.1519  delta +0.1362
-  gain selected on the FIT seasons (2019, 2020, 2021, 2022): 1.25
-  weekly in-sample  (2019, 2020, 2021, 2022): baseline 41.9313 -> 41.7661  delta +0.1651
-  weekly OUT-OF-SAMPLE (2023, 2024, 2025): baseline 40.4430 -> 40.3449  delta +0.0981
-    QB out-of-sample  6.7797 ->  7.0079  delta -0.2282
-    RB out-of-sample 12.3788 -> 12.5010  delta -0.1222
-    WR out-of-sample 15.5799 -> 15.7725  delta -0.1926
-    TE out-of-sample  8.3908 ->  8.4734  delta -0.0826
+  gain 0.25  RWRE 41.1460  delta +0.1420
+  gain 0.50  RWRE 41.1402  delta +0.1478
+  gain 0.75  RWRE 41.1178  delta +0.1702
+  gain 1.00  RWRE 41.1632  delta +0.1248
+  gain 1.25  RWRE 41.0833  delta +0.2047
+  gain selected on the FIT seasons (2019, 2020, 2021, 2022): 0.75
+  weekly in-sample  (2019, 2020, 2021, 2022): baseline 41.9313 -> 41.7685  delta +0.1628
+  weekly OUT-OF-SAMPLE (2023, 2024, 2025): baseline 40.4430 -> 40.2630  delta +0.1800
+    QB out-of-sample  6.7797 ->  6.8461  delta -0.0663
+    RB out-of-sample 12.3788 -> 12.4153  delta -0.0366
+    WR out-of-sample 15.5799 -> 15.6037  delta -0.0238
+    TE out-of-sample  8.3908 ->  8.4387  delta -0.0479
 
--- SEASONAL DRAFT BOARD, 4 draft-capable terms --
+-- SEASONAL DRAFT BOARD, 3 draft-capable terms --
    EXCLUDED from the draft board because they read a per-week column that does not exist in August:
      true_age
    FFA seasons (2019, 2020, 2021, 2022, 2023, 2024, 2025)   incumbent's espn seasons (2019, 2020, 2021, 2022, 2024, 2025)
@@ -51,18 +51,27 @@ excluded: 19
    FFA untreated, FFA seasons    32.79
    FFA untreated, espn seasons   31.32
    gain 0.00  FFA seasons   32.79  espn seasons   31.32
-   gain 0.25  FFA seasons   32.47  espn seasons   31.30
-   gain 0.50  FFA seasons   32.16  espn seasons   31.04
-   gain 0.75  FFA seasons   31.68  espn seasons   30.70
-   gain 1.00  FFA seasons   31.06  espn seasons   30.04
-   gain 1.25  FFA seasons   30.94  espn seasons   30.02
+   gain 0.25  FFA seasons   32.47  espn seasons   31.29
+   gain 0.50  FFA seasons   32.12  espn seasons   30.97
+   gain 0.75  FFA seasons   31.67  espn seasons   30.66
+   gain 1.00  FFA seasons   31.23  espn seasons   30.25
+   gain 1.25  FFA seasons   30.30  espn seasons   29.99
    gain selected on the FIT seasons (2019, 2020, 2021, 2022): 1.25
-   seasonal in-sample  (2019, 2020, 2021, 2022):   33.00 ->   30.31
-   seasonal OUT-OF-SAMPLE (2023, 2024, 2025):   32.51 ->   31.78
+   seasonal in-sample  (2019, 2020, 2021, 2022):   33.00 ->   30.33
+   seasonal OUT-OF-SAMPLE (2023, 2024, 2025):   32.51 ->   30.26
+
+-- WHICH TERM IS CARRYING IT: leave one out, out of sample --
+   A composite is only as trustworthy as its least trustworthy member, and the
+   multiplicity accounting names terms that CONTRADICT across leagues. If the
+   whole gain disappears when one term is removed, the composite is that term.
+   all 3 terms, seasonal out-of-sample: +2.2425
+   without snap_share           +2.0214   (the term is worth +0.2210 of the total, gain 1.25)
+   without target_share         +0.5003   (the term is worth +1.7422 of the total, gain 1.25)
+   without availability         +0.5675   (the term is worth +1.6749 of the total, gain 1.25)
 
 -- DOES THE WEEKLY GAIN TRANSFER TO THE DRAFT BOARD --
-   weekly out-of-sample gain   +0.0981  (material bar 0.1: NO)
-   seasonal out-of-sample gain +0.7288  (material bar 0.1: yes)
+   weekly out-of-sample gain   +0.1800  (material bar 0.1: yes)
+   seasonal out-of-sample gain +2.2425  (material bar 0.1: yes)
    TRANSFERS: yes
    positions improved out-of-sample: 0/4
    THE BOARD-WIDE WEEKLY GAIN IS NOT PRESENT AT ANY POSITION. It is therefore
@@ -72,8 +81,8 @@ excluded: 19
 -- AGAINST THE INCUMBENT, three numbers because two would mislead --
    incumbent, espn arm, its own 6 seasons :   28.10
    UNTREATED FFA arm, same seasons                :   31.32   arm difference -3.22
-   treated FFA arm, same seasons                  :   30.02   treatment +1.30
+   treated FFA arm, same seasons                  :   29.99   treatment +1.33
    CAUTION: this line mixes the fit seasons into the mean, because the incumbent bar
    is quoted over six seasons that include them. The clean number is the
-   out-of-sample one above: 32.51 -> 31.78.
+   out-of-sample one above: 32.51 -> 30.26.
    treated board beats the incumbent number: NO

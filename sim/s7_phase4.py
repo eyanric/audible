@@ -136,8 +136,13 @@ def survivors(league: str) -> tuple[list[Term], list[str]]:
                 p3.SCOPE.get(name, "position") if phase == "phase3"
                 else signals.SIGNAL_SCOPE.get(name, "position")
             )
-            qualified = record.get("locus_hits") or []
-            where = " ".join(qualified) if qualified else "board"
+            # EVERY PLACE THAT QUALIFIED, not just the first. `snap_share` in danger_zone
+            # qualified board-wide AND at TE, and printing only the locus hit read as though the
+            # board number had not been part of it.
+            qualified = list(record.get("locus_hits") or [])
+            if (record.get("p_board") or 1.0) <= 0.05 and (record.get("effect_board") or 0.0) > 0:
+                qualified.insert(0, "board")
+            where = " ".join(qualified) if qualified else "unclear"
             terms.append(Term(
                 name=name, lam=float(lam), source=phase,
                 effect=float(record.get("effect_board") or 0.0),
@@ -366,6 +371,22 @@ def main(argv: list[str]) -> int:
     print(f"   seasonal OUT-OF-SAMPLE {TEST}: {_mean_over(sbase, TEST):7.2f} -> "
           f"{_mean_over(streated[sel], TEST):7.2f}")
     print()
+
+    if len(draft_terms) > 1:
+        print("-- WHICH TERM IS CARRYING IT: leave one out, out of sample --")
+        print("   A composite is only as trustworthy as its least trustworthy member, and the")
+        print("   multiplicity accounting names terms that CONTRADICT across leagues. If the")
+        print("   whole gain disappears when one term is removed, the composite is that term.")
+        full = _mean_over(sbase, TEST) - _mean_over(streated[sel], TEST)
+        print(f"   all {len(draft_terms)} terms, seasonal out-of-sample: {full:+7.4f}")
+        for dropped in draft_terms:
+            kept = [term for term in draft_terms if term is not dropped]
+            partial_base, partial = seasonal_series(kept, league)
+            partial_sel = _select_gain(partial_base, partial, tuple(FIT))
+            gain = _mean_over(partial_base, TEST) - _mean_over(partial[partial_sel], TEST)
+            print(f"   without {dropped.name:20s} {gain:+7.4f}   "
+                  f"(the term is worth {full - gain:+7.4f} of the total, gain {partial_sel:4.2f})")
+        print()
 
     weekly_gain = _mean_over(base, TEST) - _mean_over(treated[selected], TEST)
     seasonal_gain = _mean_over(sbase, TEST) - _mean_over(streated[sel], TEST)

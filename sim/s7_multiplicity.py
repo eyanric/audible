@@ -166,12 +166,75 @@ def main() -> int:
           f"{sum(1 for v in where_hit.values() if len(v) == 1)}")
     print()
 
+    # --- SIGN CONFLICTS: the strongest evidence available that a hit is noise ---------------
+    #
+    # A term that helps at WR in one league and HARMS at WR in another is not a property of
+    # football. The three leagues share their weeks, players and projections and differ only in
+    # a rulebook, so a sign flip at the same position needs a structural reason -- and a
+    # structural reason is a claim, not a default.
+    print("SIGN CONFLICTS -- the same (term, place) significant in both directions:")
+    improvement: dict[tuple[str, str], list[tuple[str, float]]] = defaultdict(list)
+    damage: dict[tuple[str, str], list[tuple[str, float]]] = defaultdict(list)
+    for record in rows:
+        places = {"board": (
+            record.get("p_board"), record.get("p_board_harm"), record.get("effect_board"),
+        )}
+        positions = record.get("p_position") or {}
+        harms = record.get("harm_p_position") or {}
+        effects = record.get("per_position") or {}
+        for where in positions:
+            places[where] = (positions.get(where), harms.get(where), effects.get(where))
+        for where, (p_up, p_down, effect) in places.items():
+            if effect is None:
+                continue
+            if p_up is not None and p_up <= 0.05 and effect > 0:
+                improvement[(record["_name"], where)].append((record["league"], effect))
+            if p_down is not None and p_down <= 0.05 and effect < 0:
+                damage[(record["_name"], where)].append((record["league"], effect))
+    conflicts = sorted(set(improvement) & set(damage))
+    if not conflicts:
+        print("   none")
+    for key in conflicts:
+        name, where = key
+        print(f"   {name} at {where}:")
+        for league, effect in improvement[key]:
+            print(f"      {league:18s} HELPS  {effect:+7.4f}")
+        for league, effect in damage[key]:
+            print(f"      {league:18s} HARMS  {effect:+7.4f}")
+    print()
+
+    # --- resolutions the board itself declined ---------------------------------------------
+    #
+    # Each reported figure gets its OWN out-of-sample strength selection, board-wide and per
+    # position, and the floor is selected the same way so the extra selection is priced in. But
+    # a record whose BOARD selection chose 0.0 in every fold while a position resolved is saying
+    # two things at once: applied to the board this term does nothing, and applied to one
+    # position it helps at a strength the board rejected. Phase 4 excludes those -- it reads the
+    # board-level `chosen` -- and they are counted here so the exclusion is visible.
+    print("RESOLVES records whose BOARD-level selection chose lambda 0.0 in every fold:")
+    declined = 0
+    for record in rows:
+        if record.get("verdict") != "RESOLVES":
+            continue
+        chosen = record.get("chosen") or {}
+        if chosen and not any(chosen.values()):
+            declined += 1
+            print(f"   {record['_name']:20s} {record['league']:18s} "
+                  f"board effect {record.get('effect_board', float('nan')):+.4f}, "
+                  f"resolved at {' '.join(record.get('locus_hits') or [])}")
+    if not declined:
+        print("   none")
+    print()
+
     verdicts: dict[str, list[str]] = defaultdict(list)
     for record in rows:
         if record.get("verdict") == "RESOLVES":
             verdicts[record["_name"]].append(record["league"])
     print(f"verdict RESOLVES: {sum(len(v) for v in verdicts.values())} across "
           f"{len(verdicts)} distinct terms")
+    print("   NOTE: a term counted here as resolving in two leagues may have resolved at two")
+    print("   DIFFERENT places. The (term, place) count above is the stricter measure and is")
+    print("   the one to read; this one is place-agnostic.")
     for name, leagues in sorted(verdicts.items()):
         print(f"   {name:20s} {sorted(leagues)}")
     print(f"terms resolving in >= 2 leagues: "

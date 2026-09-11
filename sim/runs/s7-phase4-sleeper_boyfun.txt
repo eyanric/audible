@@ -2,13 +2,13 @@ S7 PHASE 4 -- the assembled board, sleeper_boyfun
 gain grid (0.0, 0.25, 0.5, 0.75, 1.0, 1.25), walk-forward fit (2019, 2020, 2021, 2022) test (2023, 2024, 2025), seed 20260911
 
 survivors from phases 2 and 3: 2
-  depth_slot           lambda  0.05  phase2  draft-capable  effect +0.1064  p 0.0244  scope position
-  ngs_time_to_throw    lambda  0.05  phase2  draft-capable  effect +0.1215  p 0.0488  scope position
+  depth_slot           lambda  0.05  phase2  draft-capable  board effect +0.1064  board p 0.0244  scope position  QUALIFIED AT board
+  ngs_time_to_throw    lambda  0.05  phase2  draft-capable  board effect +0.1215  board p 0.0244  scope position  QUALIFIED AT board
 excluded: 22
-  snap_share: null
+  snap_share: HARM
   target_share: null
-  ay_share: null
-  route_share: null
+  ay_share: HARM
+  route_share: resolves but immaterial
   ff_opp_exp: resolves but immaterial
   td_oe: null
   availability: null
@@ -20,11 +20,11 @@ excluded: 22
   uncertainty: null
   age_at_export: null
   ffa_experience: null
-  inj_status: OFF-LOCUS
+  inj_status: null
   true_age: null
   true_experience: null
   weekly_sd_rel: resolves but immaterial
-  role_change_snaps: null
+  role_change_snaps: HARM
   role_change_proj: null
   floor_ceiling_tilt: null
 
@@ -57,6 +57,14 @@ excluded: 22
    gain selected on the FIT seasons (2019, 2020, 2021, 2022): 0.50
    seasonal in-sample  (2019, 2020, 2021, 2022):   29.36 ->   28.67
    seasonal OUT-OF-SAMPLE (2023, 2024, 2025):   36.86 ->   36.58
+
+-- WHICH TERM IS CARRYING IT: leave one out, out of sample --
+   A composite is only as trustworthy as its least trustworthy member, and the
+   multiplicity accounting names terms that CONTRADICT across leagues. If the
+   whole gain disappears when one term is removed, the composite is that term.
+   all 2 terms, seasonal out-of-sample: +0.2783
+   without depth_slot           +0.2289   (the term is worth +0.0494 of the total, gain 0.50)
+   without ngs_time_to_throw    +0.5053   (the term is worth -0.2269 of the total, gain 0.50)
 
 -- DOES THE WEEKLY GAIN TRANSFER TO THE DRAFT BOARD --
    weekly out-of-sample gain   +0.0584  (material bar 0.1: NO)

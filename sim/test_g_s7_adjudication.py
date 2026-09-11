@@ -274,7 +274,10 @@ def test_only_a_RESOLVES_record_becomes_a_survivor(tmp_path, monkeypatch) -> Non
     assert [term.name for term in terms] == ["a"]
     assert any("every selected lambda was 0.0" in line for line in excluded)
     assert len(excluded) == 3
-    assert terms[0].where == "WR"
+    # EVERY place that qualified, board first. Printing only the locus hit read as though the
+    # board number had not been part of the resolution -- `snap_share` in danger_zone qualified
+    # both ways.
+    assert terms[0].where == "board WR"
 
 
 def test_survivors_refuses_to_invent_a_missing_phase(tmp_path, monkeypatch) -> None:

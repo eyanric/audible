@@ -3,28 +3,28 @@ gain grid (0.0, 0.25, 0.5, 0.75, 1.0, 1.25), walk-forward fit (2019, 2020, 2021,
 
 survivors from phases 2 and 3: 0
 excluded: 24
-  snap_share: null
-  target_share: resolves but immaterial
+  snap_share: RESOLVES but every selected lambda was 0.0
+  target_share: null
   ay_share: null
   route_share: null
   ff_opp_exp: null
   td_oe: null
-  availability: null
+  availability: HARM
   draft_round: null
   depth_slot: null
   adp_gap: null
   contract: null
-  ngs_separation: null
+  ngs_separation: HARM
   ngs_time_to_throw: null
-  ngs_rush_eff: null
+  ngs_rush_eff: resolves but immaterial
   uncertainty: null
-  age_at_export: resolves but immaterial
+  age_at_export: null
   ffa_experience: null
-  inj_status: OFF-LOCUS
+  inj_status: null
   true_age: null
   true_experience: null
   weekly_sd_rel: null
-  role_change_snaps: resolves but immaterial
+  role_change_snaps: null
   role_change_proj: null
   floor_ceiling_tilt: null
 
