@@ -1,0 +1,188 @@
+S7 PHASE 1 -- weekly harness, full scale
+aggregation weighted, floor draws 40 per scope, seed 20260911
+scales ('vorp', 'points') -- vorp is primary, it is what the draft board ships
+
+-- 118 scopes scoreable for weighted --
+   the corpus offers 169; the outcome side binds. player_stats is
+   pinned for 2019-2025, so 51 weekly projections on disk
+   have no pinned outcome and are NOT scored. No substitution.
+   2015 is excluded: its weighted files carry sd without point estimates.
+   2020 wk17 is excluded: FFA has no data, in any aggregation.
+
+-- G1 validation, weekly, one scope per league per scale --
+G1  espn_green_hope 2024 wk8 vorp: perfect 0.000000, shuffled 57.151
+G1  espn_danger_zone 2024 wk8 vorp: perfect 0.000000, shuffled 69.613
+G1  sleeper_boyfun 2024 wk8 vorp: perfect 0.000000, shuffled 81.668
+G1  espn_green_hope 2024 wk8 points: perfect 0.000000, shuffled 56.844
+G1  espn_danger_zone 2024 wk8 points: perfect 0.000000, shuffled 65.801
+G1  sleeper_boyfun 2024 wk8 points: perfect 0.000000, shuffled 80.887
+
+== espn_green_hope vorp ==
+  scopes scored      118
+  player-weeks       36201
+  FFA  RWRE  mean  34.529  sd  4.377  min  25.990  max  47.726
+  FLOOR RWRE mean  53.141  sd  0.662  min  51.777  max  55.142
+  within-scope floor sd  mean 3.933
+  scopes where FFA beats its own floor by 2sd: 116/118
+  spearman   mean 0.4095
+  top24 hit  mean 0.4163
+  QB  mean  5.402  sd 0.949  n 118
+  RB  mean 11.603  sd 1.827  n 118
+  WR  mean 13.864  sd 1.935  n 118
+  TE  mean  7.247  sd 1.118  n 118
+  by season:
+    2019  n 17  mean  35.877  sd  4.526
+    2020  n 16  mean  37.469  sd  4.620
+    2021  n 17  mean  34.158  sd  4.058
+    2022  n 17  mean  33.462  sd  4.622
+    2023  n 17  mean  35.840  sd  3.813
+    2024  n 17  mean  32.828  sd  4.204
+    2025  n 17  mean  32.242  sd  2.682
+
+== espn_danger_zone vorp ==
+  scopes scored      118
+  player-weeks       36201
+  FFA  RWRE  mean  40.818  sd  4.687  min  32.528  max  53.828
+  FLOOR RWRE mean  66.403  sd  0.675  min  64.862  max  68.148
+  within-scope floor sd  mean 4.336
+  scopes where FFA beats its own floor by 2sd: 118/118
+  spearman   mean 0.4678
+  top24 hit  mean 0.3814
+  QB  mean  6.593  sd 1.152  n 118
+  RB  mean 12.598  sd 1.921  n 118
+  WR  mean 15.657  sd 1.943  n 118
+  TE  mean  8.260  sd 1.275  n 118
+  by season:
+    2019  n 17  mean  41.430  sd  3.997
+    2020  n 16  mean  43.360  sd  4.617
+    2021  n 17  mean  41.015  sd  5.625
+    2022  n 17  mean  40.646  sd  5.403
+    2023  n 17  mean  40.463  sd  4.538
+    2024  n 17  mean  39.949  sd  4.460
+    2025  n 17  mean  39.014  sd  3.472
+
+== sleeper_boyfun vorp ==
+  scopes scored      118
+  player-weeks       36201
+  FFA  RWRE  mean  48.141  sd  5.119  min  32.588  max  61.686
+  FLOOR RWRE mean  79.556  sd  0.760  min  77.739  max  82.044
+  within-scope floor sd  mean 4.988
+  scopes where FFA beats its own floor by 2sd: 118/118
+  spearman   mean 0.4892
+  top24 hit  mean 0.3453
+  QB  mean  7.392  sd 1.290  n 118
+  RB  mean 12.948  sd 1.981  n 118
+  WR  mean 20.815  sd 2.690  n 118
+  TE  mean  9.007  sd 1.266  n 118
+  by season:
+    2019  n 17  mean  49.860  sd  5.685
+    2020  n 16  mean  50.128  sd  4.667
+    2021  n 17  mean  47.913  sd  5.766
+    2022  n 17  mean  47.062  sd  5.999
+    2023  n 17  mean  46.904  sd  5.068
+    2024  n 17  mean  47.455  sd  4.266
+    2025  n 17  mean  47.782  sd  3.888
+
+== espn_green_hope points ==
+  scopes scored      118
+  player-weeks       36201
+  FFA  RWRE  mean  28.047  sd  3.347  min  20.787  max  45.879
+  FLOOR RWRE mean  53.065  sd  0.635  min  51.497  max  54.681
+  within-scope floor sd  mean 3.822
+  scopes where FFA beats its own floor by 2sd: 117/118
+  spearman   mean 0.5224
+  top24 hit  mean 0.5251
+  QB  mean  5.392  sd 0.955  n 118
+  RB  mean 11.604  sd 1.826  n 118
+  WR  mean 13.866  sd 1.926  n 118
+  TE  mean  7.247  sd 1.118  n 118
+  by season:
+    2019  n 17  mean  29.042  sd  3.002
+    2020  n 16  mean  26.656  sd  5.856
+    2021  n 17  mean  27.593  sd  2.877
+    2022  n 17  mean  27.665  sd  3.035
+    2023  n 17  mean  29.098  sd  2.616
+    2024  n 17  mean  28.036  sd  2.218
+    2025  n 17  mean  28.153  sd  2.640
+
+== espn_danger_zone points ==
+  scopes scored      118
+  player-weeks       36201
+  FFA  RWRE  mean  41.977  sd  4.447  min  30.755  max  52.393
+  FLOOR RWRE mean  66.337  sd  0.696  min  64.474  max  69.013
+  within-scope floor sd  mean 4.311
+  scopes where FFA beats its own floor by 2sd: 118/118
+  spearman   mean 0.4551
+  top24 hit  mean 0.3711
+  QB  mean  6.594  sd 1.161  n 118
+  RB  mean 12.598  sd 1.921  n 118
+  WR  mean 15.655  sd 1.935  n 118
+  TE  mean  8.260  sd 1.276  n 118
+  by season:
+    2019  n 17  mean  43.143  sd  4.778
+    2020  n 16  mean  42.084  sd  4.558
+    2021  n 17  mean  41.972  sd  4.217
+    2022  n 17  mean  40.438  sd  5.111
+    2023  n 17  mean  42.196  sd  4.851
+    2024  n 17  mean  42.572  sd  3.735
+    2025  n 17  mean  41.438  sd  4.024
+
+== sleeper_boyfun points ==
+  scopes scored      118
+  player-weeks       36201
+  FFA  RWRE  mean  43.280  sd  4.650  min  30.606  max  58.793
+  FLOOR RWRE mean  79.479  sd  0.860  min  77.399  max  81.859
+  within-scope floor sd  mean 4.979
+  scopes where FFA beats its own floor by 2sd: 118/118
+  spearman   mean 0.5453
+  top24 hit  mean 0.3972
+  QB  mean  7.397  sd 1.295  n 118
+  RB  mean 12.947  sd 1.981  n 118
+  WR  mean 20.815  sd 2.689  n 118
+  TE  mean  9.009  sd 1.266  n 118
+  by season:
+    2019  n 17  mean  44.379  sd  5.765
+    2020  n 16  mean  43.825  sd  4.460
+    2021  n 17  mean  42.548  sd  4.145
+    2022  n 17  mean  43.323  sd  6.155
+    2023  n 17  mean  42.710  sd  4.390
+    2024  n 17  mean  42.935  sd  3.639
+    2025  n 17  mean  43.274  sd  4.003
+
+-- SEASONAL mode: G1 and the floor, for comparison --
+== espn_green_hope SEASONAL ==
+  observations 7  pool_size 128
+  perfect board 0.000000 in every season: yes
+  FLOOR RWRE mean  52.809  sd  0.617  min  51.708  max  53.383
+    2019  floor  51.708  within-season sd 4.122
+    2020  floor  53.383  within-season sd 3.536
+    2021  floor  52.402  within-season sd 4.300
+    2022  floor  53.171  within-season sd 3.874
+    2023  floor  52.560  within-season sd 4.042
+    2024  floor  53.377  within-season sd 4.480
+    2025  floor  53.061  within-season sd 4.253
+
+== espn_danger_zone SEASONAL ==
+  observations 7  pool_size 160
+  perfect board 0.000000 in every season: yes
+  FLOOR RWRE mean  65.897  sd  0.962  min  64.613  max  67.115
+    2019  floor  64.613  within-season sd 4.984
+    2020  floor  67.115  within-season sd 4.850
+    2021  floor  65.034  within-season sd 4.980
+    2022  floor  66.525  within-season sd 4.774
+    2023  floor  65.593  within-season sd 5.434
+    2024  floor  66.909  within-season sd 5.049
+    2025  floor  65.488  within-season sd 4.085
+
+== sleeper_boyfun SEASONAL ==
+  observations 7  pool_size 190
+  perfect board 0.000000 in every season: yes
+  FLOOR RWRE mean  78.670  sd  0.882  min  77.395  max  79.628
+    2019  floor  77.395  within-season sd 5.695
+    2020  floor  79.628  within-season sd 4.540
+    2021  floor  77.551  within-season sd 5.450
+    2022  floor  79.380  within-season sd 5.308
+    2023  floor  79.033  within-season sd 5.647
+    2024  floor  79.142  within-season sd 5.775
+    2025  floor  78.564  within-season sd 4.852
+

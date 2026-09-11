@@ -56,6 +56,16 @@ WEEKLY_SEASONS: tuple[int, ...] = tuple(range(2015, 2026))
 REGULAR_WEEKS: tuple[int, ...] = tuple(range(1, 18))
 USABLE_WEIGHTED_FROM = 2016
 
+# THE OUTCOME SIDE IS THE BINDING CONSTRAINT, not the projection side. `player_stats_<S>`
+# is pinned for 2019-2025 only, and `room.resolve_input` refuses to substitute a nearby
+# season or a different source for a missing input -- correctly, since an outcome fetched
+# fresh today is not the outcome that season had.
+#
+# So the corpus offers weighted 2016-2025 and the harness can only score 2019-2025. The
+# intersection is what `scoreable_scopes` returns, and the difference is reported rather
+# than quietly dropped: 2016-2018 weekly projections are on disk with no pinned outcome.
+ACTUALS_SEASONS: tuple[int, ...] = tuple(range(2019, 2026))
+
 # FFA has no data for it in any aggregation: 23 bytes for raw weighted, three defensive
 # players for average and robust, a 500 for proj. Never substituted.
 MISSING_SCOPES: frozenset[tuple[int, int]] = frozenset({(2020, 17)})
@@ -90,7 +100,8 @@ class WeeklyBoard:
     league_key: str
     aggregation: str
     board: list[str]  # gsis ids, best first
-    projected: dict[str, float]
+    projected: dict[str, float]  # league-scored projected points
+    value: dict[str, float]  # what the board was actually ORDERED on; see `scale`
     position: dict[str, str]
     rows_read: int
     joined: int
@@ -113,11 +124,20 @@ def corpus_path(season: int, week: int, aggregation: str) -> Path:
     return path
 
 
-def available_scopes(aggregation: str) -> list[tuple[int, int]]:
-    """Every (season, week) this aggregation can serve, honouring the 2015 weighted hole."""
+def available_scopes(
+    aggregation: str, *, require_actuals: bool = False
+) -> list[tuple[int, int]]:
+    """Every (season, week) this aggregation can serve.
+
+    Honours the 2015 weighted hole always. With *require_actuals*, also intersects with the
+    seasons whose outcomes are pinned -- which is what any scoring run needs, and which is
+    narrower than the corpus.
+    """
     scopes = []
     for season in WEEKLY_SEASONS:
         if aggregation == "weighted" and season < USABLE_WEIGHTED_FROM:
+            continue
+        if require_actuals and season not in ACTUALS_SEASONS:
             continue
         for week in REGULAR_WEEKS:
             if (season, week) in MISSING_SCOPES:
@@ -184,12 +204,25 @@ def build_board(
     aggregation: str = "weighted",
     positions: frozenset[str] = OFFENSIVE,
     deltas: dict[str, float] | None = None,
+    scale: str = "vorp",
 ) -> WeeklyBoard:
     """Rank the FFA weekly projection for one scope under one league's rulebook.
 
-    The ordering is projected points under THIS league, which is the whole reason to use
+    The points are projected points under THIS league, which is the whole reason to use
     `raw`: the same stat line ranks differently in a PPR league than in a standard one, and a
     `proj` file has already committed to somebody else's answer.
+
+    *scale* is WHICH QUANTITY THE BOARD IS ORDERED ON, and it is not cosmetic.
+
+    `vorp` is the default because it is what the draft board ships. Ordering across positions
+    by raw points ranks a 27-point quarterback above a 19-point running back in a league that
+    starts one quarterback, so a board is marked DOWN for correctly pricing scarcity -- and
+    `rank.realised_vorp` documents that exact cross-position gap as the whole of a 13.99 error
+    `audible#85`'s G1 caught. Whatever the board side uses, the realised side must use too.
+
+    `points` is kept and reported because it is the honest start/sit question: in one week you
+    choose among the players you hold, not against a replacement level. Phase 4's transfer
+    question is only meaningful on the scale the draft board uses, so `vorp` is primary.
     """
     from audible.scoring.engine import score_stat_line
 
@@ -235,17 +268,47 @@ def build_board(
             projected[gsis] = points
         position[gsis] = pos
 
-    board = sorted(projected, key=lambda pid: (-projected[pid], pid))
+    value = _scaled(projected, position, league_key, scale)
+    board = sorted(value, key=lambda pid: (-value[pid], pid))
     return WeeklyBoard(
         season=season, week=week, league_key=league_key, aggregation=aggregation,
-        board=board, projected=projected, position=position,
+        board=board, projected=projected, value=value, position=position,
         rows_read=rows_read, joined=joined, dropped_no_gsis=dropped,
     )
 
 
+SCALES: tuple[str, ...] = ("points", "vorp")
+
+
+def _scaled(
+    points: dict[str, float], position: dict[str, str], league_key: str, scale: str
+) -> dict[str, float]:
+    """Put a points dict on the requested scale. The SAME call serves both sides."""
+    if scale == "points":
+        return dict(points)
+    if scale == "vorp":
+        return rank.vorp_values(points, position, league_key)
+    raise ValueError(f"unknown scale {scale!r}; expected one of {SCALES}")
+
+
+@dataclass(frozen=True, slots=True)
+class WeeklyRealised:
+    """One week's outcome. Points AND positions, because VORP needs both."""
+
+    season: int
+    week: int
+    league_key: str
+    points: dict[str, float]
+    position: dict[str, str]
+
+    def on(self, scale: str) -> dict[str, float]:
+        """The outcome on *scale* -- the same transform the board side was built with."""
+        return _scaled(self.points, self.position, self.league_key, scale)
+
+
 def realised_week(
     season: int, week: int, league_key: str, *, positions: frozenset[str] = OFFENSIVE
-) -> dict[str, float]:
+) -> WeeklyRealised:
     """That week's realised points per gsis id, under *league_key*'s own rulebook.
 
     `sim/weekly.py::weekly_points` scores one league only -- 6012, with its historical
@@ -264,6 +327,7 @@ def realised_week(
 
     weights_by_position: dict[str, dict[str, float]] = {}
     points: dict[str, float] = {}
+    position: dict[str, str] = {}
     for row in reg.iter_rows(named=True):
         pos = room.canon_position(str(row.get("position") or ""))
         if pos not in positions:
@@ -276,7 +340,10 @@ def realised_week(
         stats["pass_yd"] = weekly.bucket25(float(row.get("passing_yards") or 0.0))
         pid = str(row["player_id"])
         points[pid] = points.get(pid, 0.0) + score_stat_line(stats, weights)
-    return points
+        position[pid] = pos
+    return WeeklyRealised(
+        season=season, week=week, league_key=league_key, points=points, position=position,
+    )
 
 
 def score_week(
