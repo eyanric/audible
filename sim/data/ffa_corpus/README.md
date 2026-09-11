@@ -187,29 +187,102 @@ believed to be done. JSONL rather than a document because appending a line canno
 lines already written, and a torn final line from a kill mid-write is discardable rather than
 fatal.
 
+Every field, and what each is for:
+
 ```json
-{"avg":"weighted","bytes":700698,"favg":null,"file":"ffa_raw_2019_wk0_weighted.csv",
- "fetched_at":"2026-09-10T12:00:00+00:00","kind":"raw","measured_avg_type":"weighted",
- "positions":{"DB":399,"DL":351,"DST":33,"K":57,"LB":309,"QB":158,"RB":291,"TE":218,"WR":422},
- "rows":2238,"sha256":"...","week":0,"year":2019}
+{"avg": "weighted",
+ "bytes": 700698,
+ "fetched_at": "2026-09-10T12:00:00+00:00",
+ "file": "ffa_raw_2019_wk0_weighted.csv",
+ "kind": "raw",
+ "measured_avg_type": "weighted",
+ "positions": {"DB": 399, "DL": 351, "DST": 33, "K": 57, "LB": 309,
+               "QB": 158, "RB": 291, "TE": 218, "WR": 422},
+ "rows": 2238,
+ "sha256": "...",
+ "week": 0,
+ "witness_sha256": null,
+ "year": 2019}
 ```
 
-`sha256` is of the payload bytes, so a run can assert it read the same bytes the artifact
-claims without the bytes being in git. `measured_avg_type` is what the fifth column actually
-said — `null` for `proj`, which carries no such column.
+| field | meaning |
+| --- | --- |
+| `avg` | the aggregation **requested** |
+| `measured_avg_type` | what the fifth column **actually said**. `null` for `proj`, which has no such column — never an echo of `avg` |
+| `witness_sha256` | for a `proj` file, the sha256 of the raw file fetched from the same session state immediately before it, whose fifth column *did* carry the aggregation. `null` for `raw`, which vouches for itself |
+| `sha256` | of the payload bytes, so a run can assert it read the bytes the artifact claims without the bytes being in git |
+| `bytes` | length on disk; `plan` compares this **and** the digest |
+| `rows` | data rows, excluding the header |
+| `positions` | counts per position, which is where the IDP map comes from |
 
-A failed job is recorded in `failures.jsonl` instead, and **no file is written**. A corpus
-directory can therefore never contain a file the manifest does not vouch for, which is what
-makes the resume rule sound: a job is done only when the manifest names it AND a file of the
-recorded size sits beside it.
+A failed job is recorded in `failures.jsonl` instead and **no file is written**, so a file
+that failed verification never reaches disk.
+
+The file lands *before* its manifest line, so a kill in the microseconds between them leaves
+a file with no entry. That is the safe direction: `plan` re-fetches a file the manifest does
+not name, and `status` reports it as UNVOUCHED. The reverse order would leave an entry
+vouching for bytes that are not there. (An earlier version of this README claimed a corpus
+"can never contain a file the manifest does not vouch for" — that was an overclaim.)
+
+## What is actually in each file
+
+**`raw` — the stat lines.** 63 columns: passing, rushing, receiving, kicking by distance
+band, team-defence and IDP counts, each with a standard deviation, plus `draft_year`,
+`birthdate`, injury fields and the `season_year`/`week` scope columns. **This is what a
+league-specific board needs**, because points are computed from the stat line under *your*
+scoring, not taken from somebody else's total.
+
+**`proj` — FFA's own scored projection.** 22 columns: `points`, `sd_pts`, `dropoff`, `floor`,
+`ceiling`, `points_vor`, `floor_vor`, `ceiling_vor`, `rank`, `position_rank`, `tier`, `adp`,
+`aav`, `uncertainty`. Two things about it matter and both are easy to miss:
+
+1. **It is scored under the FFAnalytics default league**, not yours. `points` and every
+   `_vor` column embed a scoring system and a roster that are not `sleeper_boyfun` or
+   `espn_davis_drive`. Using them as a board is using someone else's league's answer.
+2. **It has no `avg_type` column**, so a `proj` file cannot say which aggregation produced
+   it. That is why every one carries a `witness_sha256`.
+
+**So: `raw` for anything league-specific, `proj` only for FFA's own ranking, `adp`/`aav`, and
+the uncertainty columns the raw lines do not carry.**
+
+`proj` is also **truncated to a fixed count per position** — see `COVERAGE.md` for the grid.
+Across every season pair it holds 44% of the raw pool, and the shortfall is worst exactly
+where a deep league needs depth: WR 32%, TE 28%, DB 36%. For a 10-team SUPERFLEX league a
+`proj`-derived board has **36 quarterbacks in total**.
 
 ## Coverage
 
-See `COVERAGE.md` beside this file, regenerated from the manifest by
+**612 files, 169,215,471 bytes. Complete apart from three named holes.**
+
+```
+weekly raw  2015-2025 wk1-17  x weighted   186/187
+weekly raw  2015-2025 wk1-17  x average    186/187
+weekly raw  2015-2025 wk1-17  x robust     186/187
+season raw  2018-2026 wk0     x all three   27/27
+season proj 2018-2026 wk0     x all three   27/27
+```
+
+That is ~43,000 player-weeks, against the ~2,400 player-seasons every measurement in this
+project ran on before it.
+
+See `COVERAGE.md` beside this file — the per-season/week grid, the IDP map, the `proj` depth
+table and the per-file list — regenerated from the manifest by
 `uv run python -m sim.tools.ffa_scrape status --write-coverage`. **Gaps are named, never
 substituted.**
 
-### The one gap: 2020 week 17
+### Do the three aggregations differ? Yes.
+
+186 weekly weeks hold two or more aggregations and **no pair is byte-identical**. Same
+players, different projections, monotonically smaller from weighted to robust:
+
+```
+2018 wk0   weighted 580500B  average 498114B  robust 416777B   1624 rows each
+2019 wk5   weighted 470159B  average 425688B  robust 358621B   1309 rows each
+2022 wk8   weighted 254324B  average 226883B  robust 190952B    702 rows each
+2025 wk12  weighted 286602B  average 259689B  robust 227409B    887 rows each
+```
+
+### The three gaps: 2020 week 17, all aggregations
 
 Not a scraper failure. FFA has no usable data for that scope, and says so three different
 ways. Measured against controls either side:
@@ -228,8 +301,23 @@ The `weighted` response is a degenerate one-column frame; the `average` response
 well-formed 65-column CSV holding three defensive players and nothing else; `proj` returns
 a 500. The verifier rejected all three, which is the correct outcome for each.
 
+Stage 4 then re-tested the same scope from a different session two months of wall-clock
+later, and got the same answer for both remaining aggregations:
+
+```
+ffa_raw_2020_wk17_average.csv   3 rows, only DB/DL/LB   rejected, twice
+ffa_raw_2020_wk17_robust.csv    3 rows, only DB/DL/LB   rejected, twice
+```
+
+Both were retried with doubled settles and a forced Settings round trip. **Three
+independent sessions, three aggregations, same result: FFA has no week 17 of 2020.** The
+three absent files are the corpus's only holes.
+
 **Do not substitute week 16 or 18 for it.** A weekly model that silently fills this in is
 modelling a week that FFA never projected.
+
+`failures.jsonl` in this directory carries the per-attempt record, and is gitignored because
+it is run-local.
 
 ## Do not extend the window before 2018
 
