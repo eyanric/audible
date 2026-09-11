@@ -215,12 +215,68 @@ def values_for(signal: Signal, board: Any, season: int, league: str) -> dict[str
 
 
 def _salt_values(pids: list[str], season: int, salt: int) -> dict[str, float]:
-    """Information-free values on exactly *pids*. Not an RNG draw, so a run is reproducible."""
+    """A uniform hash on exactly *pids*. SUPERSEDED as the floor; kept for the gates.
+
+    This was the floor through the first phase-2 and phase-3 runs and the adversarial review
+    refuted it. See `floor_values` for what replaced it and why.
+    """
     return {
         pid: (int(hashlib.sha256(f"{pid}:{season}:{salt}".encode()).hexdigest()[:8], 16)
               / 0xFFFFFFFF) * 2.0 - 1.0
         for pid in pids
     }
+
+
+def floor_values(values: dict[str, float], covered: list[str], position: dict[str, str],
+                 frozen: set[str], key: int, salt: int) -> dict[str, float]:
+    """THE FLOOR: this term's OWN values, dealt to the wrong players.
+
+    THE HASH FLOOR THIS REPLACED WAS THE WRONG NULL AND THE REVIEW MEASURED IT TWICE.
+
+    A reference-set p is only meaningful if the salt and the signal are exchangeable under the
+    null. A `Uniform(-1, 1)` hash is not exchangeable with a term whose values are 95% exactly
+    zero: `inj_status` demotes a handful of players hard while the hash jiggles everyone gently,
+    so the two interventions are not the same KIND of intervention and comparing them tests the
+    shape of the value distribution rather than its information content. Measured: `inj_status`
+    at WR read p 0.0244 against the hash and 0.0976 / 0.3415 against a permutation of its own
+    values -- because merely shuffling WHICH player is listed Out already buys +0.119 and +0.081
+    RWRE, 62% and 72% of the observed effect.
+
+    The same defect made the null hit rate wrong in the other direction. Out-of-sample selection
+    parks most hash-floor draws on exactly 0.000, and `p = (1 + #{f >= obs})/41` cannot reach
+    0.05 when three or more of the 41 values tie at the maximum. For five of six sampled terms
+    the null probability of a hit was not 2/41 -- it was ZERO. A benchmark of "16.4 expected"
+    built from a flat 2/41 was therefore wrong for the 131 of 336 tests whose effect is exactly
+    0.000. `s7_multiplicity` now computes the achievable rate per test instead of assuming one.
+
+    Permuting the term's own values fixes both: the marginal distribution is preserved exactly,
+    the value-to-player pairing -- the only thing under test -- is destroyed, and the salt is
+    exchangeable with the signal by construction. `s7_phase3.run_tilt` already used this null
+    for its own sd shuffle, so the session was inconsistent with itself.
+
+    A TERM THAT IS CONSTANT WITHIN EVERY POSITION IS PERMUTED ACROSS POSITIONS INSTEAD. For
+    `availability` -- four position-level rates -- dealing the values to individual players
+    would manufacture within-position spread the term provably cannot have, and the floor would
+    then be a different kind of object from the treatment. Permuting the four rates among the
+    four positions is the exact reference set for what that term actually does.
+    """
+    rng = random.Random(hash((key, salt)) & 0xFFFFFFFF)
+    if frozen and frozen >= {pos for pos in POSITIONS if any(
+        position.get(pid) == pos for pid in covered
+    )}:
+        per_position: dict[str, float] = {}
+        for pid in covered:
+            pos = position.get(pid)
+            if pos is not None and pos not in per_position:
+                per_position[pos] = values[pid]
+        labels = list(per_position)
+        held = [per_position[pos] for pos in labels]
+        rng.shuffle(held)
+        mapped = dict(zip(labels, held, strict=True))
+        return {pid: mapped[position[pid]] for pid in covered if position.get(pid) in mapped}
+    held = [values[pid] for pid in covered]
+    rng.shuffle(held)
+    return dict(zip(covered, held, strict=True))
 
 
 def load_scopes(league: str) -> dict[Scope, tuple[Any, dict[str, float], Any]]:
@@ -259,7 +315,7 @@ class Series:
 
 
 def build_series(signal: Signal, loaded: dict[Scope, Any], league: str,
-                 *, salt: int | None = None) -> Series:
+                 *, salt: int | None = None, frozen: set[str] | None = None) -> Series:
     """Score every scope at every strength in `GRID`, once.
 
     With *salt*, the signal's values are replaced by an information-free hash over exactly the
@@ -281,7 +337,10 @@ def build_series(signal: Signal, loaded: dict[Scope, Any], league: str,
         covered = [pid for pid in board.projected if pid in values]
         if not covered:
             continue
-        inject = _salt_values(covered, season, salt) if salt is not None else values
+        inject = (
+            floor_values(values, covered, board.position, frozen or set(), season, salt)
+            if salt is not None else values
+        )
         series.base[scope] = base.rwre
         for pos, value in base.per_position.items():
             series.base_pos.setdefault(pos, {})[scope] = value
@@ -346,11 +405,41 @@ def fixed(base: dict[Scope, float], treated: dict[float, dict[Scope, float]],
 
 
 def reference_p(observed: float, floor: list[float]) -> float:
-    """(1 + #{floor >= observed}) / (1 + K). One-sided: the direction is pre-registered."""
+    """(1 + #{floor >= observed}) / (1 + K). One-sided FOR IMPROVEMENT.
+
+    SMALL MEANS THE TERM BEAT THE FLOOR. A p near 1.0 means it lost to almost every draw, which
+    is the signature of a harm -- see `harm_p`, and note that the first version of this module
+    looked for harms at p <= 0.05, which is exactly backwards and fired zero times in 72
+    measurements.
+    """
     usable = [f for f in floor if f == f]
     if not usable:
         return float("nan")
     return (1 + sum(1 for f in usable if f >= observed)) / (1 + len(usable))
+
+
+def harm_p(observed: float, floor: list[float]) -> float:
+    """The mirror: (1 + #{floor <= observed}) / (1 + K). Small means the term LOST to the floor."""
+    usable = [f for f in floor if f == f]
+    if not usable:
+        return float("nan")
+    return (1 + sum(1 for f in usable if f <= observed)) / (1 + len(usable))
+
+
+def achievable_p(observed: float, floor: list[float]) -> float:
+    """The SMALLEST p this test could have returned, given the ties actually present.
+
+    Under exchangeability the observed value is one of the 1+K, so if the maximum of that set is
+    attained by m values then the best reachable p is m/(1+K). With m >= 3 a threshold of 0.05 is
+    unreachable and the test cannot produce a hit however real the effect is. This is what makes
+    a flat "P(hit) = 2/41" benchmark wrong, and it is reported per test rather than assumed.
+    """
+    usable = [f for f in floor if f == f]
+    if not usable:
+        return float("nan")
+    combined = [*usable, observed]
+    top = max(combined)
+    return sum(1 for value in combined if value >= top) / len(combined)
 
 
 def clustered_interval(deltas: dict[Scope, float], *, by: str, seed: int) -> tuple[float, float]:
@@ -595,7 +684,7 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
     floor_board: list[float] = []
     floor_pos: dict[str, list[float]] = {pos: [] for pos in POSITIONS}
     for salt in range(FLOOR_DRAWS):
-        drawn = build_series(signal, loaded, league, salt=salt)
+        drawn = build_series(signal, loaded, league, salt=salt, frozen=frozen)
         value, _e, _c = loso(drawn.base, drawn.treated)
         floor_board.append(value)
         for pos in POSITIONS:
@@ -609,8 +698,14 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
     print(f"    board-wide  mean {statistics.mean(usable):+7.4f} "
           f"sd {statistics.stdev(usable):.4f} max {max(usable):+7.4f}")
     p_board = reference_p(selected, floor_board)
-    print(f"    reference-set p, board-wide: {p_board:.4f}")
+    p_board_harm = harm_p(selected, floor_board)
+    best_possible = achievable_p(selected, floor_board)
+    print(f"    reference-set p, board-wide: {p_board:.4f}  "
+          f"(harm p {p_board_harm:.4f}; the smallest p this test could return given its own "
+          f"ties is {best_possible:.4f})")
     record["p_board"] = p_board
+    record["p_board_harm"] = p_board_harm
+    record["achievable_p_board"] = best_possible
     record["floor_board_mean"] = statistics.mean(usable)
     record["p_position"] = {}
     for pos in POSITIONS:
@@ -621,9 +716,16 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
         if pos in pos_selected and floor_pos[pos]:
             p_pos = reference_p(pos_selected[pos], floor_pos[pos])
             record["p_position"][pos] = p_pos
+            record.setdefault("achievable_p_position", {})[pos] = achievable_p(
+                pos_selected[pos], floor_pos[pos]
+            )
+            record.setdefault("harm_p_position", {})[pos] = harm_p(
+                pos_selected[pos], floor_pos[pos]
+            )
             mark = "  <- locus" if pos in signal.locus else ""
             print(f"    reference-set p, {pos}: {p_pos:.4f}  "
-                  f"(floor mean {statistics.mean(floor_pos[pos]):+.4f}){mark}")
+                  f"(floor mean {statistics.mean(floor_pos[pos]):+.4f}, "
+                  f"best possible {record['achievable_p_position'][pos]:.4f}){mark}")
 
     lo, hi = clustered_interval(effects, by="season", seed=SEED)
     slo, shi = clustered_interval(effects, by="scope", seed=SEED)
@@ -640,52 +742,82 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
     record["seasonal_fixed"] = season_fixed
     record["seasonal_n"] = n_seasons
 
-    # RESOLUTION NEEDS A p AND THE RIGHT SIGN, AT ONE STATED PLACE. A p of 0.02 on a negative
-    # effect says the term reliably makes the board worse than a coin, which is a harm.
-    board_resolves = p_board <= 0.05 and selected > 0.0
+    record.update(
+        verdict_of(record, signal.locus, selected, pos_selected, p_board, p_board_harm, frozen)
+    )
+    print(f"   VERDICT: {record['verdict']}  {record['verdict_why']}")
+    print()
+    return record
+
+
+def verdict_of(record: dict[str, Any], locus: tuple[str, ...], selected: float,
+               pos_selected: dict[str, float], p_board: float, p_board_harm: float,
+               frozen: set[str]) -> dict[str, Any]:
+    """The disposition, and TWO BUGS THE ADVERSARIAL REVIEW FOUND IN THE FIRST VERSION.
+
+    BUG 1: `material` was `max(abs(...))` over the board effect and the locus effects, so the
+    MAGNITUDE OF A TERM'S OWN DAMAGE could certify it. `ngs_separation` in danger_zone scored
+    -0.1404 board-wide at p 0.9268 -- it lost to 38 of 40 floor draws -- and shipped as RESOLVES
+    because `abs(-0.1404) >= 0.10`, then entered the composite. Materiality is now read at the
+    PLACE THAT ACTUALLY QUALIFIED, with its sign.
+
+    BUG 2: the same `max` ignored a hit that landed OFF the pre-registered locus, so
+    `inj_status` -- +0.1919 at WR in green_hope and +0.1125 in danger_zone, the only pair of 336
+    tests to hit in two leagues -- was recorded as immaterial. An off-locus hit is still not a
+    resolution, because the locus was registered in advance and moving it afterwards is how a
+    null becomes a headline. It is now `OFF-LOCUS` with its own materiality flag, which is what
+    a lead should look like.
+
+    BUG 3: the HARM branch tested `p <= 0.05 AND effect < 0`, which is backwards. `reference_p`
+    is one-sided for improvement, so a term that damages the board reads p near 1.0. The branch
+    fired zero times in 72 measurements while five terms sat at or past the material harm bar.
+    Harm is now read off `harm_p`.
+    """
+    qualifying: list[tuple[str, float]] = []
+    if p_board <= 0.05 and selected > 0.0:
+        qualifying.append(("board", selected))
     locus_hits = [
-        pos for pos in signal.locus
+        pos for pos in locus
         if record["p_position"].get(pos, 1.0) <= 0.05 and pos_selected.get(pos, 0.0) > 0.0
     ]
+    qualifying.extend((pos, pos_selected[pos]) for pos in locus_hits)
     off_locus = [
         pos for pos in POSITIONS
-        if pos not in signal.locus and pos not in frozen
+        if pos not in locus and pos not in frozen
         and record["p_position"].get(pos, 1.0) <= 0.05 and pos_selected.get(pos, 0.0) > 0.0
     ]
     harms = [
         pos for pos in POSITIONS
-        if record["p_position"].get(pos, 1.0) <= 0.05 and pos_selected.get(pos, 0.0) < 0.0
+        if record.get("harm_p_position", {}).get(pos, 1.0) <= 0.05
+        and pos_selected.get(pos, 0.0) <= -MATERIAL
     ]
-    if p_board <= 0.05 and selected < 0.0:
+    if p_board_harm <= 0.05 and selected <= -MATERIAL:
         harms.append("board")
-    material = max(
-        [abs(selected)] + [abs(pos_selected.get(pos, 0.0)) for pos in signal.locus]
-    ) >= MATERIAL
-    record["material"] = material
-    if board_resolves or locus_hits:
-        record["verdict"] = "RESOLVES" if material else "resolves but immaterial"
+
+    material = bool(qualifying) and max(value for _where, value in qualifying) >= MATERIAL
+    off_material = any(abs(pos_selected.get(pos, 0.0)) >= MATERIAL for pos in off_locus)
+    if qualifying:
+        verdict = "RESOLVES" if material else "resolves but immaterial"
     elif off_locus:
-        record["verdict"] = "OFF-LOCUS"
+        verdict = "OFF-LOCUS" if off_material else "off-locus but immaterial"
     elif harms:
-        record["verdict"] = "HARM"
+        verdict = "HARM"
     else:
-        record["verdict"] = "null"
-    record["locus_hits"] = locus_hits
-    record["off_locus"] = off_locus
-    record["harms"] = harms
-    locus_ps = [record["p_position"][pos] for pos in signal.locus if pos in record["p_position"]]
-    best = min([p_board, *locus_ps])
-    extra = ""
-    if locus_hits:
-        extra += ", locus " + " ".join(locus_hits)
-    if off_locus:
-        extra += ", OFF-LOCUS at " + " ".join(off_locus)
-    if harms:
-        extra += ", harm at " + " ".join(harms)
-    extra += f", material {material} (bar {MATERIAL} RWRE)"
-    print(f"   VERDICT: {record['verdict']}  (best p {best:.4f}{extra})")
-    print()
-    return record
+        verdict = "null"
+    why = (
+        f"(p board {p_board:.4f}"
+        + (", locus " + " ".join(locus_hits) if locus_hits else "")
+        + (", OFF-LOCUS at " + " ".join(off_locus) if off_locus else "")
+        + (", HARM at " + " ".join(harms) if harms else "")
+        + f", material {material}"
+        + (f", off-locus material {off_material}" if off_locus else "")
+        + f", bar {MATERIAL} RWRE)"
+    )
+    return {
+        "verdict": verdict, "verdict_why": why, "material": material,
+        "off_locus_material": off_material, "locus_hits": locus_hits,
+        "off_locus": off_locus, "harms": harms,
+    }
 
 
 def main(argv: list[str]) -> int:

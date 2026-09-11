@@ -90,7 +90,7 @@ TILT_FRACTION = 1.0 / 3.0
 
 
 def build_series(name: str, loaded: dict[p2.Scope, Any], league: str,
-                 *, salt: int | None = None) -> p2.Series:
+                 *, salt: int | None = None, frozen: set[str] | None = None) -> p2.Series:
     """Phase 2's `build_series`, with a WEEK-aware values function instead of a season one."""
     fn = metrics.METRICS[name]
     series = p2.Series()
@@ -108,7 +108,12 @@ def build_series(name: str, loaded: dict[p2.Scope, Any], league: str,
         covered = [pid for pid in board.projected if pid in values]
         if not covered:
             continue
-        inject = p2._salt_values(covered, season * 100 + week, salt) if salt is not None else values
+        inject = (
+            p2.floor_values(
+                values, covered, board.position, frozen or set(), season * 100 + week, salt
+            )
+            if salt is not None else values
+        )
         series.base[scope] = base.rwre
         for pos, value in base.per_position.items():
             series.base_pos.setdefault(pos, {})[scope] = value
@@ -159,6 +164,32 @@ def coverage(name: str, loaded: dict[p2.Scope, Any],
     }
 
 
+def frozen_positions(name: str, loaded: dict[p2.Scope, Any], league: str) -> set[str]:
+    """Positions where this metric holds one distinct value, so it cannot reorder them.
+
+    The same question `s7_phase2.constant_within_position` asks, and the floor needs the answer:
+    a term that is constant inside a position must be permuted ACROSS positions or the floor
+    manufactures spread the treatment provably cannot have.
+    """
+    fn = metrics.METRICS[name]
+    for scope, (board, _outcome, _base) in sorted(loaded.items()):
+        season, week = scope
+        try:
+            values = fn(board, season, week, league)
+        except (rank.PreflightError, s7.ScopeMissing):
+            continue
+        if not values:
+            continue
+        out: set[str] = set()
+        for pos in p2.POSITIONS:
+            members = [pid for pid, held in board.position.items()
+                       if held == pos and pid in values]
+            if members and len({values[pid] for pid in members}) <= 1:
+                out.add(pos)
+        return out
+    return set()
+
+
 def run_metric(name: str, loaded: dict[p2.Scope, Any], league: str) -> dict[str, Any]:
     locus = LOCUS[name]
     print(f"-- {name} --")
@@ -177,6 +208,9 @@ def run_metric(name: str, loaded: dict[p2.Scope, Any], league: str) -> dict[str,
         print()
         return {"metric": name, "league": league, "verdict": "not measurable"}
 
+    frozen = frozen_positions(name, loaded, league)
+    if frozen:
+        print(f"   structurally unable to reorder: {' '.join(sorted(frozen))}")
     series = build_series(name, loaded, league)
     if not series.base:
         print("   NOT MEASURABLE: no scope produced values.")
@@ -208,7 +242,7 @@ def run_metric(name: str, loaded: dict[p2.Scope, Any], league: str) -> dict[str,
     floor_board: list[float] = []
     floor_pos: dict[str, list[float]] = {pos: [] for pos in p2.POSITIONS}
     for salt in range(p2.FLOOR_DRAWS):
-        drawn = build_series(name, loaded, league, salt=salt)
+        drawn = build_series(name, loaded, league, salt=salt, frozen=frozen)
         value, _e, _c = p2.loso(drawn.base, drawn.treated)
         floor_board.append(value)
         for pos in p2.POSITIONS:
@@ -223,16 +257,27 @@ def run_metric(name: str, loaded: dict[p2.Scope, Any], league: str) -> dict[str,
     print(f"    board-wide  mean {statistics.mean(usable):+7.4f} "
           f"sd {statistics.stdev(usable):.4f} max {max(usable):+7.4f}")
     p_board = p2.reference_p(selected, floor_board)
-    print(f"    reference-set p, board-wide: {p_board:.4f}")
+    p_board_harm = p2.harm_p(selected, floor_board)
+    print(f"    reference-set p, board-wide: {p_board:.4f}  (harm p {p_board_harm:.4f}; "
+          f"best possible {p2.achievable_p(selected, floor_board):.4f})")
     record["p_board"] = p_board
+    record["p_board_harm"] = p_board_harm
+    record["achievable_p_board"] = p2.achievable_p(selected, floor_board)
     record["floor_board_mean"] = statistics.mean(usable)
     record["p_position"] = {}
+    record["harm_p_position"] = {}
+    record["achievable_p_position"] = {}
     for pos in p2.POSITIONS:
         if pos in pos_selected and floor_pos[pos]:
             p_pos = p2.reference_p(pos_selected[pos], floor_pos[pos])
             record["p_position"][pos] = p_pos
+            record["harm_p_position"][pos] = p2.harm_p(pos_selected[pos], floor_pos[pos])
+            record["achievable_p_position"][pos] = p2.achievable_p(
+                pos_selected[pos], floor_pos[pos]
+            )
             print(f"    reference-set p, {pos}: {p_pos:.4f}  "
-                  f"(floor mean {statistics.mean(floor_pos[pos]):+.4f})"
+                  f"(floor mean {statistics.mean(floor_pos[pos]):+.4f}, "
+                  f"best possible {record['achievable_p_position'][pos]:.4f})"
                   f"{'  <- locus' if pos in locus else ''}")
 
     lo, hi = p2.clustered_interval(effects, by="season", seed=p2.SEED)
@@ -246,33 +291,12 @@ def run_metric(name: str, loaded: dict[p2.Scope, Any], league: str) -> dict[str,
           "board has no week. Phase 4 tests whether it transfers.")
     record["seasonal"] = None
 
-    board_resolves = p_board <= 0.05 and selected > 0.0
-    locus_hits = [pos for pos in locus
-                  if record["p_position"].get(pos, 1.0) <= 0.05
-                  and pos_selected.get(pos, 0.0) > 0.0]
-    off_locus = [pos for pos in p2.POSITIONS
-                 if pos not in locus and record["p_position"].get(pos, 1.0) <= 0.05
-                 and pos_selected.get(pos, 0.0) > 0.0]
-    harms = [pos for pos in p2.POSITIONS
-             if record["p_position"].get(pos, 1.0) <= 0.05
-             and pos_selected.get(pos, 0.0) < 0.0]
-    if p_board <= 0.05 and selected < 0.0:
-        harms.append("board")
-    material = max([abs(selected)] + [abs(pos_selected.get(p, 0.0)) for p in locus]) >= p2.MATERIAL
-    if board_resolves or locus_hits:
-        record["verdict"] = "RESOLVES" if material else "resolves but immaterial"
-    elif off_locus:
-        record["verdict"] = "OFF-LOCUS"
-    elif harms:
-        record["verdict"] = "HARM"
-    else:
-        record["verdict"] = "null"
-    record["material"] = material
-    record["locus_hits"] = locus_hits
-    record["off_locus"] = off_locus
-    record["harms"] = harms
-    print(f"   VERDICT: {record['verdict']}  (p {p_board:.4f}, material {material}, "
-          f"bar {p2.MATERIAL} RWRE)")
+    # THE SAME VERDICT FUNCTION PHASE 2 USES, imported rather than copied: the adversarial
+    # review found three defects in the first copy and a second copy would have kept them.
+    record.update(
+        p2.verdict_of(record, locus, selected, pos_selected, p_board, p_board_harm, frozen)
+    )
+    print(f"   VERDICT: {record['verdict']}  {record['verdict_why']}")
     print()
     return record
 
