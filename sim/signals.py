@@ -52,6 +52,13 @@ def signal_values(name: str, season: int) -> dict[str, float]:
         return {p: v["prior_snap_share"] for p, v in prior.items() if "prior_snap_share" in v}
     if name == "target_share":
         return {p: v["prior_tgt_share"] for p, v in prior.items() if "prior_tgt_share" in v}
+    if name == "ay_share":
+        # AIR-YARDS SHARE. `prior_facts` has carried it since S3 and no signal ever read it,
+        # so the handoff's "air-yards share" had never been tested at all -- not resolved, not
+        # null, absent. It is a different construct from target share: volume weighted by how
+        # far downfield the throw went, which is where a boom receiver separates from a
+        # possession one on the same target count.
+        return {p: v["prior_ay_share"] for p, v in prior.items() if "prior_ay_share" in v}
     if name == "td_oe":
         return {p: v["td_oe"] for p, v in prior.items() if "td_oe" in v}
     if name == "draft_round":
@@ -91,6 +98,8 @@ def signal_values(name: str, season: int) -> dict[str, float]:
                 if m.get(field) == m.get(field)}  # NaN filtered by self-inequality
     if name == "depth_slot":
         return depth_slot(season)
+    if name == "route_share":
+        return route_share(season)
     if name in FF_OPP_FIELDS:
         column, per_appearance = FF_OPP_FIELDS[name]
         return ff_opportunity_prior(column, season, per_appearance)
@@ -329,6 +338,62 @@ def ngs_prior(file_key: str, column: str, season: int) -> dict[str, float]:
         str(pid): float(v)
         for pid, v in sub.select(["player_gsis_id", column]).drop_nulls().iter_rows()
     }
+
+
+@lru_cache(maxsize=16)
+def route_share(season: int) -> dict[str, float]:
+    """Share of his team's charted PASS plays a player was on the field for, in season-1.
+
+    THIS IS NOT ROUTES RUN AND IS NOT LABELLED AS IF IT WERE. No pinned file carries a
+    per-player routes-run count -- `CLAUDE.md` records route participation as a known gap, FTN
+    and post-season only, and `ftn_charting_s4` confirms it: 29 columns, none per-player. What
+    `participation_s4` does carry is `offense_players`, the eleven gsis ids on the field for each
+    play, so pass-play participation is constructible and is the standard proxy when routes-run
+    is unavailable. A blocking tight end and a route runner look the same to it; that is the cost
+    of the proxy, and it is why this docstring says what the measurement actually is.
+
+    THE PIN HAS A SCHEMA BREAK AT 2023 and the obvious filter walks straight into it. Before
+    2023 a non-pass play carries `route = null`; from 2023 it carries `route = ""`. So
+    `route.is_not_null()` selects 17,926 of 47,875 plays in 2018 and 46,168 of 46,168 in 2023 --
+    pass-play participation in one half of the window and plain snap share in the other, with no
+    error raised anywhere. The route VOCABULARY changed too ("HITCH" to "HITCH/CURL", "OUT" to
+    "QUICK OUT"). Non-empty is the filter that means the same thing in both halves: 560 pass
+    plays per team in 2018 against 613 in 2023.
+    """
+    import polars as pl
+
+    path = rank.CACHE / "nflverse" / "participation_s4.parquet"
+    if not path.exists():
+        raise rank.PreflightError(f"participation pin missing: {path}")
+    frame = pl.read_parquet(
+        path, columns=["nflverse_game_id", "possession_team", "route", "offense_players"]
+    ).with_columns(pl.col("nflverse_game_id").str.slice(0, 4).alias("_season"))
+    sub = frame.filter(
+        (pl.col("_season") == str(season - 1))
+        & pl.col("route").is_not_null()
+        & (pl.col("route") != "")
+        & pl.col("offense_players").is_not_null()
+        & (pl.col("offense_players").str.len_chars() > 0)
+    )
+    if sub.height == 0:
+        return {}
+    plays = sub.group_by("possession_team").len().rename({"len": "plays"})
+    exploded = sub.select(
+        "possession_team", pl.col("offense_players").str.split(";").alias("pid")
+    ).explode("pid")
+    counted = exploded.group_by(["possession_team", "pid"]).len().rename({"len": "on"})
+    joined = counted.join(plays, on="possession_team")
+    out: dict[str, float] = {}
+    for row in joined.iter_rows(named=True):
+        pid = str(row["pid"] or "")
+        if not pid:
+            continue
+        # A traded player appears under two teams. Keep the LARGER share rather than summing or
+        # averaging, the same rule `s7_weekly.build_board` uses for duplicate team aliases.
+        share = float(row["on"]) / float(row["plays"])
+        if share > out.get(pid, -1.0):
+            out[pid] = share
+    return out
 
 
 @lru_cache(maxsize=16)
