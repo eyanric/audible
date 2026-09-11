@@ -2318,13 +2318,36 @@ def test_the_alternating_stage_pays_two_settings_trips_a_season_not_thirty_four(
 
 
 def test_aggregation_runs_outside_week() -> None:
-    """The mechanism, so the nesting cannot be swapped back without a red gate."""
+    """The mechanism, so the nesting cannot be swapped back without a red gate.
+
+    THE FILTER USED TO DESTROY THE EVIDENCE. An earlier version selected one season and then
+    kept only the jobs of its first aggregation before comparing weeks -- which yields
+    wk1..wk17 under BOTH nestings, because filtering to one aggregation removes exactly the
+    interleaving it was looking for. It stayed green under its own mutation, and the sweep
+    could not say so: the mutation was killed by the trip-count gate beside it, and the
+    sweep reports whether SOME gate went red, not whether each one did.
+
+    So compare the sequence as it actually runs: under aggregation-outside-week a season is
+    one unbroken run of average then one of robust, so the aggregation changes ONCE.
+    """
     alt = jobs_mod.STAGES["weekly-alt"]
     first_season = [job for job in alt if job.year == jobs_mod.WEEKLY_YEARS[0]]
-    weeks_of_first_avg = [job.week for job in first_season if job.avg == first_season[0].avg]
-    assert weeks_of_first_avg == list(jobs_mod.REGULAR_WEEKS), (
-        "an aggregation does not run all its weeks consecutively"
+    assert len(first_season) == 2 * len(jobs_mod.REGULAR_WEEKS)
+
+    changes = sum(
+        1
+        # NOT strict=True: a list zipped with its own tail has unequal lengths by
+        # design, and strict raises on exactly that.
+        for previous, job in zip(first_season, first_season[1:], strict=False)
+        if previous.avg != job.avg
     )
+    assert changes == 1, (
+        f"the aggregation changes {changes} times within one season; under "
+        "week-outside-aggregation it changes on every job"
+    )
+    assert [job.week for job in first_season[: len(jobs_mod.REGULAR_WEEKS)]] == list(
+        jobs_mod.REGULAR_WEEKS
+    ), "the first aggregation does not run its weeks in order"
 
 
 def test_the_reordering_changed_no_other_stage() -> None:
