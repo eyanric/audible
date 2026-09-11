@@ -430,6 +430,18 @@ MUTATIONS: tuple[Mutation, ...] = (
         "return result.text, reasons",
     ),
     Mutation(
+        "a-lapsed-login-is-treated-as-recoverable",
+        "runner.py",
+        'RECOVERABLE_NAMES = frozenset({"TimeoutError", "Error", "TargetClosedError"})',
+        'RECOVERABLE_NAMES = frozenset({"TimeoutError", "Error", "NotLoggedIn"})',
+    ),
+    Mutation(
+        "week-runs-outside-aggregation-again",
+        "jobs.py",
+        "        for avg in ordered_avgs:\n            for week in weeks:",
+        "        for week in weeks:\n            for avg in ordered_avgs:",
+    ),
+    Mutation(
         "playwright-errors-are-fatal-again",
         "runner.py",
         "                if not is_recoverable(exc):",

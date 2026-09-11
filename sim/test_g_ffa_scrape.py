@@ -2282,3 +2282,155 @@ def test_the_recoverable_check_is_not_an_except_clause_trick() -> None:
     assert not hasattr(runner, "Recoverable"), (
         "the inert metaclass class is back; except clauses do not consult __instancecheck__"
     )
+
+
+# ---------------------------------------------------------------------------------------
+# ORDERING IS COST. A Settings->Projections round trip is the expensive move; a week change
+# is a 2s settle. Aggregation therefore sits OUTSIDE week in the loop nesting.
+# ---------------------------------------------------------------------------------------
+
+
+def _settings_trips(jobs: list[Job]) -> int:
+    """How many jobs must pay a Settings round trip, given the driver's own rule.
+
+    A real year change resets the aggregation to weighted server-side, so a weighted job
+    following one is free. Everything else that changes aggregation pays.
+    """
+    trips = 0
+    previous: Job | None = None
+    for job in jobs:
+        if previous is not None and (job.avg != previous.avg or job.year != previous.year):
+            free = job.year != previous.year and job.avg == "weighted"
+            if not free:
+                trips += 1
+        previous = job
+    return trips
+
+
+def test_the_alternating_stage_pays_two_settings_trips_a_season_not_thirty_four() -> None:
+    """With week outside aggregation, `weekly-alt` alternates average/robust on EVERY job
+    and pays 374 round trips -- about an extra hour and a half against someone else's
+    server for no data at all."""
+    trips = _settings_trips(jobs_mod.STAGES["weekly-alt"])
+    seasons = len(jobs_mod.WEEKLY_YEARS)
+    assert trips <= 2 * seasons + 1, f"{trips} trips for {seasons} seasons"
+    assert trips < 100, f"{trips} trips -- aggregation is being switched per week"
+
+
+def test_aggregation_runs_outside_week() -> None:
+    """The mechanism, so the nesting cannot be swapped back without a red gate.
+
+    THE FILTER USED TO DESTROY THE EVIDENCE. An earlier version selected one season and then
+    kept only the jobs of its first aggregation before comparing weeks -- which yields
+    wk1..wk17 under BOTH nestings, because filtering to one aggregation removes exactly the
+    interleaving it was looking for. It stayed green under its own mutation, and the sweep
+    could not say so: the mutation was killed by the trip-count gate beside it, and the
+    sweep reports whether SOME gate went red, not whether each one did.
+
+    So compare the sequence as it actually runs: under aggregation-outside-week a season is
+    one unbroken run of average then one of robust, so the aggregation changes ONCE.
+    """
+    alt = jobs_mod.STAGES["weekly-alt"]
+    first_season = [job for job in alt if job.year == jobs_mod.WEEKLY_YEARS[0]]
+    assert len(first_season) == 2 * len(jobs_mod.REGULAR_WEEKS)
+
+    changes = sum(
+        1
+        # NOT strict=True: a list zipped with its own tail has unequal lengths by
+        # design, and strict raises on exactly that.
+        for previous, job in zip(first_season, first_season[1:], strict=False)
+        if previous.avg != job.avg
+    )
+    assert changes == 1, (
+        f"the aggregation changes {changes} times within one season; under "
+        "week-outside-aggregation it changes on every job"
+    )
+    assert [job.week for job in first_season[: len(jobs_mod.REGULAR_WEEKS)]] == list(
+        jobs_mod.REGULAR_WEEKS
+    ), "the first aggregation does not run its weeks in order"
+
+
+def test_the_reordering_changed_no_other_stage() -> None:
+    """Every other stage holds a single week or a single aggregation, so the nesting cannot
+    reorder it. If one of these ever changes, a resume against an existing manifest would
+    still be correct -- order does not affect `plan` -- but the cost model would have moved
+    without anyone saying so."""
+    assert [job.avg for job in jobs_mod.STAGES["season-raw"][:3]] == [
+        "weighted", "average", "robust"
+    ]
+    assert [job.week for job in jobs_mod.STAGES["weekly-weighted"][:3]] == [1, 2, 3]
+    assert len(jobs_mod.STAGES["weekly-weighted"]) == 187
+    assert len(jobs_mod.STAGES["season-raw"]) == 27
+    assert len(jobs_mod.STAGES["season-proj"]) == 27
+    assert len(jobs_mod.STAGES["weekly-alt"]) == 374
+
+
+# ---------------------------------------------------------------------------------------
+# THE RAW SCHEMA IS THREE SHAPES, NOT ONE, and both omissions are scoring-relevant. Found by
+# an adversarial reviewer's own audit, not by this session's -- mine checked that rows are
+# not ragged WITHIN a file and never compared column sets ACROSS files.
+# ---------------------------------------------------------------------------------------
+
+_REC_COLUMNS = frozenset({"rec", "rec_sd"})
+_IDP_COLUMNS = frozenset({
+    "idp_solo", "idp_solo_sd", "idp_sack", "idp_sack_sd", "idp_int", "idp_int_sd",
+    "idp_pd", "idp_pd_sd", "idp_td", "idp_td_sd",
+})
+
+
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
+def test_the_raw_schema_has_exactly_three_known_shapes() -> None:
+    """A fourth shape is a schema change, and a schema change is a reason to look rather
+    than to carry on joining files that no longer line up."""
+    widths: dict[int, int] = {}
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        columns = inspect_csv(path.read_text(encoding="utf-8")).columns
+        widths[len(columns)] = widths.get(len(columns), 0) + 1
+    assert set(widths) == {55, 63, 65}, widths
+    assert widths[65] > widths[63] + widths[55], "the full schema should be the common case"
+
+
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
+def test_rec_is_present_in_every_weekly_file_and_no_alt_season_file() -> None:
+    """The one that decides whether a PPR league can be scored.
+
+    Both of Eric's leagues pay per reception. `sim/ffa.py` already carries the rule this
+    earns: a missing scoring key must RAISE, never default to zero, because a PPR board
+    scored with silent zeros looks entirely plausible and is not.
+    """
+    weekly_without: list[str] = []
+    season_with: list[str] = []
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        _kind, _year, week, avg = parse_filename(path.name)
+        columns = set(inspect_csv(path.read_text(encoding="utf-8")).columns)
+        has_rec = columns >= _REC_COLUMNS
+        if week > 0 and not has_rec:
+            weekly_without.append(path.name)
+        if week == 0 and has_rec and avg != "weighted":
+            season_with.append(path.name)
+    assert weekly_without == [], f"weekly files without rec: {weekly_without}"
+    # If FFA ever starts shipping rec in the alternate season aggregations, that is good
+    # news and the README stops being true -- so it must fail here rather than quietly.
+    assert season_with == [], f"alt-aggregation season files now carry rec: {season_with}"
+
+
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
+def test_an_absent_idp_column_set_is_distinguished_from_an_empty_one() -> None:
+    """Reading idp_solo from a file that lacks the column raises; from a file that has the
+    column and no defenders it returns nothing. A loader that treats those alike, or that
+    treats either as zero, is the silent-zeros failure on the IDP axis."""
+    absent = present_but_empty = 0
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        report = inspect_csv(path.read_text(encoding="utf-8"))
+        has_columns = set(report.columns) >= _IDP_COLUMNS
+        has_rows = bool(set(report.positions) & NINE_POSITIONS & {"DL", "LB", "DB"})
+        if not has_columns:
+            absent += 1
+            assert not has_rows, f"{path.name} has IDP rows without IDP columns"
+        elif not has_rows:
+            present_but_empty += 1
+    assert absent > 0 and present_but_empty > 0, (
+        f"both shapes must occur for this distinction to be real: "
+        f"absent={absent} present_but_empty={present_but_empty}"
+    )
+    assert absent + present_but_empty == 93, absent + present_but_empty

@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -428,6 +428,102 @@ def _thin_weeks(entries: dict) -> dict[tuple[int, str, str], list[int]]:
     return thin
 
 
+def _idp_grid(entries: dict) -> list[str]:
+    """IDP availability per season and week, as a grid.
+
+    A list of IDP-less weeks is fine for three seasons and useless for eleven. The grid is
+    what a later session actually needs: `Y` where all three of DL/LB/DB are present, `.`
+    where none is, and `?` for a partial set, which should never occur because
+    `verify_payload` rejects it.
+    """
+    weekly = [e for e in entries.values() if e.kind == "raw" and e.week > 0]
+    if not weekly:
+        return []
+    state: dict[tuple[int, int], str] = {}
+    for entry in weekly:
+        present = set(entry.positions) & IDP_POSITIONS
+        mark = "Y" if present == IDP_POSITIONS else ("." if not present else "?")
+        # Aggregations of one week agree; if they ever did not, prefer the loudest mark.
+        key = (entry.year, entry.week)
+        if state.get(key) not in {"?"}:
+            state[key] = "?" if state.get(key, mark) != mark else mark
+    years = sorted({y for y, _ in state})
+    weeks = sorted({w for _, w in state})
+    lines = [
+        "## IDP by season and week",
+        "",
+        "`Y` all three of DL/LB/DB present. `.` none present. `?` a partial set, which",
+        "`verify_payload` rejects, so it should never appear.",
+        "",
+        "```",
+        "      " + "".join(f"{w:>3}" for w in weeks),
+    ]
+    for year in years:
+        lines.append(
+            f"{year}  " + "".join(f"{state.get((year, w), '-'):>3}" for w in weeks)
+        )
+    lines += ["```", ""]
+    return lines
+
+
+def _proj_depth(entries: dict) -> list[str]:
+    """How much of the raw pool the `proj` export carries, per season and position.
+
+    The proj export is TRUNCATED, and not by a single global cutoff -- it is a fixed cap per
+    position. A board built from it has exactly as many quarterbacks as FFA chose to rank,
+    which for a SUPERFLEX league is the difference between a usable board and a short one.
+    """
+    pairs: list[tuple[int, str, Mapping[str, int], Mapping[str, int]]] = []
+    raw_by_scope = {
+        (e.year, e.week, e.avg): e for e in entries.values() if e.kind == "raw"
+    }
+    for entry in sorted(
+        (e for e in entries.values() if e.kind == "proj"), key=lambda e: (e.year, e.avg)
+    ):
+        raw = raw_by_scope.get((entry.year, entry.week, entry.avg))
+        if raw is not None:
+            pairs.append((entry.year, entry.avg, entry.positions, raw.positions))
+    if not pairs:
+        return []
+
+    order = ("QB", "RB", "WR", "TE", "K", "DST", "DL", "LB", "DB")
+    lines = [
+        "## proj depth against raw, per season and position",
+        "",
+        "Read as `proj/raw`. **The `proj` export is a fixed top-N per position**, so it is",
+        "not a smaller sample of the same pool -- it is the pool FFA chose to rank.",
+        "",
+        "```",
+        "year avg      " + "".join(f"{p:>8}" for p in order),
+    ]
+    for year, avg, proj_pos, raw_pos in pairs:
+        cells = ""
+        for position in order:
+            got, have = proj_pos.get(position, 0), raw_pos.get(position, 0)
+            cells += f"{got:>4}/{have:<4}" if have else "    -   "
+        lines.append(f"{year} {avg:<8}" + cells)
+    total_proj = sum(sum(p.values()) for _, _, p, _ in pairs)
+    total_raw = sum(sum(r.values()) for _, _, _, r in pairs)
+    lines += ["```", ""]
+    lines += [
+        f"Across every season pair: proj {total_proj} rows against raw {total_raw}, "
+        f"**{100.0 * total_proj / total_raw:.0f}%**.",
+        "",
+        "Per position, summed:",
+        "",
+        "```",
+    ]
+    for position in order:
+        got = sum(p.get(position, 0) for _, _, p, _ in pairs)
+        have = sum(r.get(position, 0) for _, _, _, r in pairs)
+        if have:
+            lines.append(
+                f"{position:<4} proj {got:>5}  raw {have:>5}  {100.0 * got / have:>3.0f}%"
+            )
+    lines += ["```", ""]
+    return lines
+
+
 def _coverage_markdown(entries: dict, data_dir: Path) -> str:
     """The committed coverage artifact, regenerated from the manifest.
 
@@ -515,6 +611,9 @@ def _coverage_markdown(entries: dict, data_dir: Path) -> str:
         for (year, kind), weeks in sorted(scopes.items()):
             lines.append(f"{year} {kind}: weeks {sorted(weeks)}")
         lines += ["```", ""]
+
+    lines += _idp_grid(entries)
+    lines += _proj_depth(entries)
 
     unverifiable = [n for n, e in entries.items() if e.kind == "proj"]
     unwitnessed = sorted(
