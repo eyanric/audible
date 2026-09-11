@@ -1,0 +1,669 @@
+S7 PHASE 2 -- weekly re-adjudication, espn_danger_zone
+aggregation weighted, scale vorp, grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-season-out selection, 40 salts, 2000 bootstraps, seed 20260911
+
+118 scopes loaded, 7 seasons
+
+-- snap share  [snap_share] --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: playing time leads the box score, and a starter's snap share is stickier than his points. QB is excluded from the locus: a starting quarterback's snap share is ~1.0 and carries no within-position spread.
+   coverage, players with a value / players on the board:
+    2019   466 /  592  78.7%
+    2020   383 /  456  84.0%
+    2021   391 /  457  85.6%
+    2022   413 /  486  85.0%
+    2023   387 /  471  82.2%
+    2024   379 /  447  84.8%
+    2025   376 /  458  82.1%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 509 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n64/d60/sd0.379 RB:n126/d121/sd0.233 WR:n172/d166/sd0.292 TE:n104/d104/sd0.24
+    2020  applied 4 skipped 0   QB:n55/d47/sd0.3 RB:n103/d101/sd0.233 WR:n137/d136/sd0.283 TE:n88/d88/sd0.234
+    2021  applied 4 skipped 0   QB:n52/d52/sd0.316 RB:n105/d104/sd0.214 WR:n146/d142/sd0.29 TE:n88/d88/sd0.257
+    2022  applied 4 skipped 0   QB:n53/d51/sd0.334 RB:n107/d106/sd0.211 WR:n161/d160/sd0.285 TE:n92/d92/sd0.242
+    2023  applied 4 skipped 0   QB:n54/d47/sd0.288 RB:n106/d105/sd0.214 WR:n143/d143/sd0.273 TE:n84/d84/sd0.222
+    2024  applied 4 skipped 0   QB:n54/d54/sd0.304 RB:n98/d97/sd0.226 WR:n144/d144/sd0.259 TE:n83/d83/sd0.221
+    2025  applied 4 skipped 0   QB:n59/d58/sd0.333 RB:n88/d88/sd0.223 WR:n143/d139/sd0.263 TE:n86/d86/sd0.225
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.02 2022:0.02 2023:0.02 2024:0.02 2025:0.02
+   effect board-wide, SELECTED  +0.1283   (at fixed lambda 0.1: -0.0497)
+    QB  SELECTED -0.0633
+    RB  SELECTED -0.0094  <- locus
+    WR  SELECTED +0.0170  <- locus
+    TE  SELECTED +0.0409  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0101 sd 0.0874 max +0.1822
+    reference-set p, board-wide: 0.0732
+    reference-set p, QB: 1.0000  (floor mean -0.0039)
+    reference-set p, RB: 0.5610  (floor mean -0.0102)  <- locus
+    reference-set p, WR: 0.0244  (floor mean -0.0147)  <- locus
+    reference-set p, TE: 0.0244  (floor mean -0.0126)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0314, +0.2429]
+   scope-clustered  95% interval (reported only):          [+0.0013, +0.2573]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +1.1302  (at fixed lambda 0.1: +0.2674)
+   VERDICT: RESOLVES  (best p 0.0244, locus WR TE, material True (bar 0.1 RWRE))
+
+-- target share  [target_share] --
+   LOCUS (pre-registered): WR TE RB
+   mechanism: volume, at the positions whose points come through the air.
+   coverage, players with a value / players on the board:
+    2019     0 /  592   0.0%
+    2020   377 /  456  82.7%
+    2021   386 /  457  84.5%
+    2022   409 /  486  84.2%
+    2023   386 /  471  82.0%
+    2024   377 /  447  84.3%
+    2025   373 /  458  81.4%
+   G4 can change an ordering: True  (101/118 scopes moved, worst 456 players)
+   G5 standardisation cells:
+    2019  applied 0 skipped 4   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2020  applied 4 skipped 0   QB:n55/d9/sd0.00553 RB:n102/d97/sd0.0542 WR:n135/d132/sd0.0803 TE:n85/d85/sd0.0639
+    2021  applied 4 skipped 0   QB:n52/d14/sd0.00348 RB:n105/d101/sd0.0479 WR:n144/d140/sd0.0834 TE:n85/d85/sd0.0634
+    2022  applied 4 skipped 0   QB:n53/d6/sd0.00107 RB:n107/d103/sd0.0447 WR:n158/d152/sd0.0835 TE:n91/d91/sd0.0609
+    2023  applied 4 skipped 0   QB:n54/d7/sd0.00131 RB:n106/d100/sd0.0457 WR:n142/d142/sd0.0821 TE:n84/d84/sd0.0615
+    2024  applied 4 skipped 0   QB:n54/d6/sd0.000678 RB:n97/d96/sd0.047 WR:n143/d142/sd0.0856 TE:n83/d83/sd0.0609
+    2025  applied 4 skipped 0   QB:n58/d6/sd0.000678 RB:n88/d87/sd0.0456 WR:n143/d143/sd0.0874 TE:n84/d84/sd0.0655
+   scopes measured 101   lambda chosen out of sample per season: 2020:0.05 2021:0.05 2022:0.05 2023:0.05 2024:0.05 2025:0.05
+   effect board-wide, SELECTED  +0.2330   (at fixed lambda 0.1: -0.3194)
+    QB  SELECTED -0.0174
+    RB  SELECTED -0.0400  <- locus
+    WR  SELECTED -0.0287  <- locus
+    TE  SELECTED -0.0287  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0031 sd 0.1080 max +0.2458
+    reference-set p, board-wide: 0.0488
+    reference-set p, QB: 0.8293  (floor mean -0.0010)
+    reference-set p, RB: 0.8780  (floor mean -0.0145)  <- locus
+    reference-set p, WR: 0.7805  (floor mean -0.0121)  <- locus
+    reference-set p, TE: 0.6829  (floor mean -0.0142)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.0229, +0.5402]
+   scope-clustered  95% interval (reported only):          [-0.0059, +0.4683]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 6 observations: SELECTED +0.4082  (at fixed lambda 0.1: +1.1875)
+   VERDICT: RESOLVES  (best p 0.0488, material True (bar 0.1 RWRE))
+
+-- air-yards share  [ay_share] --
+   LOCUS (pre-registered): WR TE
+   mechanism: volume weighted by depth of target. Separates a boom receiver from a possession receiver on the same target count, which target share cannot.
+   coverage, players with a value / players on the board:
+    2019     0 /  592   0.0%
+    2020   377 /  456  82.7%
+    2021   386 /  457  84.5%
+    2022   409 /  486  84.2%
+    2023   386 /  471  82.0%
+    2024   377 /  447  84.3%
+    2025   373 /  458  81.4%
+   G4 can change an ordering: True  (101/118 scopes moved, worst 447 players)
+   G5 standardisation cells:
+    2019  applied 0 skipped 4   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2020  applied 4 skipped 0   QB:n55/d7/sd0.00389 RB:n102/d97/sd0.0161 WR:n135/d132/sd0.111 TE:n85/d85/sd0.0698
+    2021  applied 4 skipped 0   QB:n52/d13/sd0.00406 RB:n105/d99/sd0.0164 WR:n144/d140/sd0.114 TE:n85/d85/sd0.0691
+    2022  applied 4 skipped 0   QB:n53/d6/sd0.00093 RB:n107/d103/sd0.016 WR:n158/d153/sd0.117 TE:n91/d91/sd0.0723
+    2023  applied 4 skipped 0   QB:n54/d7/sd0.00165 RB:n106/d98/sd0.0163 WR:n142/d142/sd0.116 TE:n84/d84/sd0.0667
+    2024  applied 4 skipped 0   QB:n54/d6/sd0.000933 RB:n97/d96/sd0.0201 WR:n143/d142/sd0.121 TE:n83/d83/sd0.061
+    2025  applied 4 skipped 0   QB:n58/d6/sd0.000591 RB:n88/d87/sd0.0181 WR:n143/d143/sd0.123 TE:n84/d84/sd0.0612
+   scopes measured 101   lambda chosen out of sample per season: 2020:0 2021:0.02 2022:0.02 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  -0.1054   (at fixed lambda 0.1: -1.2075)
+    QB  SELECTED -0.0060
+    RB  SELECTED -0.0452
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED +0.0000  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0031 sd 0.1080 max +0.2458
+    reference-set p, board-wide: 0.8049
+    reference-set p, QB: 0.7805  (floor mean -0.0010)
+    reference-set p, RB: 0.9268  (floor mean -0.0145)
+    reference-set p, WR: 0.7073  (floor mean -0.0121)  <- locus
+    reference-set p, TE: 0.4390  (floor mean -0.0142)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.2479, +0.0000]
+   scope-clustered  95% interval (reported only):          [-0.2079, -0.0210]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 6 observations: SELECTED -0.8816  (at fixed lambda 0.1: +0.4910)
+   VERDICT: null  (best p 0.4390, material True (bar 0.1 RWRE))
+
+-- route participation  [route_share] --
+   LOCUS (pre-registered): WR TE RB
+   mechanism: a pass-play participation proxy, not routes run; no pinned file holds routes run. See `signals.route_share`, including the 2023 schema break it has to dodge.
+   coverage, players with a value / players on the board:
+    2019   452 /  592  76.4%
+    2020   372 /  456  81.6%
+    2021   385 /  457  84.2%
+    2022   403 /  486  82.9%
+    2023   384 /  471  81.5%
+    2024   377 /  447  84.3%
+    2025   375 /  458  81.9%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 499 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n62/d58/sd0.399 RB:n120/d119/sd0.228 WR:n166/d165/sd0.31 TE:n104/d104/sd0.258
+    2020  applied 4 skipped 0   QB:n54/d52/sd0.388 RB:n99/d99/sd0.227 WR:n133/d133/sd0.295 TE:n86/d86/sd0.253
+    2021  applied 4 skipped 0   QB:n52/d50/sd0.398 RB:n105/d105/sd0.2 WR:n141/d141/sd0.313 TE:n87/d87/sd0.281
+    2022  applied 4 skipped 0   QB:n52/d51/sd0.391 RB:n106/d106/sd0.194 WR:n154/d152/sd0.308 TE:n91/d91/sd0.262
+    2023  applied 4 skipped 0   QB:n54/d52/sd0.357 RB:n104/d101/sd0.204 WR:n142/d140/sd0.308 TE:n84/d84/sd0.242
+    2024  applied 4 skipped 0   QB:n54/d53/sd0.359 RB:n96/d96/sd0.221 WR:n144/d144/sd0.288 TE:n83/d83/sd0.254
+    2025  applied 4 skipped 0   QB:n57/d57/sd0.379 RB:n88/d88/sd0.218 WR:n144/d144/sd0.291 TE:n86/d86/sd0.258
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.05 2022:0.02 2023:0.02 2024:0.02 2025:0.02
+   effect board-wide, SELECTED  -0.0051   (at fixed lambda 0.1: -0.2307)
+    QB  SELECTED +0.0256
+    RB  SELECTED +0.0218  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED +0.0497  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0004 sd 0.0862 max +0.1737
+    reference-set p, board-wide: 0.4878
+    reference-set p, QB: 0.1220  (floor mean -0.0041)
+    reference-set p, RB: 0.0732  (floor mean -0.0102)  <- locus
+    reference-set p, WR: 0.6341  (floor mean -0.0147)  <- locus
+    reference-set p, TE: 0.0244  (floor mean -0.0110)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.1598, +0.1375]
+   scope-clustered  95% interval (reported only):          [-0.1547, +0.1352]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -1.2685  (at fixed lambda 0.1: -0.3900)
+   VERDICT: resolves but immaterial  (best p 0.0244, locus TE, material False (bar 0.1 RWRE))
+
+-- ff_opportunity expected points  [ff_opp_exp] --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: expected fantasy points per TEAM game from volume and situation -- an opportunity measure that prices missed games as missed opportunity.
+   coverage, players with a value / players on the board:
+    2019   376 /  592  63.5%
+    2020   328 /  456  71.9%
+    2021   318 /  457  69.6%
+    2022   351 /  486  72.2%
+    2023   339 /  471  72.0%
+    2024   341 /  447  76.3%
+    2025   340 /  458  74.2%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 503 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n48/d48/sd7.64 RB:n103/d102/sd5.84 WR:n139/d139/sd5.12 TE:n86/d86/sd3.91
+    2020  applied 4 skipped 0   QB:n41/d41/sd6.92 RB:n93/d92/sd5.68 WR:n122/d122/sd4.8 TE:n72/d72/sd3.86
+    2021  applied 4 skipped 0   QB:n43/d43/sd8.92 RB:n88/d88/sd5.4 WR:n122/d122/sd5.31 TE:n65/d65/sd4.36
+    2022  applied 4 skipped 0   QB:n45/d45/sd8.51 RB:n97/d97/sd5.03 WR:n133/d133/sd5.38 TE:n76/d76/sd3.95
+    2023  applied 4 skipped 0   QB:n44/d44/sd7.59 RB:n92/d92/sd5.5 WR:n126/d126/sd4.94 TE:n77/d77/sd3.26
+    2024  applied 4 skipped 0   QB:n47/d47/sd7.17 RB:n87/d87/sd5.5 WR:n132/d132/sd4.94 TE:n75/d75/sd3.79
+    2025  applied 4 skipped 0   QB:n48/d48/sd7.44 RB:n82/d82/sd5.56 WR:n131/d131/sd4.52 TE:n79/d78/sd3.68
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0.02 2021:0 2022:0.02 2023:0.02 2024:0 2025:0.02
+   effect board-wide, SELECTED  -0.0528   (at fixed lambda 0.1: -0.3375)
+    QB  SELECTED -0.0067
+    RB  SELECTED -0.0226  <- locus
+    WR  SELECTED +0.0010  <- locus
+    TE  SELECTED -0.0525  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0107 sd 0.0971 max +0.2011
+    reference-set p, board-wide: 0.5854
+    reference-set p, QB: 0.6341  (floor mean -0.0070)
+    reference-set p, RB: 0.6829  (floor mean -0.0138)  <- locus
+    reference-set p, WR: 0.0732  (floor mean -0.0099)  <- locus
+    reference-set p, TE: 0.9268  (floor mean -0.0183)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.1306, +0.0026]
+   scope-clustered  95% interval (reported only):          [-0.1569, +0.0383]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -0.0542  (at fixed lambda 0.1: +0.3944)
+   VERDICT: null  (best p 0.0732, material False (bar 0.1 RWRE))
+
+-- td over expected  [td_oe] --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: touchdown luck. Came twelfth of thirteen in S3's residual ranking with a sign that flips half the time, so the honest prior is that it does nothing.
+   coverage, players with a value / players on the board:
+    2019   446 /  592  75.3%
+    2020   370 /  456  81.1%
+    2021   380 /  457  83.2%
+    2022   402 /  486  82.7%
+    2023   383 /  471  81.3%
+    2024   373 /  447  83.4%
+    2025   374 /  458  81.7%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 537 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n63/d59/sd3.34 RB:n117/d104/sd1.48 WR:n165/d147/sd1.44 TE:n101/d93/sd1.04
+    2020  applied 4 skipped 0   QB:n55/d54/sd3.94 RB:n99/d94/sd2.16 WR:n131/d125/sd1.66 TE:n85/d78/sd1.11
+    2021  applied 4 skipped 0   QB:n52/d52/sd3.06 RB:n104/d95/sd1.8 WR:n139/d124/sd1.44 TE:n85/d73/sd1.04
+    2022  applied 4 skipped 0   QB:n53/d52/sd3.68 RB:n106/d95/sd1.84 WR:n152/d139/sd1.8 TE:n91/d83/sd1.37
+    2023  applied 4 skipped 0   QB:n54/d53/sd3.76 RB:n104/d97/sd1.62 WR:n141/d129/sd1.54 TE:n84/d76/sd1.33
+    2024  applied 4 skipped 0   QB:n54/d53/sd3.31 RB:n95/d90/sd2.15 WR:n141/d132/sd1.53 TE:n83/d75/sd1.1
+    2025  applied 4 skipped 0   QB:n59/d55/sd3.42 RB:n88/d86/sd1.91 WR:n143/d133/sd1.64 TE:n84/d81/sd1.37
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0 2021:0 2022:0 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  +0.0000   (at fixed lambda 0.1: -1.5554)
+    QB  SELECTED +0.0000
+    RB  SELECTED +0.0207  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED -0.0473  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0047 sd 0.0791 max +0.1713
+    reference-set p, board-wide: 0.3902
+    reference-set p, QB: 0.6585  (floor mean -0.0045)
+    reference-set p, RB: 0.0732  (floor mean -0.0114)  <- locus
+    reference-set p, WR: 0.6585  (floor mean -0.0137)  <- locus
+    reference-set p, TE: 0.9268  (floor mean -0.0122)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
+   scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +0.0000  (at fixed lambda 0.1: -2.3801)
+   VERDICT: null  (best p 0.0732, material False (bar 0.1 RWRE))
+
+-- availability  [availability] --
+   LOCUS (pre-registered): board-level only
+   mechanism: a POSITION-LEVEL rate, so it is constant within a position and provably cannot reorder one. Its locus is the board and nowhere else; see G5.
+   coverage, players with a value / players on the board:
+    2019     0 /  592   0.0%
+    2020   456 /  456  100.0%
+    2021   457 /  457  100.0%
+    2022   486 /  486  100.0%
+    2023   471 /  471  100.0%
+    2024   447 /  447  100.0%
+    2025   458 /  458  100.0%
+   G4 can change an ordering: True  (101/118 scopes moved, worst 411 players)
+   G5 standardisation cells:
+    2019  applied 0 skipped 1   board:n0/d0/sdnan
+    2020  applied 1 skipped 0   board:n456/d4/sd0.598
+    2021  applied 1 skipped 0   board:n457/d4/sd0.66
+    2022  applied 1 skipped 0   board:n486/d4/sd0.588
+    2023  applied 1 skipped 0   board:n471/d4/sd0.649
+    2024  applied 1 skipped 0   board:n447/d4/sd0.69
+    2025  applied 1 skipped 0   board:n458/d4/sd0.699
+   structurally unable to reorder: QB RB TE WR (one distinct value inside the position)
+   scopes measured 101   lambda chosen out of sample per season: 2020:0.2 2021:0.2 2022:0.2 2023:0.2 2024:0.2 2025:0.2
+   effect board-wide, SELECTED  +0.1655   (at fixed lambda 0.1: +0.1248)
+    QB  SELECTED +0.0000  STRUCTURALLY ZERO
+    RB  SELECTED +0.0000  STRUCTURALLY ZERO
+    WR  SELECTED +0.0000  STRUCTURALLY ZERO
+    TE  SELECTED +0.0000  STRUCTURALLY ZERO
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0263 sd 0.0902 max +0.1764
+    reference-set p, board-wide: 0.0488
+    reference-set p, QB: not reported -- the treatment is structurally 0.0000 here and the floor is not
+    reference-set p, RB: not reported -- the treatment is structurally 0.0000 here and the floor is not
+    reference-set p, WR: not reported -- the treatment is structurally 0.0000 here and the floor is not
+    reference-set p, TE: not reported -- the treatment is structurally 0.0000 here and the floor is not
+   season-clustered 95% interval (PRIMARY, reported only): [-0.1013, +0.3679]
+   scope-clustered  95% interval (reported only):          [-0.1398, +0.4572]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 6 observations: SELECTED +0.8393  (at fixed lambda 0.1: +0.3334)
+   VERDICT: RESOLVES  (best p 0.0488, material True (bar 0.1 RWRE))
+
+-- rookie draft capital  [draft_round] --
+   LOCUS (pre-registered): RB WR TE QB
+   mechanism: where the market with the most information placed a player before anyone had priced his fantasy role. Restricted to players with no prior-season row.
+   coverage, players with a value / players on the board:
+    2019    92 /  592  15.5%
+    2020    67 /  456  14.7%
+    2021    50 /  457  10.9%
+    2022    64 /  486  13.2%
+    2023    69 /  471  14.6%
+    2024    59 /  447  13.2%
+    2025    73 /  458  15.9%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 485 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n17/d7/sd1.92 RB:n26/d7/sd1.79 WR:n35/d7/sd1.89 TE:n14/d7/sd2.08
+    2020  applied 4 skipped 0   QB:n15/d7/sd2.17 RB:n19/d7/sd1.49 WR:n22/d7/sd1.85 TE:n11/d5/sd1.21
+    2021  applied 2 skipped 2   QB:n8/d3/sdnan RB:n11/d6/sd1.95 WR:n25/d7/sd2.06 TE:n6/d5/sdnan
+    2022  applied 3 skipped 1   QB:n8/d5/sdnan RB:n22/d7/sd1.77 WR:n22/d7/sd1.91 TE:n12/d5/sd1.31
+    2023  applied 4 skipped 0   QB:n10/d3/sd1.93 RB:n15/d6/sd1.73 WR:n28/d7/sd2.06 TE:n16/d6/sd1.85
+    2024  applied 3 skipped 1   QB:n6/d2/sdnan RB:n17/d4/sd1 WR:n24/d7/sd2.08 TE:n12/d6/sd1.8
+    2025  applied 3 skipped 1   QB:n8/d4/sdnan RB:n23/d7/sd1.95 WR:n29/d7/sd1.72 TE:n13/d7/sd1.97
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.05 2020:0 2021:0 2022:0.05 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  -0.0954   (at fixed lambda 0.1: -0.0531)
+    QB  SELECTED +0.0280  <- locus
+    RB  SELECTED -0.0011  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED -0.0080  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0376 sd 0.0460 max +0.1221
+    reference-set p, board-wide: 0.9512
+    reference-set p, QB: 0.1463  (floor mean +0.0047)  <- locus
+    reference-set p, RB: 0.4146  (floor mean -0.0047)  <- locus
+    reference-set p, WR: 0.4146  (floor mean -0.0122)  <- locus
+    reference-set p, TE: 0.6829  (floor mean -0.0007)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.2342, +0.0000]
+   scope-clustered  95% interval (reported only):          [-0.1711, -0.0341]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -0.1213  (at fixed lambda 0.1: -0.4889)
+   VERDICT: null  (best p 0.1463, material False (bar 0.1 RWRE))
+
+-- depth slot  [depth_slot] --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: the team's own declared ordering, which is a role statement rather than a projection.
+   coverage, players with a value / players on the board:
+    2019   456 /  592  77.0%
+    2020   383 /  456  84.0%
+    2021   367 /  457  80.3%
+    2022   391 /  486  80.5%
+    2023   377 /  471  80.0%
+    2024   367 /  447  82.1%
+    2025   368 /  458  80.3%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 520 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n70/d24/sd0.65 RB:n121/d42/sd0.765 WR:n165/d55/sd0.695 TE:n100/d41/sd0.748
+    2020  applied 4 skipped 0   QB:n59/d30/sd0.6 RB:n103/d37/sd0.785 WR:n136/d49/sd0.64 TE:n85/d32/sd0.721
+    2021  applied 4 skipped 0   QB:n51/d20/sd0.617 RB:n98/d39/sd0.76 WR:n136/d53/sd0.684 TE:n82/d32/sd0.792
+    2022  applied 4 skipped 0   QB:n55/d20/sd0.636 RB:n103/d55/sd0.731 WR:n146/d54/sd0.63 TE:n87/d43/sd0.691
+    2023  applied 4 skipped 0   QB:n55/d21/sd0.538 RB:n104/d35/sd0.763 WR:n135/d39/sd0.631 TE:n83/d30/sd0.749
+    2024  applied 4 skipped 0   QB:n54/d21/sd0.507 RB:n93/d33/sd0.78 WR:n139/d36/sd0.606 TE:n81/d29/sd0.714
+    2025  applied 4 skipped 0   QB:n59/d23/sd0.606 RB:n83/d31/sd0.736 WR:n143/d43/sd0.603 TE:n83/d26/sd0.732
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.02 2022:0.02 2023:0.02 2024:0.02 2025:0.02
+   effect board-wide, SELECTED  +0.0887   (at fixed lambda 0.1: -0.0763)
+    QB  SELECTED +0.0000
+    RB  SELECTED -0.0187  <- locus
+    WR  SELECTED -0.0543  <- locus
+    TE  SELECTED -0.0318  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0019 sd 0.0903 max +0.2283
+    reference-set p, board-wide: 0.2439
+    reference-set p, QB: 0.6341  (floor mean -0.0057)
+    reference-set p, RB: 0.6098  (floor mean -0.0114)  <- locus
+    reference-set p, WR: 0.9512  (floor mean -0.0121)  <- locus
+    reference-set p, TE: 0.7317  (floor mean -0.0145)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.0168, +0.1871]
+   scope-clustered  95% interval (reported only):          [-0.0288, +0.2039]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +0.2872  (at fixed lambda 0.1: +0.2240)
+   VERDICT: null  (best p 0.2439, material False (bar 0.1 RWRE))
+
+-- ADP-vs-projection  [adp_gap] --
+   LOCUS (pre-registered): board-level only
+   mechanism: where the market and the projection disagree. A market term, so board-level.
+   coverage, players with a value / players on the board:
+    2019   208 /  592  35.1%
+    2020   199 /  456  43.6%
+    2021   190 /  457  41.6%
+    2022   190 /  486  39.1%
+    2023   200 /  471  42.5%
+    2024   210 /  447  47.0%
+    2025   206 /  458  45.0%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 478 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n36/d17/sd5.43 RB:n68/d30/sd8.26 WR:n70/d27/sd7.67 TE:n34/d19/sd6.24
+    2020  applied 4 skipped 0   QB:n33/d15/sd4.79 RB:n66/d22/sd6.5 WR:n68/d24/sd6.47 TE:n32/d13/sd4.32
+    2021  applied 4 skipped 0   QB:n32/d13/sd3.94 RB:n62/d19/sd4.28 WR:n64/d27/sd7.11 TE:n32/d13/sd3.28
+    2022  applied 4 skipped 0   QB:n30/d8/sd4.01 RB:n64/d18/sd5.04 WR:n66/d22/sd5.71 TE:n30/d12/sd4.83
+    2023  applied 4 skipped 0   QB:n32/d13/sd3.27 RB:n66/d20/sd5.06 WR:n68/d20/sd5.03 TE:n34/d15/sd4.57
+    2024  applied 4 skipped 0   QB:n35/d12/sd3.31 RB:n69/d19/sd4.62 WR:n71/d21/sd4.39 TE:n35/d16/sd4.64
+    2025  applied 4 skipped 0   QB:n35/d9/sd2.13 RB:n66/d19/sd4.94 WR:n70/d17/sd4.3 TE:n35/d14/sd3.94
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0 2021:0 2022:0.02 2023:0.02 2024:0 2025:0.02
+   effect board-wide, SELECTED  -0.1168   (at fixed lambda 0.1: -0.6058)
+    QB  SELECTED +0.0000
+    RB  SELECTED +0.0000
+    WR  SELECTED +0.0000
+    TE  SELECTED +0.0000
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0275 sd 0.0616 max +0.1598
+    reference-set p, board-wide: 1.0000
+    reference-set p, QB: 0.5122  (floor mean -0.0123)
+    reference-set p, RB: 0.5122  (floor mean -0.0122)
+    reference-set p, WR: 0.6585  (floor mean -0.0064)
+    reference-set p, TE: 0.5122  (floor mean -0.0122)
+   season-clustered 95% interval (PRIMARY, reported only): [-0.2299, -0.0169]
+   scope-clustered  95% interval (reported only):          [-0.2333, -0.0089]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -0.8107  (at fixed lambda 0.1: -0.1726)
+   VERDICT: null  (best p 1.0000, material True (bar 0.1 RWRE))
+
+-- contract value  [contract] --
+   LOCUS (pre-registered): board-level only
+   mechanism: what the team paid, as a proxy for the role it intends to give him.
+   coverage, players with a value / players on the board:
+    2019   505 /  592  85.3%
+    2020   398 /  456  87.3%
+    2021   412 /  457  90.2%
+    2022   428 /  486  88.1%
+    2023   401 /  471  85.1%
+    2024   386 /  447  86.4%
+    2025   388 /  458  84.7%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 496 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n74/d44/sd0.0586 RB:n131/d31/sd0.0146 WR:n187/d57/sd0.0269 TE:n113/d31/sd0.0152
+    2020  applied 4 skipped 0   QB:n62/d41/sd0.0648 RB:n104/d30/sd0.0158 WR:n138/d46/sd0.0299 TE:n94/d31/sd0.0164
+    2021  applied 4 skipped 0   QB:n54/d34/sd0.0698 RB:n109/d28/sd0.0177 WR:n157/d45/sd0.0283 TE:n92/d29/sd0.0174
+    2022  applied 4 skipped 0   QB:n58/d37/sd0.0712 RB:n112/d28/sd0.0176 WR:n165/d48/sd0.0289 TE:n93/d32/sd0.0196
+    2023  applied 4 skipped 0   QB:n57/d40/sd0.0763 RB:n106/d30/sd0.0168 WR:n148/d55/sd0.0357 TE:n90/d31/sd0.0219
+    2024  applied 4 skipped 0   QB:n55/d38/sd0.089 RB:n100/d32/sd0.0167 WR:n147/d46/sd0.0338 TE:n84/d34/sd0.0217
+    2025  applied 4 skipped 0   QB:n61/d41/sd0.0868 RB:n91/d31/sd0.0142 WR:n149/d56/sd0.038 TE:n87/d35/sd0.0212
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0 2021:0 2022:0 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  +0.0000   (at fixed lambda 0.1: -1.1910)
+    QB  SELECTED +0.0000
+    RB  SELECTED -0.0415
+    WR  SELECTED -0.0178
+    TE  SELECTED -0.0112
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean +0.0044 sd 0.0915 max +0.2125
+    reference-set p, board-wide: 0.4634
+    reference-set p, QB: 0.6829  (floor mean -0.0064)
+    reference-set p, RB: 0.9512  (floor mean -0.0147)
+    reference-set p, WR: 0.5366  (floor mean -0.0194)
+    reference-set p, TE: 0.5122  (floor mean -0.0168)
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
+   scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +0.6467  (at fixed lambda 0.1: +0.7682)
+   VERDICT: null  (best p 0.4634, material False (bar 0.1 RWRE))
+
+-- ngs_separation  [ngs_separation] --
+   LOCUS (pre-registered): WR TE
+   mechanism: yards of separation at the catch point. Resolved at p=0.049 in `audible#88`, fell to 0.074 under the corrected metric and was reverted. Weekly is its first honest test.
+   coverage, players with a value / players on the board:
+    2019   116 /  592  19.6%
+    2020   111 /  456  24.3%
+    2021   110 /  457  24.1%
+    2022   110 /  486  22.6%
+    2023   115 /  471  24.4%
+    2024   106 /  447  23.7%
+    2025   122 /  458  26.6%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 445 players)
+   G5 standardisation cells:
+    2019  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n90/d90/sd0.456 TE:n26/d26/sd0.41
+    2020  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n79/d79/sd0.393 TE:n32/d32/sd0.441
+    2021  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n81/d81/sd0.487 TE:n29/d29/sd0.548
+    2022  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n84/d84/sd0.528 TE:n26/d26/sd0.472
+    2023  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n86/d86/sd0.445 TE:n29/d29/sd0.514
+    2024  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n79/d79/sd0.44 TE:n27/d27/sd0.468
+    2025  applied 2 skipped 2   QB:n0/d0/sdnan RB:n0/d0/sdnan WR:n90/d90/sd0.54 TE:n32/d32/sd0.434
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0 2022:0.05 2023:0.02 2024:0.05 2025:0.02
+   effect board-wide, SELECTED  -0.1404   (at fixed lambda 0.1: -0.1495)
+    QB  SELECTED +0.0000
+    RB  SELECTED +0.0000
+    WR  SELECTED +0.0411  <- locus
+    TE  SELECTED +0.0000  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0329 sd 0.0611 max +0.0862
+    reference-set p, board-wide: 0.9268
+    reference-set p, QB: 1.0000  (floor mean +0.0000)
+    reference-set p, RB: 1.0000  (floor mean +0.0000)
+    reference-set p, WR: 0.0244  (floor mean -0.0142)  <- locus
+    reference-set p, TE: 0.3659  (floor mean -0.0170)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.2603, -0.0294]
+   scope-clustered  95% interval (reported only):          [-0.2533, -0.0296]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -0.1480  (at fixed lambda 0.1: -0.5908)
+   VERDICT: RESOLVES  (best p 0.0244, locus WR, material True (bar 0.1 RWRE))
+
+-- ngs_time_to_throw  [ngs_time_to_throw] --
+   LOCUS (pre-registered): QB
+   mechanism: the 17.5x attenuation case. +0.669 at QB against +0.038 board-wide.
+   coverage, players with a value / players on the board:
+    2019    36 /  592   6.1%
+    2020    35 /  456   7.7%
+    2021    32 /  457   7.0%
+    2022    34 /  486   7.0%
+    2023    35 /  471   7.4%
+    2024    39 /  447   8.7%
+    2025    39 /  458   8.5%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 403 players)
+   G5 standardisation cells:
+    2019  applied 1 skipped 3   QB:n36/d36/sd0.163 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2020  applied 1 skipped 3   QB:n35/d35/sd0.111 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2021  applied 1 skipped 3   QB:n32/d32/sd0.196 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2022  applied 1 skipped 3   QB:n34/d34/sd0.134 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2023  applied 1 skipped 3   QB:n35/d35/sd0.178 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2024  applied 1 skipped 3   QB:n39/d39/sd0.175 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2025  applied 1 skipped 3   QB:n39/d39/sd0.152 RB:n0/d0/sdnan WR:n0/d0/sdnan TE:n0/d0/sdnan
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0.02 2021:0.02 2022:0.02 2023:0 2024:0 2025:0.02
+   effect board-wide, SELECTED  -0.0415   (at fixed lambda 0.1: -0.2599)
+    QB  SELECTED -0.0257  <- locus
+    RB  SELECTED +0.0000
+    WR  SELECTED +0.0000
+    TE  SELECTED +0.0000
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean +0.0140 sd 0.0428 max +0.1284
+    reference-set p, board-wide: 0.9268
+    reference-set p, QB: 0.9024  (floor mean -0.0054)  <- locus
+    reference-set p, RB: 1.0000  (floor mean +0.0000)
+    reference-set p, WR: 1.0000  (floor mean +0.0000)
+    reference-set p, TE: 1.0000  (floor mean +0.0000)
+   season-clustered 95% interval (PRIMARY, reported only): [-0.0818, -0.0040]
+   scope-clustered  95% interval (reported only):          [-0.0856, +0.0013]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +0.0726  (at fixed lambda 0.1: -0.1250)
+   VERDICT: null  (best p 0.9024, material False (bar 0.1 RWRE))
+
+-- ngs_rush_eff  [ngs_rush_eff] --
+   LOCUS (pre-registered): RB
+   mechanism: how much lateral distance a back travels per yard gained.
+   coverage, players with a value / players on the board:
+    2019    48 /  592   8.1%
+    2020    44 /  456   9.6%
+    2021    44 /  457   9.6%
+    2022    48 /  486   9.9%
+    2023    40 /  471   8.5%
+    2024    46 /  447  10.3%
+    2025    44 /  458   9.6%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 434 players)
+   G5 standardisation cells:
+    2019  applied 1 skipped 3   QB:n0/d0/sdnan RB:n48/d48/sd0.5 WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2020  applied 1 skipped 3   QB:n0/d0/sdnan RB:n44/d44/sd0.341 WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2021  applied 1 skipped 3   QB:n0/d0/sdnan RB:n44/d44/sd0.328 WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2022  applied 1 skipped 3   QB:n0/d0/sdnan RB:n48/d48/sd0.351 WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2023  applied 1 skipped 3   QB:n0/d0/sdnan RB:n40/d40/sd0.347 WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2024  applied 1 skipped 3   QB:n0/d0/sdnan RB:n46/d46/sd0.434 WR:n0/d0/sdnan TE:n0/d0/sdnan
+    2025  applied 1 skipped 3   QB:n0/d0/sdnan RB:n44/d44/sd0.393 WR:n0/d0/sdnan TE:n0/d0/sdnan
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.02 2022:0.02 2023:0.02 2024:0.02 2025:0.02
+   effect board-wide, SELECTED  +0.0524   (at fixed lambda 0.1: -0.1803)
+    QB  SELECTED +0.0000
+    RB  SELECTED -0.0145  <- locus
+    WR  SELECTED +0.0000
+    TE  SELECTED +0.0000
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0036 sd 0.0670 max +0.1251
+    reference-set p, board-wide: 0.2927
+    reference-set p, QB: 1.0000  (floor mean +0.0000)
+    reference-set p, RB: 0.7073  (floor mean -0.0067)  <- locus
+    reference-set p, WR: 1.0000  (floor mean +0.0000)
+    reference-set p, TE: 1.0000  (floor mean +0.0000)
+   season-clustered 95% interval (PRIMARY, reported only): [-0.0572, +0.1557]
+   scope-clustered  95% interval (reported only):          [-0.0390, +0.1494]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -0.0320  (at fixed lambda 0.1: -0.3579)
+   VERDICT: null  (best p 0.2927, material False (bar 0.1 RWRE))
+
+-- projection uncertainty (sd_pts)  [uncertainty] --
+   LOCUS (pre-registered): QB RB WR TE
+   mechanism: the projection's own dispersion, which the board currently discards entirely.
+   coverage, players with a value / players on the board:
+    2019   206 /  592  34.8%
+    2020   206 /  456  45.2%
+    2021   197 /  457  43.1%
+    2022   200 /  486  41.2%
+    2023   201 /  471  42.7%
+    2024   210 /  447  47.0%
+    2025   207 /  458  45.2%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 458 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n35/d35/sd0.334 RB:n67/d66/sd0.143 WR:n70/d70/sd0.137 TE:n34/d34/sd0.151
+    2020  applied 4 skipped 0   QB:n36/d36/sd0.222 RB:n66/d66/sd0.12 WR:n69/d69/sd0.0815 TE:n35/d35/sd0.0677
+    2021  applied 4 skipped 0   QB:n35/d35/sd0.237 RB:n63/d63/sd0.099 WR:n64/d64/sd0.0708 TE:n35/d35/sd0.108
+    2022  applied 4 skipped 0   QB:n34/d34/sd0.219 RB:n64/d64/sd0.12 WR:n67/d67/sd0.0627 TE:n35/d35/sd0.0842
+    2023  applied 4 skipped 0   QB:n33/d33/sd0.208 RB:n66/d66/sd0.131 WR:n68/d68/sd0.0483 TE:n34/d34/sd0.0892
+    2024  applied 4 skipped 0   QB:n35/d35/sd0.159 RB:n69/d69/sd0.112 WR:n71/d71/sd0.0534 TE:n35/d35/sd0.0793
+    2025  applied 4 skipped 0   QB:n35/d35/sd0.288 RB:n67/d67/sd0.17 WR:n70/d70/sd0.0783 TE:n35/d35/sd0.057
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.02 2022:0.02 2023:0.02 2024:0 2025:0.02
+   effect board-wide, SELECTED  -0.0675   (at fixed lambda 0.1: -0.5580)
+    QB  SELECTED -0.0276  <- locus
+    RB  SELECTED -0.0250  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED -0.0162  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0193 sd 0.0694 max +0.1669
+    reference-set p, board-wide: 0.7073
+    reference-set p, QB: 0.7073  (floor mean -0.0121)  <- locus
+    reference-set p, RB: 0.7561  (floor mean -0.0129)  <- locus
+    reference-set p, WR: 0.6585  (floor mean -0.0059)  <- locus
+    reference-set p, TE: 0.5610  (floor mean -0.0171)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.1822, +0.0412]
+   scope-clustered  95% interval (reported only):          [-0.1751, +0.0338]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +0.0000  (at fixed lambda 0.1: -1.8854)
+   VERDICT: null  (best p 0.5610, material False (bar 0.1 RWRE))
+
+-- age  [age_at_export] --
+   LOCUS (pre-registered): QB RB WR TE
+   mechanism: the aging curve. NOTE the field is stamped at EXPORT time, not at the season it describes -- see `signals.signal_values`. Level is wrong by up to seven years; the within-position ORDER is nearly unharmed, which is what a z-score reads.
+   coverage, players with a value / players on the board:
+    2019   196 /  592  33.1%
+    2020   194 /  456  42.5%
+    2021   185 /  457  40.5%
+    2022   194 /  486  39.9%
+    2023   196 /  471  41.6%
+    2024   205 /  447  45.9%
+    2025   206 /  458  45.0%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 476 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n36/d18/sd6.61 RB:n59/d13/sd6.06 WR:n69/d16/sd4.26 TE:n32/d14/sd5.5
+    2020  applied 4 skipped 0   QB:n36/d18/sd6.75 RB:n59/d12/sd10 WR:n67/d15/sd7.57 TE:n32/d13/sd6.48
+    2021  applied 4 skipped 0   QB:n35/d18/sd5.79 RB:n55/d11/sd9.26 WR:n61/d14/sd8.56 TE:n34/d14/sd6.51
+    2022  applied 4 skipped 0   QB:n34/d15/sd5.17 RB:n59/d13/sd11.1 WR:n66/d12/sd8.61 TE:n35/d12/sd5.27
+    2023  applied 4 skipped 0   QB:n33/d14/sd4.61 RB:n62/d12/sd10.7 WR:n67/d13/sd9.27 TE:n34/d12/sd5.51
+    2024  applied 4 skipped 0   QB:n35/d13/sd4.45 RB:n65/d12/sd8.14 WR:n70/d14/sd5.71 TE:n35/d12/sd3.34
+    2025  applied 4 skipped 0   QB:n35/d15/sd5.05 RB:n66/d13/sd4.47 WR:n70/d15/sd4.68 TE:n35/d14/sd3.78
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0 2021:0 2022:0 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  +0.0000   (at fixed lambda 0.1: -0.8158)
+    QB  SELECTED +0.0000  <- locus
+    RB  SELECTED +0.0000  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED +0.0000  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean -0.0167 sd 0.0772 max +0.1489
+    reference-set p, board-wide: 0.4390
+    reference-set p, QB: 0.5122  (floor mean -0.0121)  <- locus
+    reference-set p, RB: 0.4146  (floor mean -0.0112)  <- locus
+    reference-set p, WR: 0.6341  (floor mean -0.0076)  <- locus
+    reference-set p, TE: 0.4390  (floor mean -0.0148)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
+   scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED -0.1796  (at fixed lambda 0.1: -2.9188)
+   VERDICT: null  (best p 0.4146, material False (bar 0.1 RWRE))
+
+-- experience  [ffa_experience] --
+   LOCUS (pre-registered): QB RB WR TE
+   mechanism: seasons played. This IS vintage, where `age_at_export` is not.
+   coverage, players with a value / players on the board:
+    2019   181 /  592  30.6%
+    2020   183 /  456  40.1%
+    2021   180 /  457  39.4%
+    2022   180 /  486  37.0%
+    2023   180 /  471  38.2%
+    2024   186 /  447  41.6%
+    2025   181 /  458  39.5%
+   G4 can change an ordering: True  (118/118 scopes moved, worst 443 players)
+   G5 standardisation cells:
+    2019  applied 4 skipped 0   QB:n32/d13/sd5.48 RB:n55/d10/sd2.86 WR:n63/d13/sd3.03 TE:n31/d12/sd3.94
+    2020  applied 4 skipped 0   QB:n33/d13/sd5.67 RB:n54/d9/sd2.38 WR:n62/d13/sd3.22 TE:n34/d12/sd3.28
+    2021  applied 4 skipped 0   QB:n30/d14/sd5.38 RB:n57/d9/sd2.13 WR:n59/d11/sd2.85 TE:n34/d10/sd2.86
+    2022  applied 4 skipped 0   QB:n33/d14/sd4.96 RB:n54/d10/sd2.33 WR:n60/d10/sd2.47 TE:n33/d10/sd2.46
+    2023  applied 4 skipped 0   QB:n30/d12/sd4.28 RB:n56/d9/sd2.22 WR:n64/d10/sd2.64 TE:n30/d10/sd2.44
+    2024  applied 4 skipped 0   QB:n31/d13/sd4.32 RB:n58/d8/sd2.17 WR:n63/d11/sd2.98 TE:n34/d9/sd2.77
+    2025  applied 4 skipped 0   QB:n33/d14/sd5.06 RB:n53/d9/sd2.33 WR:n64/d12/sd2.89 TE:n31/d11/sd3.22
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0 2021:0 2022:0 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  +0.0000   (at fixed lambda 0.1: -1.0329)
+    QB  SELECTED +0.0000  <- locus
+    RB  SELECTED +0.0000  <- locus
+    WR  SELECTED -0.0184  <- locus
+    TE  SELECTED +0.0000  <- locus
+   FLOOR, 40 salts matched to this signal's coverage, same selection:
+    board-wide  mean +0.0026 sd 0.0862 max +0.1458
+    reference-set p, board-wide: 0.5366
+    reference-set p, QB: 0.4878  (floor mean -0.0126)  <- locus
+    reference-set p, RB: 0.5610  (floor mean -0.0080)  <- locus
+    reference-set p, WR: 0.6098  (floor mean -0.0145)  <- locus
+    reference-set p, TE: 0.3902  (floor mean -0.0177)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
+   scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
+   player-clustered: NOT COMPUTED. See the module docstring.
+   SEASONAL draft board, 7 observations: SELECTED +0.3858  (at fixed lambda 0.1: -0.6247)
+   VERDICT: null  (best p 0.3902, material False (bar 0.1 RWRE))
+

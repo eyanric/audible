@@ -690,7 +690,10 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
 
 def main(argv: list[str]) -> int:
     league = argv[1] if len(argv) > 1 else "espn_green_hope"
-    out_path = Path(__file__).resolve().parent / "runs" / "s7-phase2.jsonl"
+    # ONE FILE PER LEAGUE. The three leagues are run as three concurrent processes --
+    # they share no state and the machine has the cores -- and a single append target
+    # would interleave their records.
+    out_path = Path(__file__).resolve().parent / "runs" / f"s7-phase2-{league}.jsonl"
     print(f"S7 PHASE 2 -- weekly re-adjudication, {league}")
     print(f"aggregation {AGGREGATION}, scale {SCALE}, grid {GRID}, "
           f"leave-one-season-out selection, {FLOOR_DRAWS} salts, {BOOTSTRAPS} bootstraps, "

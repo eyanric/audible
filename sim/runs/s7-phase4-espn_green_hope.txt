@@ -1,0 +1,35 @@
+S7 PHASE 4 -- the assembled board, espn_green_hope
+gain grid (0.0, 0.25, 0.5, 0.75, 1.0, 1.25), walk-forward fit (2019, 2020, 2021, 2022) test (2023, 2024, 2025), seed 20260911
+
+survivors from phases 2 and 3: 0
+excluded: 24
+  snap_share: null
+  target_share: resolves but immaterial
+  ay_share: null
+  route_share: null
+  ff_opp_exp: null
+  td_oe: null
+  availability: null
+  draft_round: null
+  depth_slot: null
+  adp_gap: null
+  contract: null
+  ngs_separation: null
+  ngs_time_to_throw: null
+  ngs_rush_eff: null
+  uncertainty: null
+  age_at_export: resolves but immaterial
+  ffa_experience: null
+  inj_status: OFF-LOCUS
+  true_age: null
+  true_experience: null
+  weekly_sd_rel: null
+  role_change_snaps: resolves but immaterial
+  role_change_proj: null
+  floor_ceiling_tilt: null
+
+NOTHING SURVIVED. There is no composite to assemble, and that is the result of
+this phase rather than a failure of it. The incumbent board stands:
+  espn_green_hope 22.43
+  espn_danger_zone 28.1
+  sleeper_boyfun 32.63

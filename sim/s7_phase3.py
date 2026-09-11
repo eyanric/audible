@@ -388,7 +388,10 @@ def run_tilt(loaded: dict[p2.Scope, Any], league: str) -> dict[str, Any]:
 
 def main(argv: list[str]) -> int:
     league = argv[1] if len(argv) > 1 else "espn_green_hope"
-    out_path = Path(__file__).resolve().parent / "runs" / "s7-phase3.jsonl"
+    # ONE FILE PER LEAGUE. The three leagues are run as three concurrent processes --
+    # they share no state and the machine has the cores -- and a single append target
+    # would interleave their records.
+    out_path = Path(__file__).resolve().parent / "runs" / f"s7-phase3-{league}.jsonl"
     print(f"S7 PHASE 3 -- new metrics, {league}")
     print(f"same adjudication as phase 2: grid {p2.GRID}, leave-one-season-out, "
           f"{p2.FLOOR_DRAWS} salts, material bar {p2.MATERIAL} RWRE, seed {p2.SEED}")

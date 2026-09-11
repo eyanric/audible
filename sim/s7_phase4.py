@@ -359,13 +359,44 @@ def main(argv: list[str]) -> int:
     weekly_gain = _mean_over(base, TEST) - _mean_over(treated[selected], TEST)
     seasonal_gain = _mean_over(sbase, TEST) - _mean_over(streated[sel], TEST)
     print("-- DOES THE WEEKLY GAIN TRANSFER TO THE DRAFT BOARD --")
-    print(f"   weekly out-of-sample gain   {weekly_gain:+7.4f}")
-    print(f"   seasonal out-of-sample gain {seasonal_gain:+7.4f}")
+    print(f"   weekly out-of-sample gain   {weekly_gain:+7.4f}  "
+          f"(material bar {p2.MATERIAL}: {'yes' if abs(weekly_gain) >= p2.MATERIAL else 'NO'})")
+    print(f"   seasonal out-of-sample gain {seasonal_gain:+7.4f}  "
+          f"(material bar {p2.MATERIAL}: {'yes' if abs(seasonal_gain) >= p2.MATERIAL else 'NO'})")
     transfers = weekly_gain > 0 and seasonal_gain > 0
     print(f"   TRANSFERS: {'yes' if transfers else 'NO'}")
-    beats = _mean_over(streated[sel], espn_seasons) < INCUMBENT[league]
-    print(f"   BEATS THE INCUMBENT on its own seasons: {'yes' if beats else 'NO'}  "
-          f"({_mean_over(streated[sel], espn_seasons):.2f} against {INCUMBENT[league]:.2f})")
+    weekly_positions = [
+        _mean_over(treated_pos[0.0][pos], TEST) - _mean_over(treated_pos[selected][pos], TEST)
+        for pos in p2.POSITIONS if pos in treated_pos[0.0]
+    ]
+    better = sum(1 for delta in weekly_positions if delta > 0)
+    print(f"   positions improved out-of-sample: {better}/{len(weekly_positions)}")
+    if weekly_gain > 0 and better == 0:
+        print("   THE BOARD-WIDE WEEKLY GAIN IS NOT PRESENT AT ANY POSITION. It is therefore")
+        print("   cross-position reallocation, not better ranking of players against their")
+        print("   peers, and the per-position figures are the ones to believe.")
+    print()
+
+    print("-- AGAINST THE INCUMBENT, three numbers because two would mislead --")
+    untreated_espn = _mean_over(sbase, espn_seasons)
+    treated_espn = _mean_over(streated[sel], espn_seasons)
+    arm = INCUMBENT[league] - untreated_espn
+    print(f"   incumbent, espn arm, its own {len(espn_seasons)} seasons : {INCUMBENT[league]:7.2f}")
+    print(f"   UNTREATED FFA arm, same seasons                : {untreated_espn:7.2f}"
+          f"   arm difference {arm:+.2f}")
+    print(f"   treated FFA arm, same seasons                  : {treated_espn:7.2f}"
+          f"   treatment {untreated_espn - treated_espn:+.2f}")
+    print("   CAUTION: this line mixes the fit seasons into the mean, because the incumbent bar")
+    print("   is quoted over six seasons that include them. The clean number is the")
+    print(f"   out-of-sample one above: {_mean_over(sbase, TEST):.2f} -> "
+          f"{_mean_over(streated[sel], TEST):.2f}.")
+    beats = treated_espn < INCUMBENT[league]
+    print(f"   treated board beats the incumbent number: {'yes' if beats else 'NO'}")
+    if beats and abs(arm) > abs(untreated_espn - treated_espn):
+        print("   BUT MOST OF THAT IS THE ARM, NOT THE RANKING SYSTEM. The untreated FFA board")
+        print(f"   already differs from the incumbent by {arm:+.2f} while the treatment is worth")
+        print(f"   {untreated_espn - treated_espn:+.2f}. Swapping projection vendors is not the")
+        print("   thing this session was testing, and it is not a ranking improvement.")
     return 0
 
 

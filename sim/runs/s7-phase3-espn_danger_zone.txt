@@ -1,0 +1,209 @@
+S7 PHASE 3 -- new metrics, espn_danger_zone
+same adjudication as phase 2: grid (0.0, 0.02, 0.05, 0.1, 0.2), leave-one-season-out, 40 salts, material bar 0.1 RWRE, seed 20260911
+
+118 scopes loaded, 7 seasons
+
+birthdate sentinels over the scored window: epoch 5483, missing 3115, implausible after both guards 0
+unknown injury codes: none
+
+-- inj_status --
+   LOCUS (pre-registered): board-level only
+   mechanism: the file says Out and the board ranks him anyway. The question is whether the PROJECTION has already priced it.
+   standardisation scope: board
+   coverage, mean players with a value / mean board size, and scopes with any:
+    2019   440.1 /  440.1  100.0%   scopes 17/17
+    2020   389.4 /  389.4  100.0%   scopes 16/16
+    2021   412.9 /  412.9  100.0%   scopes 17/17
+    2022   421.9 /  421.9  100.0%   scopes 17/17
+    2023   422.8 /  422.8  100.0%   scopes 17/17
+    2024   406.9 /  406.9  100.0%   scopes 17/17
+    2025   446.5 /  446.5  100.0%   scopes 17/17
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.02 2022:0.02 2023:0.1 2024:0.1 2025:0.02
+   effect board-wide, SELECTED  -0.0107   (at fixed lambda 0.1: +0.0304)
+    QB  SELECTED +0.0163
+    RB  SELECTED -0.0028
+    WR  SELECTED +0.1125
+    TE  SELECTED +0.0095
+   FLOOR, 40 salts matched to this metric's coverage, same selection:
+    board-wide  mean -0.0199 sd 0.0793 max +0.2502
+    reference-set p, board-wide: 0.4146
+    reference-set p, QB: 0.0976  (floor mean -0.0093)
+    reference-set p, RB: 0.4634  (floor mean -0.0136)
+    reference-set p, WR: 0.0244  (floor mean -0.0120)
+    reference-set p, TE: 0.1707  (floor mean -0.0108)
+   season-clustered 95% interval (PRIMARY, reported only): [-0.0486, +0.0203]
+   scope-clustered  95% interval (reported only):          [-0.1077, +0.0945]
+   player-clustered: NOT COMPUTED. See s7_phase2's module docstring.
+   SEASONAL: NOT APPLICABLE -- this metric reads a per-week column, and a preseason board has no week. Phase 4 tests whether it transfers.
+   VERDICT: OFF-LOCUS  (p 0.4146, material False, bar 0.1 RWRE)
+
+-- true_age --
+   LOCUS (pre-registered): RB
+   mechanism: fixes a documented defect: `age_at_export` is stamped at export time and is wrong by up to seven years in level.
+   standardisation scope: position
+   coverage, mean players with a value / mean board size, and scopes with any:
+    2019   357.1 /  440.1  81.1%   scopes 17/17
+    2020   302.9 /  389.4  77.8%   scopes 16/16
+    2021   295.8 /  412.9  71.6%   scopes 17/17
+    2022   326.6 /  421.9  77.4%   scopes 17/17
+    2023   359.1 /  422.8  84.9%   scopes 17/17
+    2024   374.9 /  406.9  92.1%   scopes 17/17
+    2025   429.1 /  446.5  96.1%   scopes 17/17
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.02 2020:0.02 2021:0.02 2022:0.02 2023:0.02 2024:0.02 2025:0.02
+   effect board-wide, SELECTED  +0.1791   (at fixed lambda 0.1: -0.4828)
+    QB  SELECTED -0.0115
+    RB  SELECTED -0.0064  <- locus
+    WR  SELECTED +0.0000
+    TE  SELECTED -0.0298
+   FLOOR, 40 salts matched to this metric's coverage, same selection:
+    board-wide  mean +0.0038 sd 0.0903 max +0.2491
+    reference-set p, board-wide: 0.0488
+    reference-set p, QB: 0.6341  (floor mean -0.0107)
+    reference-set p, RB: 0.5122  (floor mean -0.0142)  <- locus
+    reference-set p, WR: 0.6585  (floor mean -0.0158)
+    reference-set p, TE: 0.7561  (floor mean -0.0106)
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0029, +0.3621]
+   scope-clustered  95% interval (reported only):          [+0.0324, +0.3340]
+   player-clustered: NOT COMPUTED. See s7_phase2's module docstring.
+   SEASONAL: NOT APPLICABLE -- this metric reads a per-week column, and a preseason board has no week. Phase 4 tests whether it transfers.
+   VERDICT: RESOLVES  (p 0.0488, material True, bar 0.1 RWRE)
+
+-- true_experience --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: season_year minus draft_year, both in the file. The arithmetic against the vendor's own count.
+   standardisation scope: position
+   coverage, mean players with a value / mean board size, and scopes with any:
+    2019   424.1 /  440.1  96.4%   scopes 17/17
+    2020   381.9 /  389.4  98.1%   scopes 16/16
+    2021   404.0 /  412.9  97.8%   scopes 17/17
+    2022   414.1 /  421.9  98.1%   scopes 17/17
+    2023   417.8 /  422.8  98.8%   scopes 17/17
+    2024   403.5 /  406.9  99.1%   scopes 17/17
+    2025   444.4 /  446.5  99.5%   scopes 17/17
+   scopes measured 118   lambda chosen out of sample per season: 2019:0 2020:0 2021:0 2022:0 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  +0.0000   (at fixed lambda 0.1: -0.9042)
+    QB  SELECTED +0.0000
+    RB  SELECTED -0.0332  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED +0.0000  <- locus
+   FLOOR, 40 salts matched to this metric's coverage, same selection:
+    board-wide  mean -0.0193 sd 0.0746 max +0.2393
+    reference-set p, board-wide: 0.4146
+    reference-set p, QB: 0.5854  (floor mean -0.0083)
+    reference-set p, RB: 0.7561  (floor mean -0.0155)  <- locus
+    reference-set p, WR: 0.7317  (floor mean -0.0109)  <- locus
+    reference-set p, TE: 0.4634  (floor mean -0.0119)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
+   scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
+   player-clustered: NOT COMPUTED. See s7_phase2's module docstring.
+   SEASONAL: NOT APPLICABLE -- this metric reads a per-week column, and a preseason board has no week. Phase 4 tests whether it transfers.
+   VERDICT: null  (p 0.4146, material False, bar 0.1 RWRE)
+
+-- weekly_sd_rel --
+   LOCUS (pre-registered): QB RB WR TE
+   mechanism: at equal projected points, prefer the player the projection is more confident about. Present in all 612 files, never read.
+   standardisation scope: position
+   coverage, mean players with a value / mean board size, and scopes with any:
+    2019   411.4 /  440.1  93.5%   scopes 17/17
+    2020   326.1 /  389.4  83.7%   scopes 16/16
+    2021   360.2 /  412.9  87.2%   scopes 17/17
+    2022   399.4 /  421.9  94.7%   scopes 17/17
+    2023   390.8 /  422.8  92.4%   scopes 17/17
+    2024   383.5 /  406.9  94.2%   scopes 17/17
+    2025   402.5 /  446.5  90.2%   scopes 17/17
+   scopes measured 118   lambda chosen out of sample per season: 2019:0.1 2020:0.1 2021:0.2 2022:0.1 2023:0.2 2024:0.1 2025:0.1
+   effect board-wide, SELECTED  -0.0282   (at fixed lambda 0.1: +0.0880)
+    QB  SELECTED -0.0064  <- locus
+    RB  SELECTED -0.0350  <- locus
+    WR  SELECTED +0.0776  <- locus
+    TE  SELECTED +0.0639  <- locus
+   FLOOR, 40 salts matched to this metric's coverage, same selection:
+    board-wide  mean -0.0162 sd 0.0749 max +0.1970
+    reference-set p, board-wide: 0.5610
+    reference-set p, QB: 0.5854  (floor mean -0.0101)  <- locus
+    reference-set p, RB: 0.8537  (floor mean -0.0132)  <- locus
+    reference-set p, WR: 0.0244  (floor mean -0.0139)  <- locus
+    reference-set p, TE: 0.0244  (floor mean -0.0117)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.2258, +0.1350]
+   scope-clustered  95% interval (reported only):          [-0.2309, +0.1595]
+   player-clustered: NOT COMPUTED. See s7_phase2's module docstring.
+   SEASONAL: NOT APPLICABLE -- this metric reads a per-week column, and a preseason board has no week. Phase 4 tests whether it transfers.
+   VERDICT: resolves but immaterial  (p 0.5610, material False, bar 0.1 RWRE)
+
+-- role_change_snaps --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: a projection prices a KNOWN role; a role that just changed is where the market has not caught up. Snap share in week N-1 against the four weeks before it.
+   standardisation scope: position
+   coverage, mean players with a value / mean board size, and scopes with any:
+    2019   270.8 /  440.1  61.5%   scopes 15/17
+    2020   245.8 /  389.4  63.1%   scopes 14/16
+    2021   264.2 /  412.9  64.0%   scopes 15/17
+    2022   267.4 /  421.9  63.4%   scopes 15/17
+    2023   279.8 /  422.8  66.2%   scopes 15/17
+    2024   270.1 /  406.9  66.4%   scopes 15/17
+    2025   285.2 /  446.5  63.9%   scopes 15/17
+   scopes measured 104   lambda chosen out of sample per season: 2019:0.02 2020:0 2021:0.05 2022:0.05 2023:0.05 2024:0.05 2025:0.05
+   effect board-wide, SELECTED  -0.0424   (at fixed lambda 0.1: -0.1970)
+    QB  SELECTED -0.0470
+    RB  SELECTED -0.0490  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED -0.0640  <- locus
+   FLOOR, 40 salts matched to this metric's coverage, same selection:
+    board-wide  mean +0.0274 sd 0.1028 max +0.2574
+    reference-set p, board-wide: 0.7317
+    reference-set p, QB: 0.9268  (floor mean -0.0098)
+    reference-set p, RB: 0.9756  (floor mean -0.0121)  <- locus
+    reference-set p, WR: 0.8049  (floor mean -0.0074)  <- locus
+    reference-set p, TE: 0.9756  (floor mean -0.0137)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [-0.1058, +0.0293]
+   scope-clustered  95% interval (reported only):          [-0.2140, +0.1426]
+   player-clustered: NOT COMPUTED. See s7_phase2's module docstring.
+   SEASONAL: NOT APPLICABLE -- this metric reads a per-week column, and a preseason board has no week. Phase 4 tests whether it transfers.
+   VERDICT: null  (p 0.7317, material False, bar 0.1 RWRE)
+
+-- role_change_proj --
+   LOCUS (pre-registered): RB WR TE
+   mechanism: the same idea read from the market: this week's projection minus last week's.
+   standardisation scope: position
+   coverage, mean players with a value / mean board size, and scopes with any:
+    2019   361.4 /  440.1  82.1%   scopes 16/17
+    2020   310.8 /  389.4  79.8%   scopes 15/16
+    2021   322.4 /  412.9  78.1%   scopes 16/17
+    2022   337.4 /  421.9  80.0%   scopes 16/17
+    2023   342.8 /  422.8  81.1%   scopes 16/17
+    2024   330.1 /  406.9  81.1%   scopes 16/17
+    2025   385.5 /  446.5  86.3%   scopes 16/17
+   scopes measured 111   lambda chosen out of sample per season: 2019:0 2020:0 2021:0 2022:0 2023:0 2024:0 2025:0
+   effect board-wide, SELECTED  +0.0000   (at fixed lambda 0.1: -0.7476)
+    QB  SELECTED -0.0132
+    RB  SELECTED -0.0661  <- locus
+    WR  SELECTED +0.0000  <- locus
+    TE  SELECTED +0.0000  <- locus
+   FLOOR, 40 salts matched to this metric's coverage, same selection:
+    board-wide  mean +0.0009 sd 0.0783 max +0.1833
+    reference-set p, board-wide: 0.4878
+    reference-set p, QB: 0.7073  (floor mean -0.0097)
+    reference-set p, RB: 1.0000  (floor mean -0.0163)  <- locus
+    reference-set p, WR: 0.6829  (floor mean -0.0159)  <- locus
+    reference-set p, TE: 0.5122  (floor mean -0.0108)  <- locus
+   season-clustered 95% interval (PRIMARY, reported only): [+0.0000, +0.0000]
+   scope-clustered  95% interval (reported only):          [+0.0000, +0.0000]
+   player-clustered: NOT COMPUTED. See s7_phase2's module docstring.
+   SEASONAL: NOT APPLICABLE -- this metric reads a per-week column, and a preseason board has no week. Phase 4 tests whether it transfers.
+   VERDICT: null  (p 0.4878, material False, bar 0.1 RWRE)
+
+-- floor_ceiling_tilt (PART B, a board construction, not a lambda term) --
+   LOCUS (pre-registered): board-level. The construction is about WHERE on the board a player sits, so it has no positional locus by definition.
+   mechanism: an early pick needs a starter who will not bust; a late pick is only worth making if it can win a week. Both readings use the same per-week sd.
+   k grid (0.0, 0.1, 0.25, 0.5, 1.0), tilt applied to the top and bottom 33% of the board
+   scopes measured 118   k chosen out of sample per season: 2019:0.1 2020:0 2021:0.1 2022:0 2023:0.1 2024:0 2025:0.1
+   effect board-wide, SELECTED  -0.0198
+    at fixed k 0.10: +0.0026
+    at fixed k 0.25: +0.0145
+    at fixed k 0.50: +0.0232
+    at fixed k 1.00: +0.1166
+   FLOOR, 40 sd-shuffles: mean -0.0008 sd 0.0199 max +0.0440
+   reference-set p: 0.8537
+   season-clustered 95% interval (reported only): [-0.0408, -0.0033]
+   VERDICT: null  (material False, bar 0.1 RWRE)
+
