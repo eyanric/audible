@@ -5,9 +5,16 @@
 WHAT IT COMBINES. Everything phases 2 and 3 left standing, read from their committed
 `s7-phase2-<league>.jsonl` and `s7-phase3-<league>.jsonl` rather than retyped, so the composite
 cannot contain a term the adjudication did not pass. A record counts as a survivor only if its
-verdict is `RESOLVES` -- which already requires a reference-set p at or under 0.05, the right sign
-at a pre-registered locus, AND an effect of at least `MATERIAL` RWRE. `resolves but immaterial` is
-listed and excluded.
+verdict is `RESOLVES`. `resolves but immaterial` is listed and excluded.
+
+WHAT `RESOLVES` ACTUALLY MEANS, because the first version of this docstring got it wrong and the
+adversarial review caught it. It means: a reference-set p at or under 0.05 AT SOME QUALIFYING
+PLACE -- board-wide, or at one of the pre-registered locus positions -- with a POSITIVE effect
+there, and that effect at or above `MATERIAL`. It does NOT mean the board-wide p is at or under
+0.05. Two of the five danger_zone survivors in the superseded hash-floor run had board p of
+0.0732 and 0.9268, and the earlier wording described them as having passed a bar they had not
+been held to. `Term.p_value` prints `p_board`, which is a diagnostic and not the thing that
+qualified the term; the qualifying place is printed beside it.
 
 THE MODEL IS ONE FUNCTION AND ITS INPUTS ARE NOT ALL AVAILABLE AT THE DRAFT. That is the honest
 reading of "one ranking system, used at the draft and in-season", and it splits the survivors in
@@ -83,8 +90,9 @@ class Term:
     lam: float
     source: str  # "phase2" (a seasonal prior) or "phase3" (a weekly column)
     effect: float
-    p_value: float
+    p_value: float  # board-wide, a DIAGNOSTIC -- see the module docstring
     scope: str
+    where: str  # the place that actually qualified this term
 
     @property
     def draft_capable(self) -> bool:
@@ -128,10 +136,12 @@ def survivors(league: str) -> tuple[list[Term], list[str]]:
                 p3.SCOPE.get(name, "position") if phase == "phase3"
                 else signals.SIGNAL_SCOPE.get(name, "position")
             )
+            qualified = record.get("locus_hits") or []
+            where = " ".join(qualified) if qualified else "board"
             terms.append(Term(
                 name=name, lam=float(lam), source=phase,
                 effect=float(record.get("effect_board") or 0.0),
-                p_value=float(record.get("p_board") or 1.0), scope=scope,
+                p_value=float(record.get("p_board") or 1.0), scope=scope, where=where,
             ))
     return terms, excluded
 
@@ -290,7 +300,8 @@ def main(argv: list[str]) -> int:
     for term in terms:
         kind = "draft-capable" if term.draft_capable else "IN-SEASON ONLY"
         print(f"  {term.name:20s} lambda {term.lam:5.2f}  {term.source}  {kind}  "
-              f"effect {term.effect:+.4f}  p {term.p_value:.4f}  scope {term.scope}")
+              f"board effect {term.effect:+.4f}  board p {term.p_value:.4f}  "
+              f"scope {term.scope}  QUALIFIED AT {term.where}")
     print(f"excluded: {len(excluded)}")
     for line in excluded:
         print(f"  {line}")

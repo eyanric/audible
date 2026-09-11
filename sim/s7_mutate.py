@@ -35,7 +35,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 TARGET = REPO / "sim" / "s7_weekly.py"
+ADJUDICATION = REPO / "sim" / "s7_phase2.py"
+PHASE4 = REPO / "sim" / "s7_phase4.py"
 GATES = "sim/test_g_s7.py"
+ADJUDICATION_GATES = "sim/test_g_s7_adjudication.py"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +48,7 @@ class Mutation:
     new: str
     kills: str  # the gate expected to fail, by name fragment
     expected_survivor: str = ""  # non-empty means this mutation SHOULD survive, and why
+    target: str = "weekly"  # which file to mutate: weekly | adjudication | phase4
 
 
 MUTATIONS: tuple[Mutation, ...] = (
@@ -137,6 +141,108 @@ MUTATIONS: tuple[Mutation, ...] = (
         "            if True:",
         "test_the_2015_weighted_defect_is_real_and_2016_is_clean",
     ),
+    # --- the adjudication, which nothing tested until the review said so ---------------------
+    Mutation(
+        "leave-one-season-out lets a season choose its own strength",
+        "        others = [scope for scope in base if scope[0] != held]",
+        "        others = list(base)",
+        "test_loso_never_lets_a_season_choose_its_own_strength",
+        target="adjudication",
+    ),
+    Mutation(
+        "0.0 is dropped from the strength grid, so a useless term must intervene",
+        "GRID: tuple[float, ...] = (0.0, 0.02, 0.05, 0.10, 0.20)",
+        "GRID: tuple[float, ...] = (0.02, 0.05, 0.10, 0.20)",
+        "test_loso_selects_zero_when_no_strength_helps",
+        target="adjudication",
+    ),
+    Mutation(
+        "the reference-set p loses its +1, so a term can score p = 0",
+        "    return (1 + sum(1 for f in usable if f >= observed)) / (1 + len(usable))",
+        "    return sum(1 for f in usable if f >= observed) / len(usable)",
+        "test_reference_p_is_smallest_when_the_term_beats_every_draw",
+        target="adjudication",
+    ),
+    Mutation(
+        "the harm p is the same one-sided test as the improvement p",
+        "    return (1 + sum(1 for f in usable if f <= observed)) / (1 + len(usable))",
+        "    return (1 + sum(1 for f in usable if f >= observed)) / (1 + len(usable))",
+        "test_harm_p_is_the_mirror_and_the_first_version_had_it_backwards",
+        target="adjudication",
+    ),
+    Mutation(
+        "the null hit rate ignores ties and returns a flat 2/41",
+        "    usable = [f for f in floor if f == f]\n    if not usable or observed != observed:",
+        "    return 2 / 41\n    usable = [f for f in floor if f == f]\n"
+        "    if not usable or observed != observed:",
+        "test_null_hit_rate_is_zero_when_the_floor_ties_at_the_maximum",
+        target="adjudication",
+    ),
+    Mutation(
+        "the floor goes back to a hash instead of permuting the term's own values",
+        "    held = [values[pid] for pid in covered]\n    rng.shuffle(held)",
+        "    held = [rng.random() for _ in covered]",
+        "test_the_floor_preserves_the_terms_own_marginal_distribution",
+        target="adjudication",
+    ),
+    Mutation(
+        "a position-level constant is dealt to individual players",
+        "    if frozen and frozen >= {pos for pos in POSITIONS if any(",
+        "    if False and frozen >= {pos for pos in POSITIONS if any(",
+        "test_a_position_level_constant_is_permuted_ACROSS_positions",
+        target="adjudication",
+    ),
+    Mutation(
+        "materiality goes back to the magnitude of a term's own damage",
+        "    material = bool(qualifying) and max(value for _where, value in qualifying) "
+        ">= MATERIAL",
+        "    material = bool(qualifying) and max(abs(value) for _where, value in qualifying) "
+        ">= MATERIAL",
+        "",
+        "EQUIVALENT AGAINST THIS GATE SET, and the reason is worth recording. The old defect "
+        "took the max over the BOARD effect and the LOCUS effects whether or not they "
+        "qualified; this mutation only restores the `abs`, and a value that reached "
+        "`qualifying` is already positive, so `abs` changes nothing. The defect was the "
+        "unqualified membership, not the absolute value, and the gate targets the membership.",
+        target="adjudication",
+    ),
+    Mutation(
+        "an off-locus hit is promoted to a resolution",
+        "    if qualifying:\n        verdict = \"RESOLVES\" if material else "
+        "\"resolves but immaterial\"",
+        "    if qualifying or off_locus:\n        verdict = \"RESOLVES\" if material else "
+        "\"resolves but immaterial\"",
+        "test_an_off_locus_hit_is_a_lead_and_never_a_resolution",
+        target="adjudication",
+    ),
+    Mutation(
+        "the harm branch goes back to testing the improvement p",
+        "        if record.get(\"harm_p_position\", {}).get(pos, 1.0) <= 0.05",
+        "        if record[\"p_position\"].get(pos, 1.0) <= 0.05",
+        "test_a_material_harm_is_reported_as_a_harm",
+        target="adjudication",
+    ),
+    Mutation(
+        "phase 4 accepts any verdict, not only RESOLVES",
+        "            if verdict != \"RESOLVES\":",
+        "            if verdict == \"never\":",
+        "test_only_a_RESOLVES_record_becomes_a_survivor",
+        target="phase4",
+    ),
+    Mutation(
+        "phase 4 averages the selected strengths instead of taking the mode",
+        "            lam = max(set(lams), key=lams.count)",
+        "            lam = sum(lams) / len(lams)",
+        "test_the_modal_lambda_is_a_grid_point_and_never_an_average",
+        target="phase4",
+    ),
+    Mutation(
+        "an in-season term is allowed onto the draft board",
+        '        return self.source == "phase2"',
+        "        return True",
+        "test_an_in_season_term_is_never_draft_capable",
+        target="phase4",
+    ),
     Mutation(
         "the deduplicated player keeps the LOSING row's position",
         "            position[gsis] = pos\n        position.setdefault(gsis, pos)",
@@ -150,11 +256,15 @@ MUTATIONS: tuple[Mutation, ...] = (
 )
 
 
-def run_gates() -> tuple[int, list[str]]:
+TARGETS = {"weekly": (TARGET, GATES), "adjudication": (ADJUDICATION, ADJUDICATION_GATES),
+           "phase4": (PHASE4, ADJUDICATION_GATES)}
+
+
+def run_gates(gates: str = GATES) -> tuple[int, list[str]]:
     """Returns (exit code, names of failing tests). NO EXTRA -q; see the module docstring."""
     proc = subprocess.run(
         [
-            sys.executable, "-m", "pytest", GATES,
+            sys.executable, "-m", "pytest", gates,
             # NO -x. Stopping at the first failure made this sweep report "killed by the
             # wrong gate" twice, because the gate named for a mutation had simply not been
             # reached yet -- pytest had already stopped. The full list is needed to say which
@@ -179,27 +289,33 @@ def main(argv: list[str]) -> int:
             print(f"{mutation.label}\n    -> {tag}")
         return 0
 
-    original = TARGET.read_text(encoding="utf-8")
-    print(f"S7 MUTATION SWEEP -- {len(MUTATIONS)} mutations against {GATES}")
+    originals = {name: path.read_text(encoding="utf-8") for name, (path, _g) in TARGETS.items()}
+    print(f"S7 MUTATION SWEEP -- {len(MUTATIONS)} mutations across "
+          f"{len({m.target for m in MUTATIONS})} targets")
+    for name, (path, gates) in TARGETS.items():
+        print(f"  {name}: {path.name} against {gates}")
     print()
-    baseline_code, baseline_failures = run_gates()
-    if baseline_code != 0:
-        print(f"BASELINE IS RED before any mutation: {baseline_failures}")
-        return 1
-    print("baseline green")
+    for name, (_path, gates) in TARGETS.items():
+        baseline_code, baseline_failures = run_gates(gates)
+        if baseline_code != 0:
+            print(f"BASELINE IS RED for {name} before any mutation: {baseline_failures}")
+            return 1
+    print("baseline green on every target")
     print()
 
     survivors: list[Mutation] = []
     wrong_gate: list[tuple[Mutation, list[str]]] = []
     try:
         for mutation in MUTATIONS:
+            path, gates = TARGETS[mutation.target]
+            original = originals[mutation.target]
             if mutation.old not in original:
                 print(f"NOT APPLICABLE  {mutation.label}")
                 print("   the text it rewrites is not in the file; the mutation is stale")
                 return 1
-            TARGET.write_text(original.replace(mutation.old, mutation.new, 1), encoding="utf-8")
-            code, failures = run_gates()
-            TARGET.write_text(original, encoding="utf-8")
+            path.write_text(original.replace(mutation.old, mutation.new, 1), encoding="utf-8")
+            code, failures = run_gates(gates)
+            path.write_text(original, encoding="utf-8")
             if code != 0 and not failures:
                 raise RuntimeError(
                     f"{mutation.label}: pytest exited {code} naming no failing test. That is a "
@@ -219,9 +335,11 @@ def main(argv: list[str]) -> int:
                     wrong_gate.append((mutation, failures))
                     print(f"   BUT the gate named for it did not fire: {mutation.kills}")
     finally:
-        TARGET.write_text(original, encoding="utf-8")
+        for name, (path, _g) in TARGETS.items():
+            path.write_text(originals[name], encoding="utf-8")
 
-    assert TARGET.read_text(encoding="utf-8") == original, "the file was left mutated"
+    for name, (path, _g) in TARGETS.items():
+        assert path.read_text(encoding="utf-8") == originals[name], f"{name} was left mutated"
     unexpected = [m for m in survivors if not m.expected_survivor]
     print()
     print(f"mutations {len(MUTATIONS)}  killed {len(MUTATIONS) - len(survivors)}  "

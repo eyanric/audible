@@ -426,6 +426,33 @@ def harm_p(observed: float, floor: list[float]) -> float:
     return (1 + sum(1 for f in usable if f <= observed)) / (1 + len(usable))
 
 
+def null_hit_rate(observed: float, floor: list[float], bar: float = 0.05) -> float:
+    """P(this test returns p <= bar) under the null, computed from its OWN tie structure.
+
+    THE FLAT 2/41 BENCHMARK WAS WRONG AND THE ADVERSARIAL REVIEW PROVED IT. Under exchangeability
+    the observed value is one of the 1+K values and equally likely to be any of them, so the null
+    hit rate is the FRACTION OF THOSE POSITIONS that would have produced a p at or under the bar.
+    With no ties that is exactly 2/41. With three or more values tied at the maximum it is ZERO --
+    every one of them sees at least two others at least as large, so the smallest reachable p is
+    3/41 = 0.073. Out-of-sample selection parks most floor draws on exactly 0.000, so this is the
+    normal case rather than an edge case: 131 of 336 tests in the hash-floor run sat there.
+
+    Computed by direct enumeration rather than by a closed form, because the tie structure can be
+    anything and a closed form is one more thing to get wrong.
+    """
+    usable = [f for f in floor if f == f]
+    if not usable or observed != observed:
+        return float("nan")
+    combined = [*usable, observed]
+    n = len(combined)
+    hits = 0
+    for index, value in enumerate(combined):
+        others = sum(1 for j, other in enumerate(combined) if j != index and other >= value)
+        if (1 + others) / n <= bar:
+            hits += 1
+    return hits / n
+
+
 def achievable_p(observed: float, floor: list[float]) -> float:
     """The SMALLEST p this test could have returned, given the ties actually present.
 
@@ -706,6 +733,7 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
     record["p_board"] = p_board
     record["p_board_harm"] = p_board_harm
     record["achievable_p_board"] = best_possible
+    record["null_hit_rate_board"] = null_hit_rate(selected, floor_board)
     record["floor_board_mean"] = statistics.mean(usable)
     record["p_position"] = {}
     for pos in POSITIONS:
@@ -720,6 +748,9 @@ def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[st
                 pos_selected[pos], floor_pos[pos]
             )
             record.setdefault("harm_p_position", {})[pos] = harm_p(
+                pos_selected[pos], floor_pos[pos]
+            )
+            record.setdefault("null_hit_rate_position", {})[pos] = null_hit_rate(
                 pos_selected[pos], floor_pos[pos]
             )
             mark = "  <- locus" if pos in signal.locus else ""

@@ -263,16 +263,21 @@ def run_metric(name: str, loaded: dict[p2.Scope, Any], league: str) -> dict[str,
     record["p_board"] = p_board
     record["p_board_harm"] = p_board_harm
     record["achievable_p_board"] = p2.achievable_p(selected, floor_board)
+    record["null_hit_rate_board"] = p2.null_hit_rate(selected, floor_board)
     record["floor_board_mean"] = statistics.mean(usable)
     record["p_position"] = {}
     record["harm_p_position"] = {}
     record["achievable_p_position"] = {}
+    record["null_hit_rate_position"] = {}
     for pos in p2.POSITIONS:
         if pos in pos_selected and floor_pos[pos]:
             p_pos = p2.reference_p(pos_selected[pos], floor_pos[pos])
             record["p_position"][pos] = p_pos
             record["harm_p_position"][pos] = p2.harm_p(pos_selected[pos], floor_pos[pos])
             record["achievable_p_position"][pos] = p2.achievable_p(
+                pos_selected[pos], floor_pos[pos]
+            )
+            record["null_hit_rate_position"][pos] = p2.null_hit_rate(
                 pos_selected[pos], floor_pos[pos]
             )
             print(f"    reference-set p, {pos}: {p_pos:.4f}  "

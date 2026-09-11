@@ -8,13 +8,27 @@ were reversed. It exists because phases 2 and 3 ran 336 hypothesis tests and
 reported each one on its own, and 336 tests at a 5% bar produce hits whether or
 not anything is real.
 
-THE NULL RATE IS EXACT, NOT ASSUMED. A reference-set p over K salts can only take
-the values (1+j)/(1+K) for j in 0..K, so with K = 40 the reachable values are
-1/41 = 0.0244, 2/41 = 0.0488, 3/41 = 0.0732 and up. Exactly two of them sit at or
-under 0.05. Under the null a salt draw and the signal are exchangeable, so the
-observed statistic is equally likely to land in any of the 41 positions, and
-P(p <= 0.05) = 2/41 = 0.04878 per test. That is a property of the test's
-construction and needs no distributional assumption about football.
+THE NULL RATE IS PER TEST AND IS COMPUTED, NOT ASSUMED, AND THE FIRST VERSION OF
+THIS FILE ASSUMED IT. It took P(p <= 0.05) = 2/41 for every test, on the reasoning
+that the observed statistic is equally likely to land in any of 41 exchangeable
+positions. That is right only when those 41 values are distinct. Out-of-sample
+lambda selection puts an atom on exactly 0.000 -- a term that should not be used
+selects nothing and scores nothing -- so most floor draws TIE, and with three or
+more values tied at the maximum the smallest reachable p is 3/41 = 0.073 and the
+test CANNOT return a hit however real the effect is. The adversarial review
+measured five of six sampled terms in that regime, where the true null rate is
+ZERO rather than 0.0488, and 131 of 336 tests in the superseded hash-floor run had
+an effect of exactly 0.000.
+
+So each test now carries its own `null_hit_rate`, enumerated from its own tie
+structure by `s7_phase2.null_hit_rate`, and the benchmark is the sum of those. A
+test that could never have produced a hit contributes 0 to the expectation and
+cannot flatter the accounting in either direction.
+
+THE VARIANCE IS NOT BINOMIAL EITHER. The board p and the four positional p values
+inside one record share the same 40 floor draws, so the tests are correlated and a
+binomial standard deviation is too small. The overdispersion is estimated from the
+per-record hit counts and reported beside the naive figure.
 
 REPLICATION IS THE PART THAT MATTERS. Three leagues share the same weeks, the same
 players and the same projections, and differ only in a rulebook. A signal about how
@@ -41,8 +55,9 @@ from . import s7_phase2 as p2
 
 RUNS = Path(__file__).resolve().parent / "runs"
 
-# The reachable p grid is k/(1+FLOOR_DRAWS); exactly two of its values are <= 0.05.
-ALPHA = 2.0 / (1.0 + p2.FLOOR_DRAWS)
+# The rate a test WITH NO TIES would carry. Kept only as a reference point in the report; the
+# benchmark itself is the sum of each test's own enumerated rate.
+ALPHA_NO_TIES = 2.0 / (1.0 + p2.FLOOR_DRAWS)
 
 
 def records() -> list[dict[str, Any]]:
@@ -65,29 +80,62 @@ def main() -> int:
         print("no phase 2 or 3 records on disk")
         return 1
     print("S7 MULTIPLICITY -- an accounting of tests already run")
-    print(f"floor draws {p2.FLOOR_DRAWS}, reachable p grid k/{1 + p2.FLOOR_DRAWS}, "
-          f"so P(p <= 0.05) = 2/{1 + p2.FLOOR_DRAWS} = {ALPHA:.5f} exactly")
+    print(f"floor draws {p2.FLOOR_DRAWS}; a test with NO TIES carries "
+          f"P(p <= 0.05) = 2/{1 + p2.FLOOR_DRAWS} = {ALPHA_NO_TIES:.5f}, but the benchmark "
+          "below is the sum of each test's OWN enumerated rate.")
     print()
 
     tests = 0
     hits: list[tuple[str, str, str, float]] = []
+    rates: list[float] = []
+    per_record: list[int] = []
+    unreachable = 0
     for record in rows:
-        candidates: list[tuple[str, float]] = []
+        candidates: list[tuple[str, float, float]] = []
         if record.get("p_board") is not None:
-            candidates.append(("board", float(record["p_board"])))
-        for where, value in (record.get("p_position") or {}).items():
-            candidates.append((where, float(value)))
-        for where, value in candidates:
+            candidates.append((
+                "board", float(record["p_board"]),
+                float(record.get("null_hit_rate_board", ALPHA_NO_TIES)),
+            ))
+        positions = record.get("p_position") or {}
+        by_position = record.get("null_hit_rate_position") or {}
+        for where, value in positions.items():
+            candidates.append((
+                where, float(value), float(by_position.get(where, ALPHA_NO_TIES)),
+            ))
+        record_hits = 0
+        for where, value, rate in candidates:
             tests += 1
+            rates.append(rate)
+            if rate == 0.0:
+                unreachable += 1
             if value <= 0.05:
                 hits.append((record["_name"], record["league"], where, value))
+                record_hits += 1
+        per_record.append(record_hits)
 
-    expected = tests * ALPHA
-    sd = (tests * ALPHA * (1 - ALPHA)) ** 0.5
+    expected = sum(rates)
+    binomial_var = sum(rate * (1 - rate) for rate in rates)
+    naive_sd = binomial_var ** 0.5
     print(f"measurements (term x league) : {len(rows)}")
     print(f"p-values computed            : {tests}")
+    print(f"   of which CANNOT return a hit at 0.05, because of ties in their own floor: "
+          f"{unreachable}")
     print(f"hits at p <= 0.05            : {len(hits)}")
-    print(f"expected under a pure null   : {expected:.1f}  sd {sd:.1f}")
+    print(f"expected under a pure null   : {expected:.1f}   "
+          f"(a flat 2/41 would have said {tests * ALPHA_NO_TIES:.1f})")
+
+    # Overdispersion: the five tests inside a record share 40 floor draws. Estimated as the
+    # ratio of the observed variance of per-record hit counts to the binomial variance those
+    # records would have if their tests were independent.
+    counts = per_record
+    mean_count = sum(counts) / len(counts)
+    observed_var = sum((c - mean_count) ** 2 for c in counts) / (len(counts) - 1)
+    independent_var = binomial_var / len(counts)
+    phi = observed_var / independent_var if independent_var > 0 else float("nan")
+    sd = naive_sd * (phi ** 0.5 if phi == phi and phi > 0 else 1.0)
+    print(f"sd, tests treated as independent : {naive_sd:.1f}")
+    print(f"sd, corrected for the shared floor inside a record (phi {phi:.2f}) : {sd:.1f}")
     print(f"excess over the null         : {len(hits) - expected:+.1f}  "
           f"({(len(hits) - expected) / sd:+.2f} sd)")
     print()
