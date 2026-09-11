@@ -2340,3 +2340,74 @@ def test_the_reordering_changed_no_other_stage() -> None:
     assert len(jobs_mod.STAGES["season-raw"]) == 27
     assert len(jobs_mod.STAGES["season-proj"]) == 27
     assert len(jobs_mod.STAGES["weekly-alt"]) == 374
+
+
+# ---------------------------------------------------------------------------------------
+# THE RAW SCHEMA IS THREE SHAPES, NOT ONE, and both omissions are scoring-relevant. Found by
+# an adversarial reviewer's own audit, not by this session's -- mine checked that rows are
+# not ragged WITHIN a file and never compared column sets ACROSS files.
+# ---------------------------------------------------------------------------------------
+
+_REC_COLUMNS = frozenset({"rec", "rec_sd"})
+_IDP_COLUMNS = frozenset({
+    "idp_solo", "idp_solo_sd", "idp_sack", "idp_sack_sd", "idp_int", "idp_int_sd",
+    "idp_pd", "idp_pd_sd", "idp_td", "idp_td_sd",
+})
+
+
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
+def test_the_raw_schema_has_exactly_three_known_shapes() -> None:
+    """A fourth shape is a schema change, and a schema change is a reason to look rather
+    than to carry on joining files that no longer line up."""
+    widths: dict[int, int] = {}
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        columns = inspect_csv(path.read_text(encoding="utf-8")).columns
+        widths[len(columns)] = widths.get(len(columns), 0) + 1
+    assert set(widths) == {55, 63, 65}, widths
+    assert widths[65] > widths[63] + widths[55], "the full schema should be the common case"
+
+
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
+def test_rec_is_present_in_every_weekly_file_and_no_alt_season_file() -> None:
+    """The one that decides whether a PPR league can be scored.
+
+    Both of Eric's leagues pay per reception. `sim/ffa.py` already carries the rule this
+    earns: a missing scoring key must RAISE, never default to zero, because a PPR board
+    scored with silent zeros looks entirely plausible and is not.
+    """
+    weekly_without: list[str] = []
+    season_with: list[str] = []
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        _kind, _year, week, avg = parse_filename(path.name)
+        columns = set(inspect_csv(path.read_text(encoding="utf-8")).columns)
+        has_rec = columns >= _REC_COLUMNS
+        if week > 0 and not has_rec:
+            weekly_without.append(path.name)
+        if week == 0 and has_rec and avg != "weighted":
+            season_with.append(path.name)
+    assert weekly_without == [], f"weekly files without rec: {weekly_without}"
+    # If FFA ever starts shipping rec in the alternate season aggregations, that is good
+    # news and the README stops being true -- so it must fail here rather than quietly.
+    assert season_with == [], f"alt-aggregation season files now carry rec: {season_with}"
+
+
+@pytest.mark.skipif(not _corpus_present(), reason="gitignored corpus not on this machine")
+def test_an_absent_idp_column_set_is_distinguished_from_an_empty_one() -> None:
+    """Reading idp_solo from a file that lacks the column raises; from a file that has the
+    column and no defenders it returns nothing. A loader that treats those alike, or that
+    treats either as zero, is the silent-zeros failure on the IDP axis."""
+    absent = present_but_empty = 0
+    for path in sorted(_CORPUS.glob("ffa_raw_*.csv")):
+        report = inspect_csv(path.read_text(encoding="utf-8"))
+        has_columns = set(report.columns) >= _IDP_COLUMNS
+        has_rows = bool(set(report.positions) & NINE_POSITIONS & {"DL", "LB", "DB"})
+        if not has_columns:
+            absent += 1
+            assert not has_rows, f"{path.name} has IDP rows without IDP columns"
+        elif not has_rows:
+            present_but_empty += 1
+    assert absent > 0 and present_but_empty > 0, (
+        f"both shapes must occur for this distinction to be real: "
+        f"absent={absent} present_but_empty={present_but_empty}"
+    )
+    assert absent + present_but_empty == 93, absent + present_but_empty

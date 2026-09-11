@@ -224,6 +224,55 @@ not name, and `status` reports it as UNVOUCHED. The reverse order would leave an
 vouching for bytes that are not there. (An earlier version of this README claimed a corpus
 "can never contain a file the manifest does not vouch for" — that was an overclaim.)
 
+## THE RAW SCHEMA IS NOT ONE SHAPE — read this before joining anything
+
+There are **three** `raw` column sets. Concatenating files without aligning columns silently
+produces wrong answers, and the two omissions are both scoring-relevant.
+
+```
+65 cols  535 files  the full schema
+63 cols   19 files  season (wk0) average and robust, every year, plus 2026 weighted
+                    -- LACKS rec, rec_sd
+55 cols   31 files  2015 wk1-17, 2016 wk13-17, 2017 wk7 and wk10-17
+                    -- LACKS all ten idp_* columns
+```
+
+### `rec` is in the weighted season files and nothing else
+
+```
+2018-2025 wk0 weighted   65 cols   rec present
+2018-2026 wk0 average    63 cols   rec ABSENT
+2018-2026 wk0 robust     63 cols   rec ABSENT
+2026      wk0 weighted   63 cols   rec ABSENT
+every weekly file        65 cols   rec present
+```
+
+`sim/ffa.py` already carries the warning this earns: *"A missing scoring key must raise,
+never default to zero — a PPR board scored with silent zeros looks entirely plausible and is
+not."*
+
+**Both leagues pay per reception.** `sleeper_boyfun` is half-PPR; `espn_davis_drive` targets
+half-PPR. So **the season-level `average` and `robust` files cannot score either league**, and
+neither can 2026 weighted. Season-level PPR scoring is available from `weighted` 2018–2025
+only.
+
+The weekly files are the exception and it is the good one: all 535 carry `rec`, populated —
+spot-checked at ~6–7 receptions for a lead WR in a week and ~103–119 across a season. **PPR is
+scoreable weekly across all three aggregations**, which it was not at season level. That is a
+concrete thing the weekly corpus buys that the season corpus could not give.
+
+### IDP: an absent column is not an empty one
+
+```
+IDP columns absent entirely       31 files
+IDP columns present, no IDP rows  62 files
+                                  -- 93 files with no defenders, two different shapes
+```
+
+Reading `idp_solo` from one of the 31 raises `KeyError`; from one of the 62 it returns a
+column with no defenders in it. A loader that tolerates the second and not the first — or
+that treats both as zero — is the silent-zeros failure again, on the IDP axis.
+
 ## What is actually in each file
 
 **`raw` — the stat lines.** 63 columns: passing, rushing, receiving, kicking by distance
