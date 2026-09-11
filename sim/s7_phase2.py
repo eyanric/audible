@@ -2,35 +2,49 @@
 
     uv run python -m sim.s7_phase2 espn_green_hope  >> sim/runs/s7-phase2.txt
 
-THE PRE-REGISTRATION IS THE TOP OF THIS FILE AND IT IS COMMITTED BEFORE ANY NUMBER. `LOCUS`
-states where each signal is expected to act, in code, before it is measured. `audible#87`
-measured `ngs_time_to_throw` at +0.669 at QB against +0.038 board-wide -- a 17.5x attenuation
-that hid a harm -- so averaging a positional effect over four positions is not a conservative
-choice, it is a way of not measuring.
+THE PRE-REGISTRATION IS THE TOP OF THIS FILE AND IS COMMITTED BEFORE ANY NUMBER. `LOCUS` states
+where each signal is expected to act, in code, before it is measured. `audible#87` measured
+`ngs_time_to_throw` at +0.669 at QB against +0.038 board-wide -- a 17.5x attenuation that hid a
+harm -- so averaging a positional effect over four positions is not a conservative choice, it is
+a way of not measuring.
 
 WHAT A SIGNAL IS HERE. A seasonal prior, built from information available before the season
 starts, applied to every week of that season as `points * (1 + lam * z)` where z is the signal's
 z-score inside its standardisation cell. `signals.adjust` is that transform and this module
 imports it rather than reimplementing it -- `audible#87` shipped a gate and a transform that
-decided the same question through two code paths and a term that never applied passed the gate.
+decided the same question through two code paths, and a term that never applied passed the gate.
+
+STRENGTH IS CHOSEN OUT OF SAMPLE, AND THE FIRST VERSION OF THIS FILE GOT THAT WRONG. It fixed
+lambda at 0.10 and adjudicated on "beats the floor". Under a fixed strength EVERY term measured
+negative -- a random term at lambda 0.10 costs about -0.55 RWRE, because multiplying a good
+ranking by (1 + 0.1z) with noise for z can only add noise -- so "beats the floor" would have
+RESOLVED signals that leave the board WORSE than not touching it at all. `snap_share` read
+-0.3051 board-wide with p 0.024 and was one commit from being published as a resolution.
+
+So lambda is selected by LEAVE-ONE-SEASON-OUT over `GRID`, which contains 0.0. A term whose best
+strength is nothing selects nothing and scores exactly 0.000, and the floor is put through the
+identical selection, so the p is a test against SELECTION NOISE rather than against zero. That is
+also what makes the weekly number comparable with the seasonal one, which `signals.loso` computes
+the same way. The effect at a fixed lambda 0.10 is reported too, because it is the number nobody
+chose after the fact.
 
 ABSENCE IS NOT ZERO, in three places. A player with no signal value gets no adjustment. A player
 with no realised row is dropped from the pool rather than scored zero. A season whose prior
 inputs are not pinned is excluded from that signal's mean rather than filled in -- `prior_facts`
 needs `player_stats_{season-1}` and 2018 is not pinned, so every prior-season signal covers
-2020-2025 and not 2019. COVERAGE IS PRINTED PER SIGNAL for that reason.
+2020-2025 and not 2019. COVERAGE IS PRINTED PER SIGNAL AND PER SEASON for that reason.
 
 THE FLOOR IS MATCHED TO THE SIGNAL'S OWN COVERAGE. A salt is a sha256 of player, season and salt
 index -- information-free by construction -- handed to `signals.adjust` through its `values`
 argument, and given ONLY to the players the signal itself covers. A floor drawn over the whole
 board would be a harder bar for a signal covering 30% of it than for one covering 90%, and the
 comparison would then be about coverage rather than about information. `FLOOR_DRAWS` is 40,
-pre-registered in `audible#88`, and the achievable minimum p is (1+0)/(1+40) = 0.0244 one-sided.
+pre-registered in `audible#88`; the achievable minimum p is (1+0)/(1+40) = 0.0244 one-sided.
 
-ADJUDICATION IS ON THE REFERENCE-SET p AND ON NOTHING ELSE. The bootstrap interval is reported
-because G6 asks for it, and `audible#88` measured that interval as a 0.5% test wearing a 5%
-label. A single floor draw is never used: `audible#88` measured 5 of 18 dispositions flipping
-under one, 28%, every one a false resolution.
+ADJUDICATION IS ON THE REFERENCE-SET p AND ON THE SIGN, AND ON NOTHING ELSE. The bootstrap
+interval is reported because G6 asks for it, and `audible#88` measured that interval as a 0.5%
+test wearing a 5% label. A single floor draw is never used: `audible#88` measured 5 of 18
+dispositions flipping under one, 28%, every one a false resolution.
 
 WHAT IS NOT COMPUTED, AND WHY. G6 asks for a player-clustered interval alongside the
 season-clustered one. There is none here. The statistic is a scope-level ranking error and
@@ -57,18 +71,34 @@ from . import s7_weekly as s7
 AGGREGATION = "weighted"
 SCALE = "vorp"  # the scale the draft board ships on; see `s7_weekly.build_board`
 
-# Pre-registered treatment strength. `signals.can_change_ordering` uses 0.10 as its default and
-# the seasonal work fit lambda on a grid; fitting it weekly would buy a selected number, so one
-# strength is fixed in advance and the opposite sign is reported beside it. A signal that only
-# helps at a lambda chosen after the fact has not been resolved.
-PRIMARY_LAMBDA = 0.10
-LAMBDAS: tuple[float, ...] = (0.10, -0.10)
+# 0.0 IS IN THE GRID ON PURPOSE. It is what a term that should not be used selects, and without
+# it every reported effect is forced to be an intervention.
+GRID: tuple[float, ...] = (0.0, 0.02, 0.05, 0.10, 0.20)
+
+# The strength reported beside the selected one, so a number nobody chose is always on the page.
+FIXED_LAMBDA = 0.10
+
+# STATISTICAL AND PRACTICAL SIGNIFICANCE ARE REPORTED SEPARATELY, and this is the practical bar.
+#
+# Out-of-sample selection makes the floor draws cluster on exactly 0.000, because a random term
+# usually picks lambda 0.0. So ANY positive selected effect, however tiny, beats every floor draw
+# and reads p = 0.0244. That is a correct reference-set test and a useless headline: +0.004 RWRE
+# against a board whose error is 34.9 and whose scope-to-scope sd is 4.3 is not a finding anybody
+# should act on. A term therefore has to clear both bars to count, and the two are never merged
+# into one word.
+#
+# 0.10 RWRE is pre-registered here: about 0.3% of the FFA weekly board error, and about 1/300th
+# of the distance between that board and a coin. Nothing was measured before this constant was
+# written down.
+MATERIAL = 0.10
 
 FLOOR_DRAWS = 40
 BOOTSTRAPS = 2000
 SEED = 20260911
 
 POSITIONS: tuple[str, ...] = ("QB", "RB", "WR", "TE")
+
+Scope = tuple[int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,9 +123,9 @@ SIGNALS: tuple[Signal, ...] = (
            "volume, at the positions whose points come through the air."),
     Signal("ay_share", "air-yards share", ("WR", "TE"),
            "volume weighted by depth of target. Separates a boom receiver from a possession "
-           "receiver on the same target count -- which target share cannot."),
+           "receiver on the same target count, which target share cannot."),
     Signal("route_share", "route participation", ("WR", "TE", "RB"),
-           "a pass-play participation proxy, not routes run; no pinned file has routes run. "
+           "a pass-play participation proxy, not routes run; no pinned file holds routes run. "
            "See `signals.route_share`, including the 2023 schema break it has to dodge."),
     Signal("ff_opp_exp", "ff_opportunity expected points", ("RB", "WR", "TE"),
            "expected fantasy points per TEAM game from volume and situation -- an opportunity "
@@ -107,8 +137,8 @@ SIGNALS: tuple[Signal, ...] = (
            "a POSITION-LEVEL rate, so it is constant within a position and provably cannot "
            "reorder one. Its locus is the board and nowhere else; see G5."),
     Signal("draft_round", "rookie draft capital", ("RB", "WR", "TE", "QB"),
-           "where the market with the most information placed a player before anyone had "
-           "priced his fantasy role. Restricted to players with no prior-season row.",
+           "where the market with the most information placed a player before anyone had priced "
+           "his fantasy role. Restricted to players with no prior-season row.",
            {"rookies_only": True}),
     Signal("depth_slot", "depth slot", ("RB", "WR", "TE"),
            "the team's own declared ordering, which is a role statement rather than a "
@@ -118,9 +148,8 @@ SIGNALS: tuple[Signal, ...] = (
     Signal("contract", "contract value", (),
            "what the team paid, as a proxy for the role it intends to give him."),
     Signal("ngs_separation", "ngs_separation", ("WR", "TE"),
-           "yards of separation at the catch point. Resolved at p=0.049 in `audible#88`, fell "
-           "to 0.074 under the corrected metric and was reverted. Weekly is its first honest "
-           "test."),
+           "yards of separation at the catch point. Resolved at p=0.049 in `audible#88`, fell to "
+           "0.074 under the corrected metric and was reverted. Weekly is its first honest test."),
     Signal("ngs_time_to_throw", "ngs_time_to_throw", ("QB",),
            "the 17.5x attenuation case. +0.669 at QB against +0.038 board-wide."),
     Signal("ngs_rush_eff", "ngs_rush_eff", ("RB",),
@@ -136,29 +165,19 @@ SIGNALS: tuple[Signal, ...] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class Effect:
-    """One (signal, league, lambda) measurement, board-wide and per position."""
-
-    board: float
-    per_position: dict[str, float]
-    scopes: int
-
-
-# THREE SIGNALS WERE COUPLED TO THE ESPN ARM AND TWO HAD TO BE UNCOUPLED.
-# `signals.signal_values` builds `availability` and `adp_gap` over
-# `arms.load("espn", season, "espn_green_hope")`, which is the right universe for S3 seasonal
-# work and the wrong one here -- the board under test comes from FFA, and the espn arm REFUSES
-# 2023 outright (`sim/runs/s1-sources.md`), so asking it for a 2023 value raised
-# `PreflightError` and `availability` read 0% coverage in that season. That is not a null, it is
-# a missing measurement wearing a null's clothes.
+# TWO SIGNALS WERE COUPLED TO THE ESPN ARM AND HAD TO BE UNCOUPLED. `signals.signal_values`
+# builds `availability` and `adp_gap` over `arms.load("espn", season, "espn_green_hope")`, which
+# is the right universe for S3 seasonal work and the wrong one here -- the board under test comes
+# from FFA, and the espn arm REFUSES 2023 outright (`sim/runs/s1-sources.md`), so asking it for a
+# 2023 value raised `PreflightError` and `availability` read 0% coverage that season. That is not
+# a null, it is a missing measurement wearing a null's clothes.
 #
 # Both are rebuilt here over the FFA universe, by the same construction:
 #   * `availability` maps the position-level rate onto the WEEKLY BOARD position map;
 #   * `adp_gap` ranks the FFA PRESEASON projection against ADP, exactly as S3 ranked the espn
-#     preseason projection against ADP. Deliberately NOT the weekly projection: comparing week
-#     N projection to a preseason ADP measures in-season drift, which is a different and
-#     probably better signal, but it is not the one being re-adjudicated.
+#     preseason projection against ADP. Deliberately NOT the weekly projection: comparing week N
+#     projection to a preseason ADP measures in-season drift, which is a different and probably
+#     better signal, but it is not the one being re-adjudicated.
 COUPLED: frozenset[str] = frozenset({"availability", "adp_gap"})
 
 
@@ -186,8 +205,7 @@ def values_for(signal: Signal, board: Any, season: int, league: str) -> dict[str
                 in enumerate(sorted(members, key=lambda q: -loaded.points[q]))
             }
             adp = {
-                pid: i for i, pid
-                in enumerate(sorted(members, key=lambda q: meta[q]["adp"]))
+                pid: i for i, pid in enumerate(sorted(members, key=lambda q: meta[q]["adp"]))
             }
             for pid in members:
                 # POSITIVE means the market likes him more than the projection does.
@@ -205,11 +223,11 @@ def _salt_values(pids: list[str], season: int, salt: int) -> dict[str, float]:
     }
 
 
-def load_scopes(league: str) -> dict[tuple[int, int], tuple[Any, dict[str, float], Any]]:
+def load_scopes(league: str) -> dict[Scope, tuple[Any, dict[str, float], Any]]:
     """Every scoreable scope's board, outcome and BASELINE score, read once."""
     scopes = s7.available_scopes(AGGREGATION, require_actuals=True)
     s7.preflight(scopes, league)
-    out: dict[tuple[int, int], tuple[Any, dict[str, float], Any]] = {}
+    out: dict[Scope, tuple[Any, dict[str, float], Any]] = {}
     for season, week in scopes:
         board = s7.build_board(season, week, league, aggregation=AGGREGATION, scale=SCALE)
         outcome = s7.realised_week(season, week, league).on(SCALE, position=board.position)
@@ -220,9 +238,8 @@ def load_scopes(league: str) -> dict[tuple[int, int], tuple[Any, dict[str, float
     return out
 
 
-def _treated(board: Any, outcome: dict[str, float], league: str, season: int,
-             lam: float, name: str, *, values: dict[str, float] | None = None,
-             **kwargs: Any) -> Any:
+def _treated(board: Any, outcome: dict[str, float], league: str, season: int, lam: float,
+             name: str, values: dict[str, float], **kwargs: Any) -> Any:
     points = signals.adjust(
         board.projected, board.position, season, lam, name, values=values, **kwargs
     )
@@ -231,8 +248,136 @@ def _treated(board: Any, outcome: dict[str, float], league: str, season: int,
     return s7.score_week(order, outcome, league, position=board.position)
 
 
-def coverage(signal: Signal, loaded: dict[tuple[int, int], Any],
-             league: str) -> dict[int, tuple[int, int]]:
+@dataclass(slots=True)
+class Series:
+    """Every scope's RWRE at every strength: the raw material for out-of-sample selection."""
+
+    base: dict[Scope, float] = field(default_factory=dict)
+    base_pos: dict[str, dict[Scope, float]] = field(default_factory=dict)
+    treated: dict[float, dict[Scope, float]] = field(default_factory=dict)
+    treated_pos: dict[float, dict[str, dict[Scope, float]]] = field(default_factory=dict)
+
+
+def build_series(signal: Signal, loaded: dict[Scope, Any], league: str,
+                 *, salt: int | None = None) -> Series:
+    """Score every scope at every strength in `GRID`, once.
+
+    With *salt*, the signal's values are replaced by an information-free hash over exactly the
+    players the signal itself covers -- the floor, matched to this signal's coverage, and put
+    through the same selection the signal gets.
+    """
+    series = Series()
+    for lam in GRID:
+        series.treated[lam] = {}
+        series.treated_pos[lam] = {pos: {} for pos in POSITIONS}
+    for scope, (board, outcome, base) in sorted(loaded.items()):
+        season = scope[0]
+        try:
+            values = values_for(signal, board, season, league)
+        except rank.PreflightError:
+            continue
+        if not values:
+            continue
+        covered = [pid for pid in board.projected if pid in values]
+        if not covered:
+            continue
+        inject = _salt_values(covered, season, salt) if salt is not None else values
+        series.base[scope] = base.rwre
+        for pos, value in base.per_position.items():
+            series.base_pos.setdefault(pos, {})[scope] = value
+        for lam in GRID:
+            if lam == 0.0:
+                # Provably the untreated board: `signals.adjust` returns a copy at lam 0.0.
+                # Scoring it again would be 118 wasted cycles per signal per salt.
+                series.treated[lam][scope] = base.rwre
+                for pos, value in base.per_position.items():
+                    series.treated_pos[lam][pos][scope] = value
+                continue
+            score = _treated(
+                board, outcome, league, season, lam, signal.name, inject, **signal.kwargs
+            )
+            series.treated[lam][scope] = score.rwre
+            for pos, value in score.per_position.items():
+                series.treated_pos[lam][pos][scope] = value
+    return series
+
+
+def loso(base: dict[Scope, float],
+         treated: dict[float, dict[Scope, float]]) -> tuple[float, dict[Scope, float],
+                                                            dict[int, float]]:
+    """Leave-one-season-out strength selection. Returns (mean effect, per-scope, chosen lambdas).
+
+    For each season: choose the strength that minimises RWRE on the OTHER seasons, then score
+    this one with it. The held-out season never sees its own strength chosen, and 0.0 is in the
+    grid, so a term that should not be used contributes exactly 0.000 rather than a harm.
+    """
+    if not base:
+        return (float("nan"), {}, {})
+    seasons = sorted({season for season, _week in base})
+    effects: dict[Scope, float] = {}
+    chosen: dict[int, float] = {}
+    for held in seasons:
+        others = [scope for scope in base if scope[0] != held]
+        best_lam = 0.0
+        if others:
+            best = float("inf")
+            for lam in GRID:
+                scores = treated.get(lam, {})
+                usable = [scores[scope] for scope in others if scope in scores]
+                if not usable:
+                    continue
+                mean = statistics.mean(usable)
+                if mean < best:
+                    best, best_lam = mean, lam
+        chosen[held] = best_lam
+        picked = treated.get(best_lam, {})
+        for scope in base:
+            if scope[0] == held and scope in picked:
+                effects[scope] = base[scope] - picked[scope]
+    return (statistics.mean(effects.values()) if effects else float("nan"), effects, chosen)
+
+
+def fixed(base: dict[Scope, float], treated: dict[float, dict[Scope, float]],
+          lam: float) -> float:
+    """The effect at one strength nobody chose, reported beside the selected one."""
+    scores = treated.get(lam, {})
+    deltas = [base[scope] - scores[scope] for scope in base if scope in scores]
+    return statistics.mean(deltas) if deltas else float("nan")
+
+
+def reference_p(observed: float, floor: list[float]) -> float:
+    """(1 + #{floor >= observed}) / (1 + K). One-sided: the direction is pre-registered."""
+    usable = [f for f in floor if f == f]
+    if not usable:
+        return float("nan")
+    return (1 + sum(1 for f in usable if f >= observed)) / (1 + len(usable))
+
+
+def clustered_interval(deltas: dict[Scope, float], *, by: str, seed: int) -> tuple[float, float]:
+    """Bootstrap the mean effect, resampling whole clusters. REPORTED, never adjudicated on."""
+    if not deltas:
+        return (float("nan"), float("nan"))
+    rng = random.Random(seed)
+    if by == "season":
+        groups: dict[int, list[float]] = {}
+        for (season, _week), value in deltas.items():
+            groups.setdefault(season, []).append(value)
+        units = list(groups.values())
+    elif by == "scope":
+        units = [[value] for value in deltas.values()]
+    else:
+        raise ValueError(f"unknown clustering {by!r}")
+    means = []
+    for _ in range(BOOTSTRAPS):
+        drawn: list[float] = []
+        for _ in range(len(units)):
+            drawn.extend(units[rng.randrange(len(units))])
+        means.append(statistics.mean(drawn))
+    means.sort()
+    return (means[int(0.025 * len(means))], means[min(len(means) - 1, int(0.975 * len(means)))])
+
+
+def coverage(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[int, tuple[int, int]]:
     """season -> (players with a value, players on the board). Never filled in, only reported."""
     out: dict[int, tuple[int, int]] = {}
     for (season, _week), (board, _outcome, _base) in sorted(loaded.items()):
@@ -257,18 +402,15 @@ def coverage(signal: Signal, loaded: dict[tuple[int, int], Any],
     return out
 
 
-def constant_within_position(signal: Signal, loaded: dict[tuple[int, int], Any],
-                             league: str) -> set[str]:
+def constant_within_position(signal: Signal, loaded: dict[Scope, Any], league: str) -> set[str]:
     """Positions where this signal holds ONE distinct value, so it cannot reorder them.
 
     WITHOUT THIS THE PER-POSITION p IS MEANINGLESS FOR A BOARD-LEVEL TERM. `availability` is a
-    position-level rate: its per-position effect is exactly +0.0000 by construction, which is
+    position-level rate: its per-position effect is exactly 0.0000 by construction, which is
     `audible#87`'s finding reproduced. The FLOOR at those positions is not zero, because a salt
     varies within a position even when z-scored at board scope -- so comparing the two produces
-    a p for a quantity the treatment could never move. Those positions are reported as
-    structurally zero and no p is printed for them.
+    a p for a quantity the treatment could never move.
     """
-    out: set[str] = set()
     for (season, _week), (board, _outcome, _base) in sorted(loaded.items()):
         try:
             values = values_for(signal, board, season, league)
@@ -276,18 +418,17 @@ def constant_within_position(signal: Signal, loaded: dict[tuple[int, int], Any],
             continue
         if not values:
             continue
+        out: set[str] = set()
         for pos in POSITIONS:
-            members = [
-                pid for pid, held in board.position.items()
-                if held == pos and pid in values
-            ]
+            members = [pid for pid, held in board.position.items()
+                       if held == pos and pid in values]
             if members and len({values[pid] for pid in members}) <= 1:
                 out.add(pos)
         return out
-    return out
+    return set()
 
 
-def can_change_ordering(signal: Signal, loaded: dict[tuple[int, int], Any],
+def can_change_ordering(signal: Signal, loaded: dict[Scope, Any],
                         league: str) -> tuple[bool, int, int]:
     """G4, on the WEEKLY board. Returns (moved anywhere, scopes moved, max players moved).
 
@@ -304,7 +445,7 @@ def can_change_ordering(signal: Signal, loaded: dict[tuple[int, int], Any],
         if not values:
             continue
         points = signals.adjust(
-            board.projected, board.position, season, PRIMARY_LAMBDA, signal.name,
+            board.projected, board.position, season, FIXED_LAMBDA, signal.name,
             values=values, **signal.kwargs,
         )
         value = rank.vorp_values(points, board.position, league)
@@ -316,9 +457,8 @@ def can_change_ordering(signal: Signal, loaded: dict[tuple[int, int], Any],
     return scopes_moved > 0, scopes_moved, worst
 
 
-def cell_report(signal: Signal, loaded: dict[tuple[int, int], Any],
-                league: str) -> list[str]:
-    """G5. Cells applied vs skipped, with the deciding sd, for one scope per season.
+def cell_report(signal: Signal, loaded: dict[Scope, Any], league: str) -> list[str]:
+    """G5. Cells applied vs skipped, with the deciding sd, one scope per season.
 
     `availability` is why this exists: z-scoring a position-level constant WITHIN position gives
     sd == 0 and skips the cell, so 19 of 20 cells were a literal no-op and the twentieth applied
@@ -334,7 +474,7 @@ def cell_report(signal: Signal, loaded: dict[tuple[int, int], Any],
         try:
             cells = signals.cells(
                 board.projected, board.position, season, signal.name,
-                values=values_for(signal, board, season, league), **signal.kwargs
+                values=values_for(signal, board, season, league), **signal.kwargs,
             )
         except rank.PreflightError:
             lines.append(f"    {season}  inputs not pinned")
@@ -342,78 +482,8 @@ def cell_report(signal: Signal, loaded: dict[tuple[int, int], Any],
         applied = [c for c in cells if c.applied]
         skipped = [c for c in cells if not c.applied]
         detail = " ".join(f"{c.label}:n{c.n}/d{c.distinct}/sd{c.sd:.3g}" for c in cells)
-        lines.append(
-            f"    {season}  applied {len(applied)} skipped {len(skipped)}   {detail}"
-        )
+        lines.append(f"    {season}  applied {len(applied)} skipped {len(skipped)}   {detail}")
     return lines
-
-
-def effect(signal: Signal, loaded: dict[tuple[int, int], Any], league: str, lam: float,
-           *, salt: int | None = None) -> tuple[Effect, dict[tuple[int, int], float]]:
-    """Mean improvement in RWRE, board-wide and per position. Positive means BETTER.
-
-    With *salt*, the signal's values are replaced by an information-free hash over exactly the
-    players the signal itself covers -- the floor, matched to this signal's coverage.
-    """
-    board_deltas: dict[tuple[int, int], float] = {}
-    pos_deltas: dict[str, list[float]] = {p: [] for p in POSITIONS}
-    for (season, week), (board, outcome, base) in sorted(loaded.items()):
-        try:
-            values = values_for(signal, board, season, league)
-        except rank.PreflightError:
-            continue
-        if not values:
-            continue
-        covered = [pid for pid in board.projected if pid in values]
-        if not covered:
-            continue
-        inject = _salt_values(covered, season, salt) if salt is not None else values
-        treated = _treated(
-            board, outcome, league, season, lam, signal.name, values=inject, **signal.kwargs
-        )
-        board_deltas[(season, week)] = base.rwre - treated.rwre
-        for pos in POSITIONS:
-            if pos in base.per_position and pos in treated.per_position:
-                pos_deltas[pos].append(base.per_position[pos] - treated.per_position[pos])
-    board_mean = statistics.mean(board_deltas.values()) if board_deltas else float("nan")
-    per_pos = {
-        p: statistics.mean(v) for p, v in pos_deltas.items() if v
-    }
-    return Effect(board_mean, per_pos, len(board_deltas)), board_deltas
-
-
-def reference_p(observed: float, floor: list[float]) -> float:
-    """(1 + #{floor >= observed}) / (1 + K). One-sided, because the direction is pre-registered."""
-    if not floor:
-        return float("nan")
-    return (1 + sum(1 for f in floor if f >= observed)) / (1 + len(floor))
-
-
-def clustered_interval(deltas: dict[tuple[int, int], float], *, by: str,
-                       seed: int) -> tuple[float, float]:
-    """Bootstrap the mean effect, resampling whole clusters. REPORTED, never adjudicated on."""
-    if not deltas:
-        return (float("nan"), float("nan"))
-    rng = random.Random(seed)
-    if by == "season":
-        groups: dict[int, list[float]] = {}
-        for (season, _week), value in deltas.items():
-            groups.setdefault(season, []).append(value)
-        units = list(groups.values())
-    elif by == "scope":
-        units = [[value] for value in deltas.values()]
-    else:
-        raise ValueError(f"unknown clustering {by!r}")
-    means = []
-    for _ in range(BOOTSTRAPS):
-        drawn: list[float] = []
-        for _ in range(len(units)):
-            drawn.extend(units[rng.randrange(len(units))])
-        means.append(statistics.mean(drawn))
-    means.sort()
-    lo = means[int(0.025 * len(means))]
-    hi = means[min(len(means) - 1, int(0.975 * len(means)))]
-    return (lo, hi)
 
 
 def _seasonal_score(signal: Signal, league: str, season: int, loaded: Any,
@@ -421,11 +491,9 @@ def _seasonal_score(signal: Signal, league: str, season: int, loaded: Any,
                     values: dict[str, float]) -> float:
     points = signals.adjust(
         loaded.points, loaded.position, season, strength, signal.name,
-        values=values, **signal.kwargs
+        values=values, **signal.kwargs,
     )
-    order = [
-        pid for pid in rank.vorp_order(points, loaded.position, league) if pid in outcome
-    ]
+    order = [pid for pid in rank.vorp_order(points, loaded.position, league) if pid in outcome]
     return rank.score_board(
         order, outcome, teams=int(rank.league(league).num_teams),
         pool_size=rank.pool_size_for(league), position=loaded.position,
@@ -433,13 +501,15 @@ def _seasonal_score(signal: Signal, league: str, season: int, loaded: Any,
     ).rwre
 
 
-def seasonal_effect(signal: Signal, league: str, lam: float) -> tuple[float, int]:
+def seasonal_effect(signal: Signal, league: str) -> tuple[float, float, int]:
     """G7's other half: the same term on the SEASONAL draft board, FFA arm, same league.
 
-    `signals.score` is hardwired to the espn arm and one league, so this reproduces its shape
-    against `arms.load("ffa", ...)` per league rather than editing a function forty gates read.
+    Selected the same way as the weekly side -- leave-one-season-out over the same grid -- so the
+    two modes are comparable. `signals.score` is hardwired to the espn arm and one league, so this
+    reproduces its shape rather than editing a function forty gates read.
     """
-    total = []
+    base: dict[Scope, float] = {}
+    treated: dict[float, dict[Scope, float]] = {lam: {} for lam in GRID}
     for season in rank.SEASONS_BY_ARM["ffa"]:
         try:
             loaded = arms.load("ffa", season, league)
@@ -450,27 +520,29 @@ def seasonal_effect(signal: Signal, league: str, lam: float) -> tuple[float, int
         if not values:
             continue
         outcome = rank.realised_vorp(realised)
-        total.append(
-            _seasonal_score(signal, league, season, loaded, outcome, 0.0, values)
-            - _seasonal_score(signal, league, season, loaded, outcome, lam, values)
-        )
-    return (statistics.mean(total) if total else float("nan"), len(total))
+        scope: Scope = (season, 0)
+        base[scope] = _seasonal_score(signal, league, season, loaded, outcome, 0.0, values)
+        for lam in GRID:
+            treated[lam][scope] = (
+                base[scope] if lam == 0.0
+                else _seasonal_score(signal, league, season, loaded, outcome, lam, values)
+            )
+    selected, _effects, _chosen = loso(base, treated)
+    return (selected, fixed(base, treated, FIXED_LAMBDA), len(base))
 
 
-def run_signal(signal: Signal, loaded: dict[tuple[int, int], Any], league: str) -> dict[str, Any]:
+def run_signal(signal: Signal, loaded: dict[Scope, Any], league: str) -> dict[str, Any]:
     print(f"-- {signal.label}  [{signal.name}] --")
-    print(f"   LOCUS (pre-registered): "
+    print("   LOCUS (pre-registered): "
           f"{'board-level only' if not signal.locus else ' '.join(signal.locus)}")
     print(f"   mechanism: {signal.why}")
 
     cov = coverage(signal, loaded, league)
-    covered_seasons = [s for s, (have, _total) in cov.items() if have > 0]
     print("   coverage, players with a value / players on the board:")
     for season in sorted(cov):
         have, total = cov[season]
-        share = have / total if total else 0.0
-        print(f"    {season}  {have:4d} / {total:4d}  {share:5.1%}")
-    if not covered_seasons:
+        print(f"    {season}  {have:4d} / {total:4d}  {(have / total if total else 0.0):5.1%}")
+    if not any(have > 0 for have, _total in cov.values()):
         print("   NOT MEASURABLE: no season in the weekly window has a value for this signal.")
         print()
         return {"signal": signal.name, "league": league, "verdict": "not measurable"}
@@ -482,106 +554,136 @@ def run_signal(signal: Signal, loaded: dict[tuple[int, int], Any], league: str) 
     for line in cell_report(signal, loaded, league):
         print(line)
     if not moved:
-        print("   INERT on the weekly board at lambda "
-              f"{PRIMARY_LAMBDA}: not measured, per G4.")
+        print(f"   INERT on the weekly board at lambda {FIXED_LAMBDA}: not measured, per G4.")
         print()
         return {"signal": signal.name, "league": league, "verdict": "inert"}
 
-    record: dict[str, Any] = {"signal": signal.name, "league": league,
-                             "locus": list(signal.locus)}
     frozen = constant_within_position(signal, loaded, league)
     if frozen:
         print(f"   structurally unable to reorder: {' '.join(sorted(frozen))} "
               "(one distinct value inside the position)")
-    primary, primary_deltas = effect(signal, loaded, league, PRIMARY_LAMBDA)
-    print(f"   effect at lambda +{PRIMARY_LAMBDA} over {primary.scopes} scopes "
-          "(positive = better):")
-    print(f"    board-wide  {primary.board:+7.4f}")
+
+    record: dict[str, Any] = {
+        "signal": signal.name, "league": league, "locus": list(signal.locus),
+        "structurally_zero": sorted(frozen),
+    }
+    series = build_series(signal, loaded, league)
+    selected, effects, chosen = loso(series.base, series.treated)
+    at_fixed = fixed(series.base, series.treated, FIXED_LAMBDA)
+    print(f"   scopes measured {len(series.base)}   lambda chosen out of sample per season: "
+          f"{' '.join(f'{s}:{chosen[s]:g}' for s in sorted(chosen))}")
+    print(f"   effect board-wide, SELECTED  {selected:+7.4f}   "
+          f"(at fixed lambda {FIXED_LAMBDA}: {at_fixed:+7.4f})")
+    record["effect_board"] = selected
+    record["effect_board_fixed"] = at_fixed
+    record["chosen"] = {str(k): v for k, v in chosen.items()}
+
+    pos_selected: dict[str, float] = {}
     for pos in POSITIONS:
-        if pos in primary.per_position:
-            mark = "  <- locus" if pos in signal.locus else ""
-            if pos in frozen:
-                mark += "  STRUCTURALLY ZERO"
-            print(f"    {pos}          {primary.per_position[pos]:+7.4f}{mark}")
-    other, _ = effect(signal, loaded, league, -PRIMARY_LAMBDA)
-    print(f"   effect at lambda -{PRIMARY_LAMBDA} board-wide {other.board:+7.4f}  "
-          "(reported so a harm is visible, never adjudicated on)")
+        if pos not in series.base_pos:
+            continue
+        value, _per_scope, _c = loso(
+            series.base_pos[pos], {lam: series.treated_pos[lam][pos] for lam in GRID}
+        )
+        pos_selected[pos] = value
+        mark = "  <- locus" if pos in signal.locus else ""
+        if pos in frozen:
+            mark += "  STRUCTURALLY ZERO"
+        print(f"    {pos}  SELECTED {value:+7.4f}{mark}")
+    record["per_position"] = pos_selected
 
     floor_board: list[float] = []
-    floor_pos: dict[str, list[float]] = {p: [] for p in POSITIONS}
+    floor_pos: dict[str, list[float]] = {pos: [] for pos in POSITIONS}
     for salt in range(FLOOR_DRAWS):
-        drawn, _ = effect(signal, loaded, league, PRIMARY_LAMBDA, salt=salt)
-        floor_board.append(drawn.board)
-        for pos, value in drawn.per_position.items():
-            floor_pos[pos].append(value)
-    print(f"   FLOOR, {FLOOR_DRAWS} salts matched to this signal's coverage:")
-    print(f"    board-wide  mean {statistics.mean(floor_board):+7.4f} "
-          f"sd {statistics.stdev(floor_board):.4f} "
-          f"max {max(floor_board):+7.4f}")
-    p_board = reference_p(primary.board, floor_board)
+        drawn = build_series(signal, loaded, league, salt=salt)
+        value, _e, _c = loso(drawn.base, drawn.treated)
+        floor_board.append(value)
+        for pos in POSITIONS:
+            if pos in drawn.base_pos:
+                pos_value, _e2, _c2 = loso(
+                    drawn.base_pos[pos], {lam: drawn.treated_pos[lam][pos] for lam in GRID}
+                )
+                floor_pos[pos].append(pos_value)
+    usable = [f for f in floor_board if f == f]
+    print(f"   FLOOR, {FLOOR_DRAWS} salts matched to this signal's coverage, same selection:")
+    print(f"    board-wide  mean {statistics.mean(usable):+7.4f} "
+          f"sd {statistics.stdev(usable):.4f} max {max(usable):+7.4f}")
+    p_board = reference_p(selected, floor_board)
     print(f"    reference-set p, board-wide: {p_board:.4f}")
     record["p_board"] = p_board
-    record["effect_board"] = primary.board
-    record["effect_board_negative_lambda"] = other.board
-    record["per_position"] = primary.per_position
+    record["floor_board_mean"] = statistics.mean(usable)
     record["p_position"] = {}
     for pos in POSITIONS:
         if pos in frozen:
             print(f"    reference-set p, {pos}: not reported -- the treatment is structurally "
                   "0.0000 here and the floor is not")
             continue
-        if pos in primary.per_position and floor_pos[pos]:
-            p_pos = reference_p(primary.per_position[pos], floor_pos[pos])
+        if pos in pos_selected and floor_pos[pos]:
+            p_pos = reference_p(pos_selected[pos], floor_pos[pos])
             record["p_position"][pos] = p_pos
             mark = "  <- locus" if pos in signal.locus else ""
             print(f"    reference-set p, {pos}: {p_pos:.4f}  "
-                  f"(floor mean {statistics.mean(floor_pos[pos]):+.4f} "
-                  f"max {max(floor_pos[pos]):+.4f}){mark}")
+                  f"(floor mean {statistics.mean(floor_pos[pos]):+.4f}){mark}")
 
-    lo, hi = clustered_interval(primary_deltas, by="season", seed=SEED)
-    slo, shi = clustered_interval(primary_deltas, by="scope", seed=SEED)
+    lo, hi = clustered_interval(effects, by="season", seed=SEED)
+    slo, shi = clustered_interval(effects, by="scope", seed=SEED)
     print(f"   season-clustered 95% interval (PRIMARY, reported only): [{lo:+.4f}, {hi:+.4f}]")
     print(f"   scope-clustered  95% interval (reported only):          [{slo:+.4f}, {shi:+.4f}]")
     print("   player-clustered: NOT COMPUTED. See the module docstring.")
     record["interval_season"] = [lo, hi]
     record["interval_scope"] = [slo, shi]
 
-    seasonal, n_seasons = seasonal_effect(signal, league, PRIMARY_LAMBDA)
-    print(f"   SEASONAL draft board, same term, {n_seasons} observations: {seasonal:+7.4f}")
-    record["seasonal"] = seasonal
+    season_sel, season_fixed, n_seasons = seasonal_effect(signal, league)
+    print(f"   SEASONAL draft board, {n_seasons} observations: SELECTED {season_sel:+7.4f}  "
+          f"(at fixed lambda {FIXED_LAMBDA}: {season_fixed:+7.4f})")
+    record["seasonal"] = season_sel
+    record["seasonal_fixed"] = season_fixed
     record["seasonal_n"] = n_seasons
 
-    # RESOLUTION REQUIRES BOTH A p AND THE RIGHT SIGN, at one place. A p of 0.02 on an effect
-    # of -0.4 says the signal reliably makes the board WORSE, which is a harm and not a
-    # resolution, and `audible#87`'s 17.5x attenuation is why the locus counts separately from
-    # the board: a real positional effect diluted over four positions reads as nothing.
-    board_resolves = p_board <= 0.05 and primary.board > 0.0
+    # RESOLUTION NEEDS A p AND THE RIGHT SIGN, AT ONE STATED PLACE. A p of 0.02 on a negative
+    # effect says the term reliably makes the board worse than a coin, which is a harm.
+    board_resolves = p_board <= 0.05 and selected > 0.0
     locus_hits = [
         pos for pos in signal.locus
-        if record["p_position"].get(pos, 1.0) <= 0.05
-        and primary.per_position.get(pos, 0.0) > 0.0
+        if record["p_position"].get(pos, 1.0) <= 0.05 and pos_selected.get(pos, 0.0) > 0.0
+    ]
+    off_locus = [
+        pos for pos in POSITIONS
+        if pos not in signal.locus and pos not in frozen
+        and record["p_position"].get(pos, 1.0) <= 0.05 and pos_selected.get(pos, 0.0) > 0.0
     ]
     harms = [
         pos for pos in POSITIONS
-        if record["p_position"].get(pos, 1.0) <= 0.05
-        and primary.per_position.get(pos, 0.0) < 0.0
+        if record["p_position"].get(pos, 1.0) <= 0.05 and pos_selected.get(pos, 0.0) < 0.0
     ]
-    if p_board <= 0.05 and primary.board < 0.0:
+    if p_board <= 0.05 and selected < 0.0:
         harms.append("board")
+    material = max(
+        [abs(selected)] + [abs(pos_selected.get(pos, 0.0)) for pos in signal.locus]
+    ) >= MATERIAL
+    record["material"] = material
     if board_resolves or locus_hits:
-        record["verdict"] = "RESOLVES"
+        record["verdict"] = "RESOLVES" if material else "resolves but immaterial"
+    elif off_locus:
+        record["verdict"] = "OFF-LOCUS"
     elif harms:
         record["verdict"] = "HARM"
     else:
         record["verdict"] = "null"
     record["locus_hits"] = locus_hits
+    record["off_locus"] = off_locus
     record["harms"] = harms
-    locus_ps = [record["p_position"][pos] for pos in signal.locus
-                if pos in record["p_position"]]
+    locus_ps = [record["p_position"][pos] for pos in signal.locus if pos in record["p_position"]]
     best = min([p_board, *locus_ps])
-    print(f"   VERDICT: {record['verdict']}  (best p {best:.4f}"
-          f"{', locus ' + ' '.join(locus_hits) if locus_hits else ''}"
-          f"{', harm at ' + ' '.join(harms) if harms else ''})")
+    extra = ""
+    if locus_hits:
+        extra += ", locus " + " ".join(locus_hits)
+    if off_locus:
+        extra += ", OFF-LOCUS at " + " ".join(off_locus)
+    if harms:
+        extra += ", harm at " + " ".join(harms)
+    extra += f", material {material} (bar {MATERIAL} RWRE)"
+    print(f"   VERDICT: {record['verdict']}  (best p {best:.4f}{extra})")
     print()
     return record
 
@@ -590,12 +692,12 @@ def main(argv: list[str]) -> int:
     league = argv[1] if len(argv) > 1 else "espn_green_hope"
     out_path = Path(__file__).resolve().parent / "runs" / "s7-phase2.jsonl"
     print(f"S7 PHASE 2 -- weekly re-adjudication, {league}")
-    print(f"aggregation {AGGREGATION}, scale {SCALE}, lambda +/-{PRIMARY_LAMBDA}, "
-          f"{FLOOR_DRAWS} salts, {BOOTSTRAPS} bootstraps, seed {SEED}")
+    print(f"aggregation {AGGREGATION}, scale {SCALE}, grid {GRID}, "
+          f"leave-one-season-out selection, {FLOOR_DRAWS} salts, {BOOTSTRAPS} bootstraps, "
+          f"seed {SEED}")
     print()
     loaded = load_scopes(league)
-    print(f"{len(loaded)} scopes loaded, "
-          f"{len({s for s, _ in loaded})} seasons")
+    print(f"{len(loaded)} scopes loaded, {len({s for s, _ in loaded})} seasons")
     print()
     for signal in SIGNALS:
         record = run_signal(signal, loaded, league)
