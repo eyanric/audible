@@ -117,7 +117,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         "the permutation floor is fed a constant outcome",
         "    outcome = {pid: float(i) for i, pid in enumerate(ids)}",
         "    outcome = dict.fromkeys(ids, 0.0)",
-        "test_the_shuffle_floor_contains_no_football_whatsoever",
+        "",
+        "EQUIVALENT, AND THE REASON IS THE PHASE-1 FINDING ITSELF. `rank._realised_order` turns "
+        "values into within-pool ranks and breaks ties by id, so a constant outcome still "
+        "produces a permutation of 1..n -- just a different one. The metric reads only the two "
+        "ranks, so feeding it zeros cannot change the distribution of a shuffled board's score. "
+        "This mutation surviving is a demonstration that the shuffle floor contains no "
+        "football, not a hole in the gate that says so.",
     ),
     Mutation(
         "preflight finds problems and says nothing",
@@ -149,8 +155,12 @@ def run_gates() -> tuple[int, list[str]]:
     proc = subprocess.run(
         [
             sys.executable, "-m", "pytest", GATES,
+            # NO -x. Stopping at the first failure made this sweep report "killed by the
+            # wrong gate" twice, because the gate named for a mutation had simply not been
+            # reached yet -- pytest had already stopped. The full list is needed to say which
+            # gate actually noticed.
             "-m", "slow or not slow", "-p", "no:randomly", "-p", "no:cacheprovider",
-            "--no-header", "-rf", "-x",
+            "--no-header", "-rf",
         ],
         cwd=REPO, capture_output=True, text=True, check=False,
     )
@@ -197,7 +207,7 @@ def main(argv: list[str]) -> int:
                     "100% against a denominator of zero."
                 )
             if code == 0:
-                survivors.append(mutation)
+                survivors.append(mutation)  # noqa: PERF401 -- the branch below is not a filter
                 verdict = "SURVIVED (expected)" if mutation.expected_survivor else "SURVIVED"
                 print(f"{verdict}  {mutation.label}")
                 if mutation.expected_survivor:

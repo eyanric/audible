@@ -1,0 +1,23 @@
+S7 MUTATION SWEEP -- 14 mutations against sim/test_g_s7.py
+
+baseline green
+
+killed by test_2015_weighted_is_excluded_by_CHOICE_and_the_files_are_there  <- 2015 weighted is no longer excluded
+killed by test_the_actuals_requirement_drops_exactly_the_unpinned_seasons  <- the pinned-outcome filter does nothing
+SURVIVED (expected)  the pinned window goes back to a hardcoded literal
+   EQUIVALENT TODAY BY DESIGN. The literal and the directory currently agree -- that is exactly what the gates measure and they cannot distinguish two equal answers. The mutation becomes visible the moment a new season is pinned, which is the failure it was written against; nothing in a green checkout can see it.
+killed by test_g1_a_perfect_board_in_the_wrong_unit_costs_something[espn_green_hope-points]  <- vorp collapses to points, so the two scales become one
+killed by test_an_unknown_scale_is_refused_rather_than_defaulted  <- an unknown scale silently falls back to points
+killed by test_a_player_with_no_realised_row_is_dropped_not_scored_zero  <- a player with no realised row is kept in the pool
+killed by test_the_weekly_and_seasonal_outcomes_use_the_same_rulebook  <- return yards stop being paid, as they were before the review
+killed by test_the_weekly_and_seasonal_outcomes_use_the_same_rulebook  <- fumble-recovery touchdowns stop being paid
+killed by test_the_position_override_is_not_inert  <- the board position map stops overriding the nflverse one
+killed by test_the_two_scales_are_not_the_same_board  <- the positions filter is bypassed
+SURVIVED (expected)  the permutation floor is fed a constant outcome
+   EQUIVALENT, AND THE REASON IS THE PHASE-1 FINDING ITSELF. `rank._realised_order` turns values into within-pool ranks and breaks ties by id, so a constant outcome still produces a permutation of 1..n -- just a different one. The metric reads only the two ranks, so feeding it zeros cannot change the distribution of a shuffled board's score. This mutation surviving is a demonstration that the shuffle floor contains no football, not a hole in the gate that says so.
+killed by test_preflight_names_the_missing_file_before_any_work  <- preflight finds problems and says nothing
+killed by test_the_2015_weighted_defect_is_real_and_2016_is_clean  <- sd-without-value counts every NA instead of only the paired ones
+SURVIVED (expected)  the deduplicated player keeps the LOSING row's position
+   NOT COVERED. Only two players in the whole 118-scope window carry two positions under two team aliases, and neither sits where a 128-deep pool can see the difference. A gate would have to assert on those two ids, which is a gate about a fixture rather than about behaviour. Recorded as a known hole instead of papered over.
+
+mutations 14  killed 11  survived 3  unexpected survivors 0

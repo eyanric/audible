@@ -472,11 +472,53 @@ def test_the_weekly_and_seasonal_outcomes_use_the_same_rulebook() -> None:
     checked = 0
     for pid, per_game in seasonal.per_game.items():
         games = seasonal.games.get(pid, 0)
-        if games < 8 or pid not in totals:
+        # EVERY PLAYER WITH A ROW, NOT ONLY THE REGULARS. The first version of this gate
+        # required `games >= 8` and the mutation sweep proved that filter was hiding the term
+        # it was written to protect: all three offensive players who recovered a fumble for a
+        # touchdown in 2020 played exactly 5 games, so "fumble-recovery touchdowns stop being
+        # paid" SURVIVED. The comparison is exact arithmetic on both sides -- the same `games`
+        # divides both -- so the threshold bought nothing and cost the rarest terms.
+        if games < 1 or pid not in totals:
             continue
         assert abs(totals[pid] / games - per_game) < 0.02, (pid, totals[pid] / games, per_game)
         checked += 1
     assert checked > 100, checked
+
+
+@_needs_corpus
+@pytest.mark.skipif(
+    not _outcome_on_disk(PARITY_SEASON),
+    reason=f"player_stats_{PARITY_SEASON} not pinned on this machine",
+)
+@pytest.mark.parametrize(
+    "column", ["punt_return_yards", "kickoff_return_yards", "special_teams_tds",
+               "fumble_recovery_tds"],
+)
+def test_each_rare_scoring_term_reaches_a_real_player(column: str) -> None:
+    """The gate above can only catch a term that somebody actually earned. This checks that.
+
+    A parity gate is only as strong as the rows it compares, and three of the four terms here
+    are rare: 20 fumble-recovery touchdowns league-wide in 2020, 3 of them to offensive players.
+    If a season had none, the parity gate would pass under a mutation that stopped paying the
+    term. This asserts the rows exist, so the parity gate is never vacuous by accident.
+    """
+    import polars as pl
+
+    from . import room
+    from . import weekly as weekly_module
+
+    frame = weekly_module._frame(PARITY_SEASON).filter(
+        (pl.col("season_type") == "REG") & (pl.col(column) > 0)
+    ).fill_null(0)
+    offensive = [
+        row for row in frame.iter_rows(named=True)
+        if room.canon_position(str(row.get("position") or "")) in s7_weekly.OFFENSIVE
+    ]
+    assert offensive, f"no offensive player earned {column} in {PARITY_SEASON}"
+    pid = str(offensive[0]["player_id"])
+    week = int(offensive[0]["week"])
+    points = s7_weekly.realised_week(PARITY_SEASON, week, LEAGUE).points
+    assert pid in points, (pid, week, column)
 
 
 # --- preflight ------------------------------------------------------------------------------
