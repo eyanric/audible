@@ -1,0 +1,45 @@
+S7 MULTIPLICITY -- an accounting of tests already run
+floor draws 40; a test with NO TIES carries P(p <= 0.05) = 2/41 = 0.04878, but the benchmark below is the sum of each test's OWN enumerated rate.
+
+measurements (term x league) : 72
+p-values computed            : 336
+   of which CANNOT return a hit at 0.05, because of ties in their own floor: 56
+hits at p <= 0.05            : 19
+expected under a pure null   : 13.1   (a flat 2/41 would have said 16.4)
+sd, tests treated as independent : 3.5
+sd, corrected for the shared floor inside a record (phi 1.63) : 4.5
+excess over the null         : +5.9  (+1.31 sd)
+
+(term, place) pairs hit in >= 2 leagues : 0
+(term, place) pairs hit in exactly 1 league : 19
+
+SIGN CONFLICTS -- the same (term, place) significant in both directions:
+   availability at board:
+      espn_danger_zone   HELPS  +0.1655
+      espn_green_hope    HARMS  -0.1602
+   snap_share at TE:
+      espn_danger_zone   HELPS  +0.0409
+      sleeper_boyfun     HARMS  -0.0368
+   snap_share at WR:
+      espn_green_hope    HELPS  +0.1178
+      sleeper_boyfun     HARMS  -0.1104
+
+RESOLVES records whose BOARD-level selection chose lambda 0.0 in every fold:
+   snap_share           espn_green_hope    board effect +0.0000, resolved at WR
+
+verdict RESOLVES: 7 across 6 distinct terms
+   NOTE: a term counted here as resolving in two leagues may have resolved at two
+   DIFFERENT places. The (term, place) count above is the stricter measure and is
+   the one to read; this one is place-agnostic.
+   availability         ['espn_danger_zone']
+   depth_slot           ['sleeper_boyfun']
+   ngs_time_to_throw    ['sleeper_boyfun']
+   snap_share           ['espn_danger_zone', 'espn_green_hope']
+   target_share         ['espn_danger_zone']
+   true_age             ['espn_danger_zone']
+terms resolving in >= 2 leagues: 1
+
+board-wide selected effects, all measurements:
+   n 72   exactly 0.0 (selection chose lambda 0 in every fold): 31
+   > 0: 14   < 0: 27
+   mean -0.0018   median +0.0000

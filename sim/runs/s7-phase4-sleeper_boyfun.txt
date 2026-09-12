@@ -1,0 +1,86 @@
+S7 PHASE 4 -- the assembled board, sleeper_boyfun
+gain grid (0.0, 0.25, 0.5, 0.75, 1.0, 1.25), walk-forward fit (2019, 2020, 2021, 2022) test (2023, 2024, 2025), seed 20260911
+
+survivors from phases 2 and 3: 2
+  depth_slot           lambda  0.05  phase2  draft-capable  board effect +0.1064  board p 0.0244  scope position  QUALIFIED AT board
+  ngs_time_to_throw    lambda  0.05  phase2  draft-capable  board effect +0.1215  board p 0.0244  scope position  QUALIFIED AT board
+excluded: 22
+  snap_share: HARM
+  target_share: null
+  ay_share: HARM
+  route_share: resolves but immaterial
+  ff_opp_exp: resolves but immaterial
+  td_oe: null
+  availability: null
+  draft_round: null
+  adp_gap: null
+  contract: null
+  ngs_separation: null
+  ngs_rush_eff: null
+  uncertainty: null
+  age_at_export: null
+  ffa_experience: null
+  inj_status: null
+  true_age: null
+  true_experience: null
+  weekly_sd_rel: resolves but immaterial
+  role_change_snaps: HARM
+  role_change_proj: null
+  floor_ceiling_tilt: null
+
+-- WEEKLY, every surviving term --
+  gain 0.00  RWRE 48.5019  delta +0.0000
+  gain 0.25  RWRE 48.3957  delta +0.1062
+  gain 0.50  RWRE 48.3616  delta +0.1404
+  gain 0.75  RWRE 48.2806  delta +0.2213
+  gain 1.00  RWRE 48.2282  delta +0.2738
+  gain 1.25  RWRE 48.2207  delta +0.2812
+  gain selected on the FIT seasons (2019, 2020, 2021, 2022): 1.25
+  weekly in-sample  (2019, 2020, 2021, 2022): baseline 48.9992 -> 48.5484  delta +0.4508
+  weekly OUT-OF-SAMPLE (2023, 2024, 2025): baseline 47.8487 -> 47.7903  delta +0.0584
+    QB out-of-sample  7.6029 ->  7.7415  delta -0.1386
+    RB out-of-sample 12.8487 -> 12.8530  delta -0.0044
+    WR out-of-sample 20.7090 -> 20.5799  delta +0.1291
+    TE out-of-sample  9.0547 ->  9.1261  delta -0.0714
+
+-- SEASONAL DRAFT BOARD, 2 draft-capable terms --
+   FFA seasons (2019, 2020, 2021, 2022, 2023, 2024, 2025)   incumbent's espn seasons (2019, 2020, 2021, 2022, 2024, 2025)
+   incumbent (espn arm, symmetric, its own 6 seasons):   32.63
+   FFA untreated, FFA seasons    32.57
+   FFA untreated, espn seasons   31.50
+   gain 0.00  FFA seasons   32.57  espn seasons   31.50
+   gain 0.25  FFA seasons   32.38  espn seasons   31.33
+   gain 0.50  FFA seasons   32.06  espn seasons   31.03
+   gain 0.75  FFA seasons   32.17  espn seasons   31.08
+   gain 1.00  FFA seasons   32.44  espn seasons   31.25
+   gain 1.25  FFA seasons   32.68  espn seasons   31.40
+   gain selected on the FIT seasons (2019, 2020, 2021, 2022): 0.50
+   seasonal in-sample  (2019, 2020, 2021, 2022):   29.36 ->   28.67
+   seasonal OUT-OF-SAMPLE (2023, 2024, 2025):   36.86 ->   36.58
+
+-- WHICH TERM IS CARRYING IT: leave one out, out of sample --
+   A composite is only as trustworthy as its least trustworthy member, and the
+   multiplicity accounting names terms that CONTRADICT across leagues. If the
+   whole gain disappears when one term is removed, the composite is that term.
+   all 2 terms, seasonal out-of-sample: +0.2783
+   without depth_slot           +0.2289   (the term is worth +0.0494 of the total, gain 0.50)
+   without ngs_time_to_throw    +0.5053   (the term is worth -0.2269 of the total, gain 0.50)
+
+-- DOES THE WEEKLY GAIN TRANSFER TO THE DRAFT BOARD --
+   weekly out-of-sample gain   +0.0584  (material bar 0.1: NO)
+   seasonal out-of-sample gain +0.2783  (material bar 0.1: yes)
+   TRANSFERS: yes
+   positions improved out-of-sample: 1/4
+
+-- AGAINST THE INCUMBENT, three numbers because two would mislead --
+   incumbent, espn arm, its own 6 seasons :   32.63
+   UNTREATED FFA arm, same seasons                :   31.50   arm difference +1.13
+   treated FFA arm, same seasons                  :   31.03   treatment +0.47
+   CAUTION: this line mixes the fit seasons into the mean, because the incumbent bar
+   is quoted over six seasons that include them. The clean number is the
+   out-of-sample one above: 36.86 -> 36.58.
+   treated board beats the incumbent number: yes
+   BUT MOST OF THAT IS THE ARM, NOT THE RANKING SYSTEM. The untreated FFA board
+   already differs from the incumbent by +1.13 while the treatment is worth
+   +0.47. Swapping projection vendors is not the
+   thing this session was testing, and it is not a ranking improvement.

@@ -51,9 +51,10 @@ AVG_TYPE_COLUMN: Final[str] = "avg_type"
 
 KNOWN_KINDS: Final[frozenset[str]] = frozenset({"raw", "proj"})
 
-# Floors that catch truncation, not tight bounds. Real counts range 830..2238 for season raw
-# and 493..593 for season proj, and vary by how deep FFA's sources went that year, so a tight
-# bound would reject good files. `_ragged` is the precise truncation check; these catch a
+# Floors that catch truncation, not tight bounds. MEASURED over the finished corpus: season
+# raw 819..2236 rows, season proj 467..600, weekly raw 521..1856. They vary by how deep FFA's
+# sources went, so a tight bound would reject good files. `_ragged` is the precise
+# truncation check; these catch a
 # response that came back as a stub, an error page, or an empty frame.
 _MIN_ROWS: Final[Mapping[tuple[str, bool], int]] = {
     ("raw", True): 400,  # season
@@ -63,9 +64,10 @@ _MIN_ROWS: Final[Mapping[tuple[str, bool], int]] = {
 }
 
 
-# A raw export names its own scope in its last two columns. MEASURED over 213 raw files:
-# 194 carry a populated `season_year` and `week` that agree with the filename exactly, 0
-# disagree, and 19 -- 2015 and early-2016 weekly -- hold 'NA' in both.
+# A raw export names its own scope in its last two columns. MEASURED over all 585 raw files:
+# 528 carry a populated `season_year` and `week` that agree with the filename exactly, 0
+# disagree, and 57 hold 'NA' in both. (Pre-stage-4 this read 194 of 213 and 19; the shape of
+# the finding is unchanged, the counts tripled with the corpus.)
 #
 # Checking them closes a hole of exactly the same shape as the one this tool exists for,
 # on a different axis. If a year change has not reached the download handler, the payload
@@ -155,9 +157,9 @@ def min_rows_for(kind: str, week: int) -> int:
     """The floor for this scope.
 
     NOT a scope discriminator, and the docstring here used to claim otherwise -- "season
-    files are far larger than weekly ones". MEASURED over 213 files: season raw spans
-    819..2236 rows and weekly raw spans 521..1856, and 113 of 186 weekly files hold more
-    rows than the smallest season file. The ranges overlap almost entirely.
+    files are far larger than weekly ones". MEASURED over all 585 raw files: season raw spans
+    819..2236 rows and weekly raw spans 521..1856, and 339 of 558 weekly files hold more rows
+    than the smallest season file. The ranges overlap almost entirely.
 
     That matters because a reader who believes the floors separate season from weekly does
     not add the check that actually does, which is `season_year`/`week` in the payload

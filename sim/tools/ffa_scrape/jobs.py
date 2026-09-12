@@ -112,8 +112,10 @@ STAGES: Mapping[str, list[Job]] = {
     #      self-verifies and proj does not.
     "season-raw": season_jobs(kinds=("raw",), avgs=AVG_TYPES),
     "season-proj": season_jobs(kinds=("proj",), avgs=AVG_TYPES),
-    # 4. Optional. ~374 files at roughly 36s each is about four hours; only worth running
-    #    once the three above are clean.
+    # 4. 374 files. MEASURED at 2.0 hours once aggregation moved outside week: 350 of the
+    #    372 jobs pay no Settings trip (median 18.0s) and the 21 that do cost a median
+    #    37.0s. The ~36s/file, ~4 hour figure this comment used to carry was the
+    #    pre-reorder cost, when every job paid a trip.
     "weekly-alt": weekly_jobs(kinds=("raw",), avgs=("average", "robust")),
 }
 
